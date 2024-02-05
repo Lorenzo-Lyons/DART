@@ -1,0 +1,38 @@
+min_particles: 100
+max_particles:             200
+kld_err:                   0.01
+kld_z:                     0.99
+update_min_d:              0.10
+update_min_a:              0.10
+resample_interval:         1
+transform_tolerance:       0.5
+recovery_alpha_slow:       0.00
+recovery_alpha_fast:       0.00
+initial_pose_x:            0.0
+initial_pose_y:            0.0
+initial_pose_a:            3.0
+initial_cov_xx:            1.0
+initial_cov_yy:            1.0
+initial_cov_aa:            1.0
+gui_publish_rate:          50.0
+laser_max_range:           5.0
+laser_max_beams:           180
+laser_z_hit:               0.5
+laser_z_short:             0.05
+laser_z_max:               0.05
+laser_z_rand:              0.5
+laser_sigma_hit:           0.2
+laser_lambda_short:        0.1
+laser_likelihood_max_dist: 2.0
+laser_model_type:          likelihood_field
+
+odom_model_type:           omni
+odom_alpha1:               1.0
+odom_alpha2:               1.0
+odom_alpha3:               1.0
+odom_alpha4:               1.0
+odom_frame_id:             odom_1
+base_frame_id:             base_link_1
+lasamplestep: 0.05
+
+
