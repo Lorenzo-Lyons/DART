@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, evaluate_delay, process_raw_vicon_data,plot_vicon_data,unwrap_hm,linear_tire_model,pacejka_tire_model
+from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,linear_tire_model,pacejka_tire_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -14,8 +14,8 @@ matplotlib.rc('font', **font)
 
 
 
-# this assumes that the current directory is Platooning_code
-folder_path = 'Data/5_tire_model_data'  # small sinusoidal input
+# this assumes that the current directory is DART
+folder_path = 'Data_processing/Data/5_tire_model_data'  # small sinusoidal input
 
 # get the raw data
 df_raw_data = get_data(folder_path)

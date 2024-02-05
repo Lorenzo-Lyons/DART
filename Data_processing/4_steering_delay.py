@@ -1,12 +1,12 @@
-from functions_for_data_processing import get_data,process_raw_data_steering, steering_actuator_model,plot_raw_data,evaluate_delay
+from functions_for_data_processing import get_data,process_raw_data_steering,plot_raw_data,evaluate_delay
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
 from scipy.interpolate import CubicSpline
 
 
-# this assumes that the current directory is Platooning_code
-folder_path = 'Data/4_sinusoidal_steering_data'   
+# this assumes that the current directory is DART
+folder_path = 'Data_processing/Data/4_sinusoidal_steering_data'   
 
 # get the raw data
 df_raw_data = get_data(folder_path)

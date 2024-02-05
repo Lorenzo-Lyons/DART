@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, evaluate_delay, motor_curve_model, plot_motor_friction_curves
+from functions_for_data_processing import get_data, plot_raw_data, motor_curve_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -15,8 +15,8 @@ matplotlib.rc('font', **font)
 
 
 
-# this assumes that the current directory is Platooning_code
-folder_path = 'Data/2_step_input_data' 
+# this assumes that the current directory is DART
+folder_path = 'Data_processing/Data/2_step_input_data' 
 
 
 

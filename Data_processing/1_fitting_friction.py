@@ -1,11 +1,10 @@
-from functions_for_data_processing import get_data, plot_raw_data, evaluate_delay, friction_curve_model, plot_motor_friction_curves
+from functions_for_data_processing import get_data, plot_raw_data, friction_curve_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
 from scipy.interpolate import CubicSpline
 import pandas as pd
 from scipy.signal import savgol_filter
-from scipy.interpolate import UnivariateSpline
 # set font size for figures
 import matplotlib
 font = {'family' : 'normal',
@@ -15,8 +14,8 @@ matplotlib.rc('font', **font)
 
 
 
-# this assumes that the current directory is Platooning_code
-folder_path = 'Data/1_step_input_data'  
+# this assumes that the current directory is DART
+folder_path = 'Data_processing/Data/1_step_input_data'  
 
 # get the raw data
 df_raw_data = get_data(folder_path)
