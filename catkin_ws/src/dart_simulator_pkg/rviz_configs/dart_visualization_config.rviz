@@ -6,7 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /Vehicle_31
+        - /Vehicle_11
       Splitter Ratio: 0.5961538553237915
     Tree Height: 719
   - Class: rviz/Selection
@@ -60,7 +60,7 @@ Visualization Manager:
       Enabled: true
       Head Length: 0.10000000149011612
       Head Radius: 0.07500000298023224
-      Name: Vehicle_3
+      Name: Vehicle_1
       Queue Size: 10
       Shaft Length: 0.12999999523162842
       Shaft Radius: 0.03999999910593033
@@ -246,7 +246,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 8.35775089263916
+      Distance: 10.483963012695312
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1

@@ -67,7 +67,10 @@ def teleop_gamepad(car_number):
 
 if __name__ == '__main__':
 	try:
-		car_number = os.environ['car_number']
+		try:
+			car_number = os.environ['car_number']
+		except:
+			car_number = 1 # set to 1 if environment variable is not set
 		teleop_gamepad(car_number)
 	except rospy.ROSInterruptException:
 		pass

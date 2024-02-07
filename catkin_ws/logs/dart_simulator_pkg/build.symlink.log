@@ -1,3 +1,10 @@
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/share/dart_simulator_pkg/cmake/dart_simulator_pkgConfig-version.cmake, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/cmake/dart_simulator_pkgConfig-version.cmake)
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/share/dart_simulator_pkg/cmake/dart_simulator_pkgConfig.cmake, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/cmake/dart_simulator_pkgConfig.cmake)
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/lib/pkgconfig/dart_simulator_pkg.pc, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/pkgconfig/dart_simulator_pkg.pc)
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/docs/dart_simulator_guiConfig-usage.dox
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/docs/dart_simulator_guiConfig.dox
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/docs/dart_simulator_guiConfig.wikidoc
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/cmake/dart_simulator_pkgConfig-version.cmake
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/dart_simulator_pkg/cmake/dart_simulator_pkgConfig.cmake
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/include/dart_simulator_pkg/dart_simulator_guiConfig.h
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/python3/dist-packages/dart_simulator_pkg/__init__.py
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/python3/dist-packages/dart_simulator_pkg/cfg/__init__.py
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/python3/dist-packages/dart_simulator_pkg/cfg/dart_simulator_guiConfig.py
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/pkgconfig/dart_simulator_pkg.pc

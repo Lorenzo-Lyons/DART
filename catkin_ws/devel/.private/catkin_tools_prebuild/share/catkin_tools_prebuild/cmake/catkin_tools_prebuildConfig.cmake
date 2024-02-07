@@ -154,7 +154,7 @@ foreach(library ${libraries})
     set(lib_path "")
     set(lib "${library}-NOTFOUND")
     # since the path where the library is found is returned we have to iterate over the paths manually
-    foreach(path /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/catkin_tools_prebuild/lib;/home/lorenzo/OneDrive/PhD/Code/hackathon_ws/devel/lib;/home/lorenzo/OneDrive/PhD/Code/Jetracer_WS_github/devel/lib;/home/lorenzo/OneDrive/PhD/Code/GPs_for_macchinine/Codice_Lyons/GP_MPCC_ROS_workspace/devel/lib;/opt/ros/noetic/lib;/home/lorenzo/OneDrive/PhD/Code/Platooning_code/platooning_ws/devel/lib)
+    foreach(path /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/catkin_tools_prebuild/lib;/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib;/home/lorenzo/OneDrive/PhD/Code/hackathon_ws/devel/lib;/home/lorenzo/OneDrive/PhD/Code/Jetracer_WS_github/devel/lib;/home/lorenzo/OneDrive/PhD/Code/GPs_for_macchinine/Codice_Lyons/GP_MPCC_ROS_workspace/devel/lib;/opt/ros/noetic/lib;/home/lorenzo/OneDrive/PhD/Code/Platooning_code/platooning_ws/devel/lib)
       find_library(lib ${library}
         PATHS ${path}
         NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)

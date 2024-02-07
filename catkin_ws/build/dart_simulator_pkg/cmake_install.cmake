@@ -129,6 +129,22 @@ file(INSTALL DESTINATION "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/install
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include/dart_simulator_pkg" TYPE FILE FILES "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/include/dart_simulator_pkg/dart_simulator_guiConfig.h")
+endif()
+
+if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/python3/dist-packages/dart_simulator_pkg" TYPE FILE FILES "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/lib/python3/dist-packages/dart_simulator_pkg/__init__.py")
+endif()
+
+if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+  execute_process(COMMAND "/usr/bin/python3" -m compileall "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/lib/python3/dist-packages/dart_simulator_pkg/cfg")
+endif()
+
+if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/python3/dist-packages/dart_simulator_pkg" TYPE DIRECTORY FILES "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/lib/python3/dist-packages/dart_simulator_pkg/cfg")
+endif()
+
+if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/build/dart_simulator_pkg/catkin_generated/installspace/dart_simulator_pkg.pc")
 endif()
 

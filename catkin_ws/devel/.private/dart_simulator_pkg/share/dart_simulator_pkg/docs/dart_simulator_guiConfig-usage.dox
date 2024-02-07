@@ -1,0 +1,11 @@
+\subsubsection usage Usage
+\verbatim
+<node name="dynamic_reconfigure_pkg" pkg="dynamic_reconfigure_pkg" type="dynamic_reconfigure_pkg">
+  <param name="reset_state" type="bool" value="False" />
+  <param name="reset_state_x" type="double" value="0.0" />
+  <param name="reset_state_y" type="double" value="0.0" />
+  <param name="reset_state_theta" type="double" value="0.0" />
+  <param name="dynamic_model_choice" type="int" value="1" />
+</node>
+\endverbatim
+

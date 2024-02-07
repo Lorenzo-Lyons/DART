@@ -91,9 +91,9 @@ endif()
 # flag project as catkin-based to distinguish if a find_package()-ed project is a catkin project
 set(dart_simulator_pkg_FOUND_CATKIN_PROJECT TRUE)
 
-if(NOT " " STREQUAL " ")
+if(NOT "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/include " STREQUAL " ")
   set(dart_simulator_pkg_INCLUDE_DIRS "")
-  set(_include_dirs "")
+  set(_include_dirs "/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/include")
   if(NOT " " STREQUAL " ")
     set(_report "Check the issue tracker '' and consider creating a ticket if the problem has not been reported yet.")
   elseif(NOT " " STREQUAL " ")
@@ -177,7 +177,7 @@ foreach(library ${libraries})
   endif()
 endforeach()
 
-set(dart_simulator_pkg_EXPORTED_TARGETS "")
+set(dart_simulator_pkg_EXPORTED_TARGETS "dart_simulator_pkg_gencfg")
 # create dummy targets for exported code generation targets to make life of users easier
 foreach(t ${dart_simulator_pkg_EXPORTED_TARGETS})
   if(NOT TARGET ${t})

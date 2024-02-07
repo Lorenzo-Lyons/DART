@@ -1,0 +1,10 @@
+\subsubsection parameters ROS parameters
+
+Reads and maintains the following parameters on the ROS server
+
+- \b "~reset_state" : \b [bool] A Boolean parameter to reset the state min: False, default: False, max: True
+- \b "~reset_state_x" : \b [double] X position to reset to min: -10.0, default: 0.0, max: 10.0
+- \b "~reset_state_y" : \b [double] Y position to reset to min: -10.0, default: 0.0, max: 10.0
+- \b "~reset_state_theta" : \b [double] Orientation to reset to in radians min: -3.15, default: 0.0, max: 3.15
+- \b "~dynamic_model_choice" : \b [int] Model choice which is edited via an enum min: 1, default: 1, max: 2
+

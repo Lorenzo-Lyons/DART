@@ -1,5 +1,5 @@
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/racecar_pkg/share/racecar_pkg/cmake/racecar_pkgConfig-version.cmake, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/racecar_pkg/cmake/racecar_pkgConfig-version.cmake)
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/racecar_pkg/share/racecar_pkg/cmake/racecar_pkgConfig.cmake, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/racecar_pkg/cmake/racecar_pkgConfig.cmake)
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/racecar_pkg/lib/racecar_pkg/cmake.lock, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/racecar_pkg/cmake.lock)
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/racecar_pkg/lib/racecar_pkg/racecar_universal.py, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/racecar_pkg/racecar_universal.py)
-Linked: (/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/racecar_pkg/lib/pkgconfig/racecar_pkg.pc, /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/pkgconfig/racecar_pkg.pc)
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/racecar_pkg/cmake/racecar_pkgConfig-version.cmake
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/racecar_pkg/cmake/racecar_pkgConfig.cmake
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/racecar_pkg/cmake.lock
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/racecar_pkg/racecar_universal.py
+Symlinking /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/pkgconfig/racecar_pkg.pc

@@ -41,7 +41,7 @@ def teleop_keyboard(car_number):
         else:
             pub_safety_value.publish(0)
             background_color = (192, 192, 192)  # Reset to black
-            text = "WASD to drive and space to disingage safety"
+            text = "WASD keys to drive and space to disingage safety"
 
         #publish control inputs
         if keys[pygame.K_a]:

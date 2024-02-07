@@ -109,7 +109,11 @@ class leader_longitudinal_controller_class:
 
 if __name__ == '__main__':
 	try:
-		car_number = os.environ["car_number"]
+		try:
+			car_number = os.environ['car_number']
+		except:
+			car_number = 1 # set to 1 if environment variable is not set
+
 		rospy.init_node('longitudinal_control_node_' + str(car_number), anonymous=False)
 		rate = rospy.Rate(10) #Hz
 
