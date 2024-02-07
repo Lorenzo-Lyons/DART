@@ -1,2 +1,6 @@
 Data_processing/__pycache__
 .vscode
+cakin_ws/.catkin_tools
+cakin_ws/build
+cakin_ws/devel
+cakin_ws/logs

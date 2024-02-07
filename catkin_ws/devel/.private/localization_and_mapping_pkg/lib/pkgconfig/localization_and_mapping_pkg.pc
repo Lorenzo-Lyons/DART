@@ -1,0 +1,8 @@
+prefix=/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/localization_and_mapping_pkg
+
+Name: localization_and_mapping_pkg
+Description: Description of localization_and_mapping_pkg
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

@@ -108,7 +108,7 @@ df_raw_data = get_data(folder_path)
 # print('delay_vicon_to_robot = ', delay_vicon_to_robot)
 
 #these are delays between robot time and robot reaction
-delay_th = 0.06 # [s]
+delay_th = 0.01 # [s]
 delay_st = 0.14 # [s]
 #this is the delay betwee the vicon time and the robot time
 delay_vicon_to_robot = 0.1 #0.05 #[s]

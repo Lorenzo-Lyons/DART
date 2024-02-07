@@ -122,10 +122,10 @@ right=0.99,
 hspace=0.2,
 wspace=0.2)
 
-plt.scatter(df['steering'].to_numpy(), df['steering angle'].to_numpy(), label = 'Data') 
-plt.plot(input_vec, y_fitted ,'orangered',label = "Steering curve",linewidth=4)
-plt.xlabel("steering command")
-plt.ylabel("steering angle [rad]")
+plt.scatter(df['steering'].to_numpy(), df['steering angle'].to_numpy(), label = 'data') 
+plt.plot(input_vec, y_fitted ,'orangered',label = "steering curve",linewidth=4)
+plt.xlabel("Steering input")
+plt.ylabel("Steering angle [rad]")
 #plt.title('Steering angle vs steering command scatter plot')
 plt.legend()
 plt.show()

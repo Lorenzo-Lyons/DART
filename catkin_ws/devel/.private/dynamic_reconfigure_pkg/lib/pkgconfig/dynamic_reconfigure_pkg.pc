@@ -1,0 +1,8 @@
+prefix=/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dynamic_reconfigure_pkg
+
+Name: dynamic_reconfigure_pkg
+Description: Description of dynamic_reconfigure_pkg
+Version: 0.0.0
+Cflags: -I/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dynamic_reconfigure_pkg/include
+Libs: -L${prefix}/lib 
+Requires: 
