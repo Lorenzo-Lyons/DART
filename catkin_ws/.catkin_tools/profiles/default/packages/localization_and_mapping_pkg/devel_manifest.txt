@@ -1,5 +1,0 @@
-localization_and_mapping_pkg
-/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/localization_and_mapping_pkg/cmake.lock /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/./cmake.lock
-/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/localization_and_mapping_pkg/share/localization_and_mapping_pkg/cmake/localization_and_mapping_pkgConfig.cmake /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/localization_and_mapping_pkg/cmake/localization_and_mapping_pkgConfig.cmake
-/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/localization_and_mapping_pkg/share/localization_and_mapping_pkg/cmake/localization_and_mapping_pkgConfig-version.cmake /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/share/localization_and_mapping_pkg/cmake/localization_and_mapping_pkgConfig-version.cmake
-/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/localization_and_mapping_pkg/lib/pkgconfig/localization_and_mapping_pkg.pc /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/lib/pkgconfig/localization_and_mapping_pkg.pc
