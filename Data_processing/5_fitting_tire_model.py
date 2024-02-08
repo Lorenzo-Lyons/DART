@@ -8,112 +8,24 @@ import os
 from scipy.interpolate import CubicSpline
 import matplotlib
 font = {'family' : 'normal',
-        'size'   : 22}
+        'size'   : 10}
 
 matplotlib.rc('font', **font)
 
 
 
 # this assumes that the current directory is DART
-folder_path = 'Data_processing/Data/5_tire_model_data'  # small sinusoidal input
+folder_path = 'Data_processing/Data/5_tire_model_data' 
 
 # get the raw data
 df_raw_data = get_data(folder_path)
 
-# # set delays
-# delay_th = 0.06 # [s]
-# delay_st = 0.14 # [s]
-# #this is the delay betwee the vicon time and the robot time
-# delay_vicon_to_robot = 0 #0.05 #[s]
-
-
-
-
-
-
-
-# # Get all CSV file paths in the folder
-# csv_files = glob.glob(os.path.join(folder_path, '*.csv'))
-# csv_files.sort(key=lambda x: os.path.basename(x))
-
-# dataframes = []
-# timing_offset = 0
-# timing_gap = 1 # each separate file will have this time gap, but each file is processed separately,
-# #so it's just for plotting purpouses
-
-# # Read each CSV file and store it in the dataframes list
-# for csv_file in csv_files:
-#     df_raw_data = pd.read_csv(csv_file)
-
-#     #sometimes the files have some initial lines where all values are zero, so just remove them
-#     df_raw_data = df_raw_data[df_raw_data['elapsed time sensors'] != 0.0]
-
-#     # set throttle to 0 when safety is off (this is how the vehicle works)
-#     df_raw_data['throttle'][df_raw_data['safety_value'] == 0.0] = 0.0
-
-#     # reset time in each file to start from zero
-#     df_raw_data['elapsed time sensors'] -= df_raw_data['elapsed time sensors'].iloc[0]
-#     df_raw_data['elapsed time sensors'] += timing_offset
-
-#     df_raw_data['vicon time'] -= df_raw_data['vicon time'].iloc[0]
-#     df_raw_data['vicon time'] += timing_offset
-    
-#     #update timing offset
-#     timing_offset = df_raw_data['vicon time'].iloc[-1] + timing_gap # each file will have a dt timegap between it and the next file
-
-#     # process raw data
-#     df_processed = process_raw_vicon_data(df_raw_data,delay_th,delay_st,delay_vicon_to_robot)
-
-#     dataframes.append(df_processed)
-
-# # Concatenate all DataFrames into a single DataFrame vertically
-# df = pd.concat(dataframes, axis=0, ignore_index=True)
-
-
-
-# df_raw_data = df_raw_data[df_raw_data['elapsed time sensors'] > 5.0]
-# df_raw_data = df_raw_data[df_raw_data['elapsed time sensors'] < 58.7]
-
-
-# # --- process raw data ---
-# #evalaute delay between the vicon and the robot data
-# #evalaute omega from vicon data
-# from scipy.signal import savgol_filter
-# window_size = 10
-# poly_order = 1
-
-
-# # add new columns with derived vx vy omega from optitrack data
-# unwrapped_yaw = unwrap_hm(df_raw_data['vicon yaw'].to_numpy())
-# #adjust the vicon time to match up with the robot time
-# #df['vicon time'] =  df['vicon time'].to_numpy() - df['vicon time'].to_numpy()[0]
-# time_vec_vicon = df_raw_data['vicon time'].to_numpy() 
-
-# # --- evaluate first time derivative ---
-# # filtered first time derivative
-# spl_theta = CubicSpline(df_raw_data['vicon time'].to_numpy() ,unwrapped_yaw)
-# w_filtered_vicon= savgol_filter(spl_theta(time_vec_vicon,1), window_size, poly_order)
-
-
-
-# identify  delay
-# we assume that signal 2 is a time delayed version of signal 1
-# signal1 = w_filtered_vicon
-# signal2 = df_raw_data['W (IMU)'].to_numpy()
-# delay_indexes = evaluate_delay(signal1, signal2)
-
-# # convert delay in seconds
-# dt = np.mean(np.diff(df_raw_data['vicon time'].to_numpy()))
-# delay_vicon_to_robot = delay_indexes * dt
-# print('delay_vicon_to_robot = ', delay_vicon_to_robot)
 
 #these are delays between robot time and robot reaction
 delay_th = 0.01 # [s]
 delay_st = 0.14 # [s]
 #this is the delay betwee the vicon time and the robot time
 delay_vicon_to_robot = 0.1 #0.05 #[s]
-
-
 
 
 l = 0.175
@@ -135,14 +47,11 @@ df2 = df2[df2['elapsed time sensors'] < 135.0] # 140.0 156
 df = pd.concat((df1,df2), axis=0, ignore_index=True)
 
 
-
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot 
 plot_vicon_data(df)
-
-
 
 
 # inertial charcteristics

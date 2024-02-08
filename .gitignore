@@ -4,3 +4,6 @@ catkin_ws/.catkin_tools
 catkin_ws/build
 catkin_ws/devel
 catkin_ws/logs
+Data/test
+catkin_ws/src/racecar_pkg/src/Data/NEW_FOLDER
+

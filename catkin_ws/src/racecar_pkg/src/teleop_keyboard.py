@@ -52,7 +52,7 @@ def teleop_keyboard(car_number):
             pub_steering.publish(0)
 
         if keys[pygame.K_w]:
-            pub_throttle.publish(1)
+            pub_throttle.publish(0.3)
         elif keys[pygame.K_s]:
             pub_throttle.publish(-1)
         else:

@@ -4,13 +4,13 @@
 import sys
 import rospy
 from std_msgs.msg import String, Float32, Float32MultiArray
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 import numpy as np
 from scipy import integrate
-from custom_msgs_optitrack.msg import custom_opti_pose_stamped_msg
-from tf.transformations import quaternion_from_euler
+import tf_conversions
 from dynamic_reconfigure.server import Server
 from dart_simulator_pkg.cfg import dart_simulator_guiConfig
+from tf.transformations import quaternion_from_euler
 
 
 # define dynamic models
@@ -233,10 +233,10 @@ class Forward_intergrate_vehicle:
         rospy.Subscriber('steering_' + str(car_number), Float32, self.callback_steering)
         rospy.Subscriber('throttle_' + str(car_number), Float32, self.callback_throttle)
         rospy.Subscriber('safety_value', Float32, self.callback_safety)
-        self.state_publisher = rospy.Publisher('Optitrack_data_topic_' + str(car_number), custom_opti_pose_stamped_msg, queue_size=10)
+        self.pub_motion_capture_state = rospy.Publisher('vicon/jetracer' + str(car_number), PoseWithCovarianceStamped, queue_size=10)
         self.pub_sens_input = rospy.Publisher("sensors_and_input_" + str(car_number), Float32MultiArray, queue_size=1)
         # for rviz
-        self.rviz_state_publisher = rospy.Publisher('rviz_data_' + str(car_number), PoseStamped, queue_size=10)
+        self.pub_rviz_vehicle_visualization = rospy.Publisher('rviz_data_' + str(car_number), PoseStamped, queue_size=10)
         self.vx_publisher = rospy.Publisher('vx_' + str(car_number), Float32, queue_size=10)
         self.vy_publisher = rospy.Publisher('vy_' + str(car_number), Float32, queue_size=10)
         self.omega_publisher = rospy.Publisher('omega_' + str(car_number), Float32, queue_size=10)
@@ -286,50 +286,50 @@ class Forward_intergrate_vehicle:
             self.state[5] = w
 
 
-        # publish results of the integration
-        opti_state_message = custom_opti_pose_stamped_msg()
-        opti_state_message.header.stamp = rospy.Time.now()
-        opti_state_message.x = self.state[0]
-        opti_state_message.y = self.state[1]
+
+        # simulate vicon motion capture system output
+        vicon_msg = PoseWithCovarianceStamped()
+        vicon_msg.header.stamp = rospy.Time.now()
+        vicon_msg.header.frame_id = 'map'
+        vicon_msg.pose.pose.position.x = self.state[0] 
+        vicon_msg.pose.pose.position.y = self.state[1] 
+        vicon_msg.pose.pose.position.z = 0.0
+        quaternion = tf_conversions.transformations.quaternion_from_euler(0.0, 0.0, self.state[2])
+        #type(pose) = geometry_msgs.msg.Pose
+        vicon_msg.pose.pose.orientation.x = quaternion[0]
+        vicon_msg.pose.pose.orientation.y = quaternion[1]
+        vicon_msg.pose.pose.orientation.z = quaternion[2]
+        vicon_msg.pose.pose.orientation.w = quaternion[3]
+        self.pub_motion_capture_state.publish(vicon_msg)
 
         # simulate on-board sensor data
         sensor_msg = Float32MultiArray()
         #                  current,voltage,IMU[0](acc x),IMU[1] (acc y),IMU[2] (omega rads),velocity, safety, throttle, steering
         elapsed_time = rospy.Time.now() - self.initial_time
         sensor_msg.data = [elapsed_time.to_sec(), 0.0, 0.0, 0.0, 0.0, z_next[7], z_next[5], self.safety_value,self.throttle,self.steering]
-
-        #publish messages
         self.pub_sens_input.publish(sensor_msg)
 
 
-        opti_state_message.rotation = self.state[2]
-        self.state_publisher.publish(opti_state_message)
+        #publish messages for rviz visualization purposes
         self.vx_publisher.publish(self.state[3])
         self.vy_publisher.publish(self.state[4])
         self.omega_publisher.publish(self.state[5])
 
-        # publish rviz pose stamped
-        rviz_message = PoseStamped()
-        #to plot centre of arrow as centre of vehicle
-        rviz_message.pose.position.x = self.state[0] - l/2 * np.cos(self.state[2])
-        rviz_message.pose.position.y = self.state[1] - l/2 * np.sin(self.state[2])
-        quat = quaternion_from_euler(0, 0, self.state[2])
 
-        rviz_message.pose.orientation.x = quat[0]
-        rviz_message.pose.orientation.y = quat[1]
-        rviz_message.pose.orientation.z = quat[2]
-        rviz_message.pose.orientation.w = quat[3]
+        #publish rviz vehicle visualization
+        rviz_message = PoseStamped()
+        # to plot centre of arrow as centre of vehicle shift the centre back by l_r
+        rviz_message.pose.position.x = vicon_msg.pose.pose.position.x - l_r/2 * np.cos(self.state[2])
+        rviz_message.pose.position.y = vicon_msg.pose.pose.position.y - l_r/2 * np.sin(self.state[2])
+        rviz_message.pose.orientation = vicon_msg.pose.pose.orientation
 
         # frame data is necessary for rviz
         rviz_message.header.frame_id = 'map'
-        self.rviz_state_publisher.publish(rviz_message)
+        self.pub_rviz_vehicle_visualization.publish(rviz_message)
 
 
 
 
-
-
-    
 
 
 
