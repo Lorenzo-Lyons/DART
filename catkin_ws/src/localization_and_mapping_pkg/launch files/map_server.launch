@@ -1,8 +1,0 @@
-<?xml version="1.0"?>
-
-<launch>
-  <!-- Map server (loads map)-->
-  <arg name="map_file" default="$(find localization_and_mapping_pkg)/saved_maps_from_slam/map_downstairs.yaml"/>
-  <node pkg="map_server" name="map_server" type="map_server" args="$(arg map_file)"/>
-
-</launch>

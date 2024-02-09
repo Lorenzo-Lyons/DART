@@ -1,5 +1,0 @@
-[35m[1mScanning dependencies of target dart_simulator_pkg_gencfg[0m
-[100%] [34m[1mGenerating dynamic reconfigure files from cfg/dart_simulator_gui.cfg: /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/include/dart_simulator_pkg/dart_simulator_guiConfig.h /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/lib/python3/dist-packages/dart_simulator_pkg/cfg/dart_simulator_guiConfig.py[0m
-Generating reconfiguration files for dart_simulator_gui in dynamic_reconfigure_pkg
-Wrote header file in /home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/dart_simulator_pkg/include/dart_simulator_pkg/dart_simulator_guiConfig.h
-[100%] Built target dart_simulator_pkg_gencfg
