@@ -89,6 +89,9 @@ The code relative to the tire model identification is in:
 
 
 ## Simulator
+<p align="center">
+  <img src="Images_for_readme/simulator_screenshot.png" width="700" title="simulator ">
+</p>
 To run the simulator you can use the provided launch file:
 
 ```
