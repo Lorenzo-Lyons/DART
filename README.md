@@ -24,7 +24,58 @@ git clone https://github.com/Lorenzo-Lyons/DART.git
 ```
 The Data_processing folder contains the code and data required for system identification and can be run as simple python scripts with your favourite code editor like [Visual Studio Code](https://code.visualstudio.com/). To use the simulator and other ROS packages you will need a working ROS intallation, we used [ROS noetic](http://wiki.ros.org/noetic/Installation/Ubuntu) but other ROS versions should work too. You will then need to place the packages in a [catkin workspace](http://wiki.ros.org/catkin/Tutorials/create_a_workspace). 
 
-## System identification
+### System identification
+To start using DART it's thus necessary to understand what happens when we provide the system with a certain input, i.e. we need to identify the system's model. The folder Data_processing cointains the code and the data to build a kinematic and a dynamic bicycle model. The kinematic bicycle model is suitable for most kind of experiments that don't require to reach high speeds. Since it is simpler and computationally lighter we suggest trying it first and switching to the dynamic kinematic bicycle model only if actually needed. Also note that the data necessary to fit the kinematic bicycle model can be collected with the on-board sensors, while the dynamic bicycle model requires an external motion capture system. Let's start with the kinematic model.
+
+**Kinematic bicycle model:**
+```math
+\begin{align*}\begin{bmatrix}\dot{x}\\\dot{y}\\\dot{\eta}\\\dot{v}\end{bmatrix}&=\begin{bmatrix}v\cos{\eta}\\v\sin{\eta}\\v \tan(\delta(s))/l\\(F_m(\tau,v) + F_f(v))/m\end{bmatrix}
+\end{align*}
+```
+Where $x,y,\eta,v$ are respectively the x-y position,orientation and longitudinal velocity. $l=0.175$ m is the length of the robot and $m=1.67$ Kg is the mass. The inputs to the platform are throttle $\tau$ and steering $s$ values, both provided in non-dimensional normalized values:
+```math
+\begin{align*}\tau \in [-1,+1]\\ s \in [-1,+1]\end{align*}
+```
+To do so we broke down the kinematic bicycle model into its elemental components and identified them one by one. This is much simpler that attempting to identify them all at once from a single dataset. Each step that we took has its corresponding numbered python script:
+
+1. Identify the friction $F_f(v)$
+2. Identify the motor cahracteristic curve $F_m(\tau,v)$
+3. Map the steering input $s$ to steering angle $\delta$ [rad]
+4. Identify the steering delay
+
+Once this is done we can move on to the dynamic bicycle model.
+
+**Dynamic bicycle model:**
+```math
+\begin{align*}
+    \begin{bmatrix}\dot{x}\\\dot{y}\\\dot{\eta}\\\dot{v}_x\\\dot{v}_y\\\dot{\omega}\end{bmatrix}&=
+    \begin{bmatrix}v_x\cos{\eta}- v_y\sin{\eta}\\
+    v_x\sin{\eta}+ v_y\cos{\eta}\\
+    \omega\\
+    (F_{x,r}+F_{x,f}\cos{\delta}-F_{y,f}\sin{\delta})/m +\omega v_y\\
+    (F_{y,r}+F_{y,f}\cos{\delta}+F_{x,f}\sin{\delta})/m -\omega vx\\
+    (l_f(F_{y,f}\cos{\delta}+F_{x,f}\sin{\delta})-l_rF_{y,r})/I_z\end{bmatrix},
+\end{align*}
+```
+where $v_x$ and $v_y$ are the velocity components of the centre of mass measured in the vehicle body frame. $l_f$ and $l_r$ are the distances between the centre of mass and the front and rear axle, respectively. $\omega$ is the yaw rate and $I_z$ is the moment of inertia around the vertical axes. The front and rear tire forces components $F_{x,f}$,  $F_{f,y}$,  $F_{r,x}$ and $F_{r,y}$ are measured in the respective tire's body frame. To evalute the lateral forces many different tire models are available, we used the famous [Pacejka magic formula](https://www.tandfonline.com/doi/pdf/10.1080/00423119208969994) for the front tire and a simple linear model for the rear tire.
+
+```math
+\begin{align*}
+F_{y,f} &= D \sin (C \arctan (B \alpha_f - E (B \alpha_f - \arctan (B \alpha_f))))\\
+F_{y,r} &= C_r \alpha_r
+\end{align*}
+```
+Where $\alpha_f$ and $\alpha_r$ are the front and rear slip angles defined as:
+
+```math
+\begin{align*}
+\alpha_f &= -\arctan(v_y + \omega lf) + \delta\\
+\alpha_r &= -\arctan(v_y - \omega lr). 
+\end{align*}
+```
+The code relative to the tire model identificatio is in:
+
+5. fitting tire model
 
 
 ## Simulator
