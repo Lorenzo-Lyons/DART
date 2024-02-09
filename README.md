@@ -73,9 +73,19 @@ Where $\alpha_f$ and $\alpha_r$ are the front and rear slip angles defined as:
 \alpha_r &= -\arctan(v_y - \omega lr). 
 \end{align*}
 ```
-The code relative to the tire model identificatio is in:
+The code relative to the tire model identification is in:
 
 5. fitting tire model
+
+**Fitting Results**
+
+
+|![](Images_for_readme/friction_curve.png)<br>Friction Curve|![](Images_for_readme/motor_curve.png)<br>Motor Curve|
+|:-:|:-:
+|![](Images_for_readme/steering_mapping.png)<br>**Steering input to steering angle map**|![](Images_for_readme/tire_models.png)<br>**Tire models**|
+
+
+
 
 
 ## Simulator
@@ -84,11 +94,15 @@ To run the simulator you can use the provided launch file:
 ```
 roslaunch dart_simulator_pkg dart_simulator.launch
 ```
+You can then control the simulated vehicle using the keyboard:
+```
+rosrun racecar_pkg teleop_keyboard.py
+```
 
 
 ## Available low level controllers
 
-The package *lane_following_controller_pkg* cointains low level controllers that use the previously described kinematic bicycle model to control the robot. 
+The package *racecar_pkg* also cointains low level controllers that use the previously described kinematic bicycle model to control the robot. 
 
 **Velocity tracking controller.** This controller tracks a reference velocity. To do so simpy publish a reference velocity value to the topic *v_ref_<car_number>*.
 
