@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+
+<launch>
+  <!-- set car number parameter to avoid having nodes with same name with multiple jetracers -->
+  <arg name="car_number_str_local" value="$(env car_number_str)"/>
+
+  <!-- start up racecar -->
+  <node name="racear$(arg car_number_str_local)" pkg="racecar_pkg" type="racecar_universal.py" output="screen"/>
+
+  <!-- localization -->
+  <include file="$(find localization_and_mapping_pkg)/launch/amcl_jetracer_universal.launch"/>
+  
+  <!-- steering controller-->
+  <node name="steering_controller$(arg car_number_str_local)" pkg="lane_following_controller_pkg" type="lateral_controller.py" output="screen"/>
+
+  <!-- longitudinal controller-->
+  <node name="longitudinal_controller$(arg car_number_str_local)" pkg="lane_following_controller_pkg" type="longitudinal_controller.py" output="screen"/>
+
+</launch>

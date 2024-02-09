@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+
+<node pkg="rviz" type="rviz" name="rviz_node" args="-d $(find dart_simulator_pkg)/rviz_configs/dart_visualization_config.rviz" />
+   />
+<node pkg="dart_simulator_pkg" type="dart_simulator_RK4.py" name="dart_simulator_node" output="screen"
+   />
+<node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconfigure_forwards_int"
+   />
+
+</launch>

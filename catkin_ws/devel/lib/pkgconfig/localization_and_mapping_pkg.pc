@@ -1,0 +1,1 @@
+/home/lorenzo/OneDrive/PhD/Code/DART/catkin_ws/devel/.private/localization_and_mapping_pkg/lib/pkgconfig/localization_and_mapping_pkg.pc
