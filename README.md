@@ -19,7 +19,7 @@ This repository contains the code to set up and start driving with DART! In part
 
 ## Build instructions
 
-To see the full build instructions go to [Build instruction section](https://github.com/Lorenzo-Lyons/DART/build_instructions).
+To see the full build instructions go to [Build instruction section](build_instructions/README.md).
 
 
 ## Installation
