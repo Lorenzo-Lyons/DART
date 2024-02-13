@@ -1,8 +1,8 @@
 ## The complete build instructions for the DART
 
 First we have to disassemble The Jetracer. Take of the camera and NVidia Jetson Nano. You are now seeing the top of the power distribution board. Then there are two options:
-    - You don't need extra velocity sensors and are fine with an IMU alone, go to [shockabsorber](#shockabsorbers) section.
-    - You want the extra sensors, which can take some time, go to the next section.
+Markup :    - You don't need extra velocity sensors and are fine with an IMU alone, go to [shockabsorber](#shockabsorbers) section.
+            - You want the extra sensors, which can take some time, go to the next section.
 
 
 ## Sensor placement for Velocity readings
