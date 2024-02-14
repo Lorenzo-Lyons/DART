@@ -1,13 +1,19 @@
-## The complete build instructions for the DART
+## DART build instructions
 
-First we have to disassemble The Jetracer. Take of the camera and NVidia Jetson Nano. You are now seeing the top of the power distribution board. Then there are two options:_
-- You don't need extra velocity sensors and are fine with an IMU alone, go to [shockabsorber](#shockabsorbers) section.
-- You want the extra sensors, which can take some time, go to the next section.
+This build instructions assume that the base [Jetracer](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit) platform has been correclty assembled according to the [manual](https://files.waveshare.com/upload/f/fa/Jetracer_pro_Assembly_EN.pdf), except for the camera frame setup and the jetson Nano placement that can be skipped. 
 
+## Required components
+The extra components needed to upgrade the base Jetracer platform are listed below:
+
+- Ylidar X4 lidar. [link](https://www.ydlidar.com/products/view/5.html) 
+- Arduino Nano [link](https://store.arduino.cc/products/arduino-nano)
+- IMU BNO055
+- LiPo battery: LiPo 7.4 V 1300 mAh 25 C Softcase BEC  and T plug adaptors
+- Servomotor DS3225 (25 Kg)
+- PVC plates [link](3D_printing_files)
+- 3D printed components [link](3D_printing_files)
 
 ## Sensor placement for Velocity readings
-
-Note: this is an extra feature that takes a bit of time. An alternative is using only an IMU.
 
 Remove the power distribution board. Now unscrew the top of the main driveshaft and take out the main driveshaft by removing the rear differential gear housing.
 
@@ -68,3 +74,6 @@ In the lower compartment that is not occupied by the servomotor and motor, can b
 <p align="center">
   <img src="images/lipo.jpeg" width="700" title="LiPo placement ">
 </p>
+
+
+
