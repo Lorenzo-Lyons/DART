@@ -12,9 +12,14 @@ DART is a small-scale car-like robot that is intended for autonomous driving res
 
 ## What's in this repo?
 This repository contains the code to set up and start driving with DART! In particular you can find:
+- **Build instructions** to replicate the DART.
 - **ROS packages** that can be deployed on the platform to quicky get you started on your experiments. They feature basic functionalities, low level, high level controllers and a lidar-based SLAM pipeline.
 - **Simulator** to test and debug before heading out to the lab. It replicates the sensor readings you would get from the vehicle, so no time wasted between simulating and testing.
 - **System Identification** code needed to build a kinematic and a dynamic bicycle model, as well as the relative data set. 
+
+## Build instructions
+
+To see the full build instructions go to [Build instruction section](build_instructions/).
 
 
 ## Installation
