@@ -10,6 +10,7 @@ The extra components needed to upgrade the base Jetracer platform are listed bel
 - IMU BNO055
 - LiPo battery: LiPo 7.4 V 1300 mAh 25 C Softcase BEC  and T plug adaptors
 - Servomotor DS3225 (25 Kg)
+- 4x brass ring (inner dimater 10m, outer diameter 12m and length 9-11mm). [link](https://www.bouwmaat.nl/bonfix-soldeerring-12x10-mm-10-stuks/product/0000567990)
 - PVC plates [link](3D_printing_files)
 - 3D printed components [link](3D_printing_files)
 
@@ -37,11 +38,13 @@ The magnet sensor is placed on the rear differential gear housing using a 3D pri
   <img src="images/magnetsensor.jpg" width="700" title="IR sensor gate">
 </p>
 
-Now we can rebuild the DART until the power idstribution board has been placed back. First insert the main gear with the driveshaft and the rear differential gear housing. Place the driveshaft cover back and then attach the power distribution board.
+## Servomotor placement
+
+Before we rebuild the DART lower body, a new servomotor can be placed. This is due to the original servomotor not being strong enough for the increased weight and thus has the potential to break down. Now the lower body can be rebuild until the power idstribution board has been placed back. First insert the main gear with the driveshaft and the rear differential gear housing. Place the driveshaft cover back and then attach the power distribution board.
 
 ## Shockabsorbers
 
-Due to the increased weight of the platform and the soft springs in the schockabsorbers, we have to increase the stiffness from the springs. This can be done by inserting a small plastic or brass ring.
+Due to the increased weight of the platform and the soft springs in the schockabsorbers, we have to increase the stiffness from the springs. This can be done by inserting the brass rings.
 
 <p align="center">
   <img src="images/shockabsorbers.jpg" width="700" title="Insert shockabsorbers">
