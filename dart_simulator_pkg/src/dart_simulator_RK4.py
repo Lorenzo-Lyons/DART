@@ -152,8 +152,8 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 
     [Fx, Fy, M] = A @ b
 
-    acc_x =  Fx / m # acceleration in the longitudinal direction
-    acc_y =  Fy / m # acceleration in the latera direction
+    acc_x =  Fx / m  + w * vy# acceleration in the longitudinal direction
+    acc_y =  Fy / m  - w * vx# acceleration in the latera direction
     acc_w =  M / Jz # acceleration yaw
 
 
