@@ -40,7 +40,7 @@ The magnet sensor is placed on the rear differential gear housing using a 3D pri
 
 ## Servomotor placement
 
-Before we rebuild the DART lower body, a new servomotor can be placed. This is due to the original servomotor not being strong enough for the increased weight and thus has the potential to break down. Now the lower body can be rebuild until the power idstribution board has been placed back. First insert the main gear with the driveshaft and the rear differential gear housing. Place the driveshaft cover back and then attach the power distribution board.
+Before we rebuild DART lower body, a new servomotor can be placed. The new servomotor features higher torque and higher positional accuracy, improving the consistency of the steering behavior. Now the lower body can be rebuild until the power idstribution board has been placed back. First insert the main gear with the driveshaft and the rear differential gear housing. Place the driveshaft cover back and then attach the power distribution board.
 
 ## Shockabsorbers
 
