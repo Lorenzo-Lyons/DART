@@ -11,6 +11,9 @@ The extra components needed to upgrade the base Jetracer platform are listed bel
 - LiPo battery: LiPo 7.4 V 1300 mAh 25 C Softcase BEC  and T plug adaptors
 - Servomotor DS3225 (25 Kg)
 - 4x brass ring (inner dimater 10m, outer diameter 12m and length 9-11mm). [link](https://www.bouwmaat.nl/bonfix-soldeerring-12x10-mm-10-stuks/product/0000567990)
+- infrared sensor [link](https://www.otronic.nl/nl/infrarood-obstakel-vermijdingsmodule-hw-140567777.html)
+- hall sensor [link](https://www.amazon.nl/-/en/Switch-Effect-A3144E-A3144EUA-sensor/dp/B09JYZXK6W)
+- neodymium magnets [link](https://www.amazon.nl/-/en/Brudazon-mini-magnets-strongest-level/dp/B081562CCY/ref=sr_1_3?crid=2XFJOREJVPIOC&dib=eyJ2IjoiMSJ9.3Ebr56VvNfNU-xy-dzWQ6tKmij5KvE6q_t0zELK9mUn0W2LJXvLcyoYJMqIzu6tDkGjRrKXzXrrOEBmOfht_4a5mAQY5aXQvrMNU3lXQjv_D9TqVUPoB3R8L-3qmRJClefMNBk7Iz1OLkMccnhtm42_ugphnFQsufJNWI81f2L6efYcl7Lem22z6wK4wTxuhtxNedxUbBoZ0pjNDZUmvuTl7Aj1lW724WxfHb_tfCGMSuBzQo0pTRj6gOb3d3eyB3VDeKdVflXMUgnYB4OxIz6wuU_HuDT022dP5Jy9z2tw.7x1We_X4vFZQCEd8v1Z_4aqRrBxPFoEOh2iCBjo6Q7o&dib_tag=se&keywords=2x1+mm+neodymium+disc+magnets&qid=1715956757&sprefix=2x1+mm+neodymium+disc+magnets%2Caps%2C99&sr=8-3)
 - PVC plates [link](3D_printing_files)
 - 3D printed components [link](3D_printing_files)
 
@@ -18,9 +21,14 @@ The extra components needed to upgrade the base Jetracer platform are listed bel
 
 Remove the power distribution board. Now unscrew the top of the main driveshaft and take out the main driveshaft by removing the rear differential gear housing.
 
-To receive a velocity reading from the car, we are going to place sensors near the main gear for RPM readings. This can be done by adding an IR sensor or a magnet sensor. Use both if you want to increase the accuracy of the RPM estimate. Both sensors will be shown in this building tutorial.  
+To receive a velocity reading from the car, we are going to place sensors near the main gear for RPM readings. This can be done by adding an IR sensor or a magnet sensor. Use both if you want to increase the accuracy of the RPM estimate. Both sensors will be shown in this building tutorial. 
 
-Take out the main gear and glue the two small laser cutted parts, magnet_inlay.DXF and white_ring_irsensors.DXF, to the main gear. There is the change that you have to remove some plastic from the main gear to place te inlay. Now place 4 small magnets in the magnet inlay, so they are correctly spaced. Make sure that the magnets have the correct magnetic field facing from the main gear, so the Magnet sensor can read the magnets when moving in front of the sensor.
+
+
+Take out the main gear and glue the two small laser cutted parts, magnet_holder_with_5_holes.DXF and white_ring_irsensors.DXF, to the main gear. There is the chance that you may have to remove some plastic from the main gear to place te inlay. Now place 5 small magnets in the magnet inlay, so they are correctly spaced. Make sure that the magnets have the correct magnetic field facing from the main gear, so the Magnet sensor can read the magnets when moving in front of the sensor. It is also possible to stack 2 magnets vertically to increase the reliability of the detection. Applying super glue to fix the magnets in place is sufficient.
+
+> [!NOTE]
+> Picture shows previous version of magnet sensor with 4 magnets. The relative .DFX file is magnet_inlay.DXF, yet we advise to use the 5 magnet holder to produce more accurate readings.
 
 <p align="center">
   <img src="images/main_gear.jpeg" width="700" title="Main gear">
