@@ -7,13 +7,16 @@
   <!-- start up racecar -->
   <node name="racear$(arg car_number_str_local)" pkg="racecar_pkg" type="racecar_universal.py" output="screen"/>
 
+  <!-- start up steering angle to command node -->
+  <node name="racear_steering_angle_to_command$(arg car_number_str_local)" pkg="racecar_pkg" type="steering_angle_2_command.py" output="screen"/>
+
   <!-- localization -->
-  <include file="$(find localization_and_mapping_pkg)/launch/amcl_jetracer_universal.launch"/>
+  <include file="$(find localization_and_mapping_pkg)/launch files/amcl_universal.launch"/>
   
   <!-- steering controller-->
   <node name="steering_controller$(arg car_number_str_local)" pkg="lane_following_controller_pkg" type="lateral_controller.py" output="screen"/>
 
   <!-- longitudinal controller-->
-  <node name="longitudinal_controller$(arg car_number_str_local)" pkg="lane_following_controller_pkg" type="longitudinal_controller.py" output="screen"/>
+  <node name="longitudinal_controller$(arg car_number_str_local)" pkg="racecar_pkg" type="v_tracking_controller.py" output="screen"/>
 
 </launch>

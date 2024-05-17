@@ -9,7 +9,6 @@ from std_msgs.msg import Float32, Float32MultiArray, Bool
 from datetime import datetime
 import csv
 import rospkg
-from custom_msgs_optitrack.msg import custom_opti_pose_stamped_msg
 from geometry_msgs.msg import PointStamped
 import random
 from tf.transformations import euler_from_quaternion
@@ -22,9 +21,6 @@ from visualization_msgs.msg import MarkerArray, Marker
 
 class steering_controller_class:
 	def __init__(self, car_number):
-		#self.controller_type = 'linear'
-		self.controller_type = 'pursuit'
-
 		#set up variables
 		self.car_number = car_number
 
@@ -37,19 +33,28 @@ class steering_controller_class:
 		self.w = 0.0
 		self.v = 0.0
 
+		self.overtaking = False
+
 
 		# initiate steering variables
 		self.steering_command_prev = 0
 
 		# set up publisher
-		self.steering_publisher = rospy.Publisher('steering_' + str(car_number), Float32, queue_size=1)
+		self.steering_angle_publisher = rospy.Publisher('steering_angle_' + str(car_number), Float32, queue_size=1)
 		#self.throttle_publisher = rospy.Publisher('throttle_' + str(car_number), Float32, queue_size=1)
 		self.rviz_global_path_publisher = rospy.Publisher('rviz_global_path_' + str(self.car_number), MarkerArray, queue_size=10)
+		self.rviz_global_path_publisher_overtake = rospy.Publisher('rviz_global_path__overtake' + str(self.car_number), MarkerArray, queue_size=10)
+		
 		self.rviz_closest_point_on_path = rospy.Publisher('rviz_closest_point_on_path_' + str(self.car_number), Marker, queue_size=10)
 
 		#subscribers
 		self.global_pose_subscriber = rospy.Subscriber('odom_' + str(car_number), Odometry, self.odometry_callback)
 		self.v_encoder_subscriber = rospy.Subscriber('sensors_and_input_' + str(car_number), Float32MultiArray, self.sensors_callback)
+
+		# only for platooning
+		self.overtake_shift_y = 0.0
+		rospy.Subscriber('overtaking_' + str(car_number), Bool, self.overtaking_callback)
+
 		self.tf_listener = tf.TransformListener()
 
 	def odometry_callback(self,odometry_msg):
@@ -69,43 +74,49 @@ class steering_controller_class:
 		self.w = self.sensors[5]
 		self.v = self.sensors[6]
 
-	def generate_track(self, track_choice):
+	def overtaking_callback(self, msg):
+		self.overtaking = msg.data
+
+
+	def generate_track(self, track_choice,n_checkpoints,rotation_angle,x_shift,y_shift):
 		# choice = 'savoiardo'
 		# choice = 'straight_line'
 
-		# number of checkpoints to be used to define each spline of the track
-		n_checkpoints = 1000
-
 		# cartesian coordinates (x-y) of the points defining the track and the gates
-		Checkpoints_x, Checkpoints_y = produce_track(track_choice, n_checkpoints)
+		Checkpoints_x, Checkpoints_y = produce_track(track_choice, n_checkpoints,rotation_angle,x_shift,y_shift)
 
 		# associate these points to the global path x-y-z variables
-		self.x_vals_global_path = Checkpoints_x
-		self.y_vals_global_path = Checkpoints_y
+		x_vals_global_path = Checkpoints_x
+		y_vals_global_path = Checkpoints_y
 
-		# from the x-y-z points obtain the sum of the arc lenghts between each point, i.e. the path seen as a function of s
+		# from the x-y points obtain the sum of the arc lenghts between each point, i.e. the path seen as a function of s
 		spline_discretization = len(Checkpoints_x)
-		self.s_vals_global_path = np.zeros(spline_discretization)
+		s_vals_global_path = np.zeros(spline_discretization)
 		for i in range(1,spline_discretization):
-		    self.s_vals_global_path[i] = self.s_vals_global_path[i-1] + np.sqrt((self.x_vals_global_path[i]-self.x_vals_global_path[i-1])**2+
-				                                                        (self.y_vals_global_path[i]-self.y_vals_global_path[i-1])**2)
+		    s_vals_global_path[i] = s_vals_global_path[i-1] + np.sqrt((x_vals_global_path[i]-x_vals_global_path[i-1])**2+
+				                                                        (y_vals_global_path[i]-y_vals_global_path[i-1])**2)
 
-		# s_vals_global_path = sum of the arc lenght along the original path, which are going to be used to re-parametrize the path
-
-		# generate splines x(s) and y(s) where s is now the arc length value (starting from 0)
-		#self.x_of_s = interpolate.CubicSpline(self.s_vals_global_path, self.x_vals_global_path)
-		#self.y_of_s = interpolate.CubicSpline(self.s_vals_global_path, self.y_vals_global_path)
 
 		# produce and send out global path message to rviz, which contains information about the track (i.e. the global path)
 		rgba = [219.0, 0.0, 204.0, 0.6]
 		marker_type = 4
-		self.global_path_message = produce_marker_array_rviz(self.x_vals_global_path, self.y_vals_global_path, rgba, marker_type)
-		self.rviz_global_path_publisher.publish(self.global_path_message)
+		global_path_message = produce_marker_array_rviz(x_vals_global_path, y_vals_global_path, rgba, marker_type)
+		
+
+		return s_vals_global_path, x_vals_global_path, y_vals_global_path, global_path_message
 
 
 
 
 	def compute_steering_control_action(self):
+		if self.overtaking:
+			x_vals_global_path = self.x_vals_global_path_overtake
+			y_vals_global_path = self.y_vals_global_path_overtake
+			s_vals_global_path = self.s_vals_global_path_overtake
+		else:
+			x_vals_global_path = self.x_vals_global_path
+			y_vals_global_path = self.y_vals_global_path
+			s_vals_global_path = self.s_vals_global_path			
 
 		# --- get point on path closest to the robot ---
 
@@ -124,18 +135,20 @@ class steering_controller_class:
 
 		#evaluate this for longitudinal controller coordination
 		# adding delay compensation by projecting the position of the robot into the future
-		delay =  0.175 # [s]
+		delay =  0.165 # [s]
 		robot_position[0] = robot_position[0] + np.cos(robot_theta) * self.v * delay
 		robot_position[1] = robot_position[1] + np.sin(robot_theta) * self.v * delay
 		robot_theta = robot_theta + self.w * delay
 		# measure the closest point on the global path, returning the respective s parameter and its index
-		estimated_ds = 1 # just a first guess for how far the robot has travelled along the path
-		s, self.current_path_index = find_s_of_closest_point_on_global_path(np.array([robot_position[0], robot_position[1]]),self.s_vals_global_path,self.x_vals_global_path, self.y_vals_global_path,self.previous_path_index, estimated_ds)
+		estimated_ds = 0.5 # just a first guess for how far the robot has travelled along the path
+		s, self.current_path_index = find_s_of_closest_point_on_global_path(np.array([robot_position[0], robot_position[1]]),
+									s_vals_global_path,x_vals_global_path,
+									 y_vals_global_path ,self.previous_path_index, estimated_ds)
 
 		# update index along the path to know where to search in next iteration
 		self.previous_path_index = self.current_path_index
-		x_closest_point = self.x_vals_global_path[self.current_path_index]
-		y_closest_point = self.y_vals_global_path[self.current_path_index]
+		x_closest_point = x_vals_global_path[self.current_path_index] 
+		y_closest_point = y_vals_global_path[self.current_path_index] 
 
 		# plot closest point on the reference path
 		rgba = [255.0, 0.0, 0.0, 0.6]
@@ -149,66 +162,31 @@ class steering_controller_class:
 
 
 		# ----------------------------------------
+		L = 0.175 # length of vehicle [m]
+		# if self.v > 1.0:
+		# 	look_ahead_dist = 1 + (self.v-1)*2 
+		# else:
+		look_ahead_dist = 0.6 #look ahead distance on path [m]
 
-		#evaluate control action
-		if self.controller_type == 'linear':
+		# account for path running out
+		if s + look_ahead_dist > s_vals_global_path[-1]: # look ahead is beyond the path length
+			look_ahead_s = s + look_ahead_dist - s_vals_global_path[-1]
+		else:
+			look_ahead_s = s + look_ahead_dist
 
-			# determine tangent to path in closest point
-			# using a 10 point index jump just to avoid numerical issues with very small numbers
-			x_next_closest_point = self.x_vals_global_path[self.current_path_index+10]
-			y_next_closest_point = self.y_vals_global_path[self.current_path_index+10]
-			norm =  np.sqrt((x_next_closest_point-x_closest_point)**2+(y_next_closest_point-y_closest_point)**2)
-			tangent = [x_next_closest_point-x_closest_point, y_next_closest_point-x_closest_point] / norm
-			normal_right = [tangent[1],-tangent[0]]
-			# evaluate lateral distance
-			lateral_distance = normal_right[0] * (robot_position[0]-x_closest_point) + normal_right[1] * (robot_position[1]-y_closest_point)
-			#evaluate relative orientation to path
-			path_theta = np.arctan2(-y_closest_point+y_next_closest_point, -x_closest_point+x_next_closest_point)
-			rel_theta = robot_theta - path_theta
-			#print('lateral distance =', lateral_distance[0], 'relative theta =', rel_theta[0], 'path theta', path_theta[0])
 
-			#evaluate control action
-			kp =0.25 # 0.15
-			kp_err_lat_dot = 0.25/ (np.pi/4) 
-			# evaluating lateral error derivative
-			err_lat_dot = np.sin(rel_theta) * (self.v + 0.5)
-			steering = - kp * lateral_distance + kp_err_lat_dot * err_lat_dot 
-			# check for saturation
-			steering = np.min([1,steering])
-			steering = np.max([-1,steering])
+		Px = np.interp(look_ahead_s, s_vals_global_path, x_vals_global_path)
+		Py = np.interp(look_ahead_s, s_vals_global_path, y_vals_global_path )
 
-			# publish command
-			# steering offset
-			if car_number == '1':
-				steering_offset = 0.03
-			elif car_number == '2':
-				steering_offset = -0.075
 
-			self.steering_publisher.publish(steering+steering_offset) ## super temporary fix because the map is flipped!
+		ld = np.sqrt((Py-robot_position[1])**2+(Px-robot_position[0])**2+0.001)
 
-		elif self.controller_type == 'pursuit':
-			L = 0.175 # length of vehicle [m]
-			look_ahead_dist = 1.0 #1.0 # look ahead distance on path [m]
-			Px = np.interp(s+look_ahead_dist, self.s_vals_global_path, self.x_vals_global_path)
-			Py = np.interp(s+look_ahead_dist, self.s_vals_global_path, self.y_vals_global_path)
-			#Px = self.x_of_s(s+look_ahead_dist)
-			#Py = self.y_of_s(s+look_ahead_dist)
+		alpha = np.arctan2((Py-robot_position[1]),(Px-robot_position[0])) - robot_theta # putting -theta corrects for the robot orinetation
+		#print('Px =', Px, '   Py=',Py ,'x_robot=',robot_position[0],'y_robot=',robot_position[1],'robot theta',robot_theta)
+		delta = np.arctan2(2*L*np.sin(alpha),ld)
 
-			ld = np.sqrt((Py-robot_position[1])**2+(Px-robot_position[0])**2+0.001)
-
-			alpha = np.arctan2((Py-robot_position[1]),(Px-robot_position[0])) - robot_theta # putting -theta corrects for the robot orinetation
-			#print('Px =', Px, '   Py=',Py ,'x_robot=',robot_position[0],'y_robot=',robot_position[1],'robot theta',robot_theta)
-			delta =np.arctan2(2*L*np.sin(alpha),ld)
-			#print('delta=',delta)
-			# convert from steering angle to steering command
-			steering = steer_angle_2_command(delta,self.car_number)
-
-			# saturate steering
-			steering = np.min([steering,1])
-			steering = np.max([steering, -1])
-
-			self.steering_publisher.publish(steering)
-
+		# publish steering angle 
+		self.steering_angle_publisher.publish(delta)
 
 
 
@@ -229,8 +207,70 @@ if __name__ == '__main__':
 		# straight_line_my_house
 		#'straight_line_downstairs'
 		#savoiardo_long
-		vehicle_controller.generate_track('savoiardo_long')
+		#square_vicon
+
+		# DEMO ARENA TRACK
+		main_track_choice = 'savoiardo_demo_arena'
+		overtake_track_choice = 'savoiardo_demo_arena_internal'
+
+		# DEMO ARENA TRACK 8x14
+		main_track_choice = 'savoiardo_demo_arena_8x14'
+		overtake_track_choice = 'savoiardo_demo_arena_internal_8x14'
+
+		n_checkpoints = 100
+		rotation_angle = -0.01
+
+		# main lane offset
+		# DEMO ARENA
+		# x_shift_main = -0.1
+		# y_shift_main = -0.02
+		# #overtake lane offsets
+		# x_shift_overtake = x_shift_main + 0.25
+		# y_shift_overtake = -0.02
+		# rotation_angle_overtake = -0.01
+
+		# DEMO ARENA 8x14
+		x_shift_main = -0.1
+		y_shift_main = 0.025
+		#overtake lane offsets
+		x_shift_overtake = x_shift_main + 0.35
+		y_shift_overtake = 0
+		rotation_angle_overtake = 0
+
+
+		# # VIKON LAB TRACK
+		# main_track_choice = 'square_vicon'
+		# overtake_track_choice = 'square_vicon_internal'
+
+		# n_checkpoints = 100
+		# rotation_angle = -0.0
+		# # main lane offset
+		# x_shift_main = -0.2 +1
+		# y_shift_main = -0.15
+		# #overtake lane offsets
+		# x_shift_overtake = +0.15 + 1
+		# y_shift_overtake = +0.2
+
+
+
+		#main lane
+		s_vals_global_path, x_vals_global_path, y_vals_global_path,global_path_message = vehicle_controller.generate_track(main_track_choice,n_checkpoints,rotation_angle,x_shift_main,y_shift_main)
 		
+		vehicle_controller.s_vals_global_path = s_vals_global_path
+		vehicle_controller.x_vals_global_path = x_vals_global_path
+		vehicle_controller.y_vals_global_path = y_vals_global_path
+		vehicle_controller.global_path_message = global_path_message
+
+		#overtake lane
+		s_vals_global_path_overtake, x_vals_global_path_overtake, y_vals_global_path_overtake,global_path_message_overtake = vehicle_controller.generate_track(overtake_track_choice,n_checkpoints,rotation_angle_overtake,x_shift_overtake,y_shift_overtake)
+		
+		vehicle_controller.s_vals_global_path_overtake = s_vals_global_path_overtake
+		vehicle_controller.x_vals_global_path_overtake = x_vals_global_path_overtake
+		vehicle_controller.y_vals_global_path_overtake = y_vals_global_path_overtake
+		vehicle_controller.global_path_message_overtake = global_path_message_overtake
+
+
+
 		counter = 0
 		
 		while not rospy.is_shutdown():
@@ -242,6 +282,7 @@ if __name__ == '__main__':
 			# this is just to republish global path message every now and then
 			if counter > global_path_message_rate:
 				vehicle_controller.rviz_global_path_publisher.publish(vehicle_controller.global_path_message)
+				vehicle_controller.rviz_global_path_publisher_overtake.publish(vehicle_controller.global_path_message_overtake)
 				counter = 0 # reset counter
 
 			#update counter
@@ -252,3 +293,4 @@ if __name__ == '__main__':
 
 	except rospy.ROSInterruptException:
 		pass
+1

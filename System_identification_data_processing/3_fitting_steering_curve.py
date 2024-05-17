@@ -12,7 +12,7 @@ matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART
-folder_path = 'Data_processing/Data/3_step_steering_data'  # small sinusoidal input
+folder_path = 'System_identification_data_processing/Data/3_step_steering_data'  # small sinusoidal input
 
 # get the raw data
 df_raw_data = get_data(folder_path)

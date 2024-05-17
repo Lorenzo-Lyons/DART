@@ -10,13 +10,13 @@ recovery_alpha_slow:       0.00
 recovery_alpha_fast:       0.00
 # --- initial pose ---
 #Vikon lab
-#initial_pose_x:            4.8
+#initial_pose_x:            2.7
 #initial_pose_y:            -0.15
 # Demo arena
-#initial_pose_x:            1.8
+#initial_pose_x:            0.0
 #initial_pose_y:            -0.75
 # Demo arena 8x14
-initial_pose_x:            2.1
+initial_pose_x:            0.3
 initial_pose_y:            -0.9
 # ---
 initial_pose_a:            0.0
@@ -24,7 +24,7 @@ initial_cov_xx:            0.05
 initial_cov_yy:            0.05
 initial_cov_aa:            0.05
 gui_publish_rate:          50.0
-laser_max_range:           12.0
+laser_max_range:           6.0
 laser_max_beams:           30
 laser_z_hit:               0.95
 laser_z_short:             0.1
@@ -34,13 +34,14 @@ laser_sigma_hit:           0.2
 laser_lambda_short:        0.1
 laser_likelihood_max_dist: 2.0
 laser_model_type:          likelihood_field
+
 odom_model_type:           diff
-odom_alpha1:               1.0
-odom_alpha2:               1.0
-odom_alpha3:               1.0
-odom_alpha4:               1.0
-odom_frame_id:             odom_1
-base_frame_id:             base_link_1
+odom_alpha1:               2.0
+odom_alpha2:               2.0
+odom_alpha3:               2.0
+odom_alpha4:               2.0
+odom_frame_id:             odom_4
+base_frame_id:             base_link_4
 lasamplestep: 0.05
 
 

@@ -6,7 +6,8 @@ import time
 from std_msgs.msg import Float32
 import os
 import numpy as np
-
+#this allows to run the gamepad without a video display plugged in!
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 
 # this gamepad directly controls the steering and publishes a reference velocity for the longitudinal motion.
 # Use longitudinal_controller.py in the lane_following_controller_pkg to actually follow the reference.
@@ -44,7 +45,7 @@ def teleop_gamepad(car_number):
 
 		# Collect and publish safety value
 		if j.get_button(7) == 1:
-			print('safety off')
+			#print('safety off')
 			pub_safety_value.publish(1)
 		else:
 			pub_safety_value.publish(0)

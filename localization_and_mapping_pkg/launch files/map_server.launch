@@ -1,8 +1,13 @@
 <?xml version="1.0"?>
+<!-- Map server (loads map)  -->
+
+
+<!-- available maps -->
+<!-- map_19_march_vicon  -->
+<!-- demo_arena_map_large -->
+<!-- demo_map_8x14 -->
 
 <launch>
-  <!-- Map server (loads map)-->
-  <arg name="map_file" default="$(find localization_and_mapping_pkg)/saved_maps_from_slam/map_downstairs.yaml"/>
+  <arg name="map_file" default="$(find localization_and_mapping_pkg)/saved_maps_from_slam/demo_map_8x14.yaml"/>
   <node pkg="map_server" name="map_server" type="map_server" args="$(arg map_file)"/>
-
 </launch>

@@ -15,7 +15,7 @@ matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART
-folder_path = 'Data_processing/Data/1_step_input_data'  
+folder_path = 'System_identification_data_processing/Data/1_step_input_data'  
 
 # get the raw data
 df_raw_data = get_data(folder_path)

@@ -16,7 +16,7 @@ matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART
-folder_path = 'Data_processing/Data/2_step_input_data' 
+folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
 
 
 
