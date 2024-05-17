@@ -6,7 +6,7 @@
 
 
 ## What's DART?
-DART is a small-scale car-like robot that is intended for autonomous driving research. It's based on the commercially available [JetracerPro AI kit](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit)  available from Waveshare and features  additional sensors and a few other upgrades. Instructions on how to build your own will be available soon. 
+DART is a small-scale car-like robot that is intended for autonomous driving research. It's based on the commercially available [JetracerPro AI kit](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit)  available from Waveshare and features  additional sensors and a few other upgrades.
 
 
 
@@ -21,16 +21,23 @@ This repository contains the code to set up and start driving with DART! In part
 
 To see the full build instructions go to [Build instruction section](build_instructions/).
 
-
-## Installation
-Clone this repo.
+## Software setup
+To start using the robot first of all set up the operating system and ROS installation on the Jetson-Nano [link](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit). Then do the following:
+- Clone this repo.
 ```
 git clone https://github.com/Lorenzo-Lyons/DART.git
 ```
-The Data_processing folder contains the code and data required for system identification and can be run as simple python scripts with your favourite code editor like [Visual Studio Code](https://code.visualstudio.com/). To use the simulator and other ROS packages you will need a working ROS intallation, we used [ROS noetic](http://wiki.ros.org/noetic/Installation/Ubuntu) but other ROS versions should work too. You will then need to place the packages in a [catkin workspace](http://wiki.ros.org/catkin/Tutorials/create_a_workspace). 
+- Install Lidar drivers from the manufacturer [link](https://www.ydlidar.com/service_support/download.html)
+- Set up the arduino as described in the [arduino_readme](Arduino_files/README_arduino.md)
+- set up car_name system variable. This is necessary to run multi-robot experiments and many scripts need this variable to identify which vehicle the script is running on. Add the following lines to the .bashrc file in the home directory (each car needs a different number):
+```
+export car_number="1"
+```
+- Place the ros packages (marked with the "_pkg" suffix) in a [catkin workspace](http://wiki.ros.org/catkin/Tutorials/create_a_workspace). Note that the package "dart_simulator_pkg" is not needed on the robot, while the package "lidar_ros" is not needed if running the code in simulation.
+
 
 ### System identification
-To start using DART it's thus necessary to understand what happens when we provide the system with a certain input, i.e. we need to identify the system's model. The folder Data_processing cointains the code and the data to build a kinematic and a dynamic bicycle model. The kinematic bicycle model is suitable for most kind of experiments that don't require to reach high speeds. Since it is simpler and computationally lighter we suggest trying it first and switching to the dynamic kinematic bicycle model only if actually needed. Also note that the data necessary to fit the kinematic bicycle model can be collected with the on-board sensors, while the dynamic bicycle model requires an external motion capture system. Let's start with the kinematic model.
+The System_identification_data_processing folder contains the code and data required for system identification and can be run as simple python scripts with your favourite code editor like [Visual Studio Code](https://code.visualstudio.com/). To start using DART it's thus necessary to understand what happens when we provide the system with a certain input, i.e. we need to identify the system's model. The folder System_identification_data_processing cointains the code and the data to build a kinematic and a dynamic bicycle model. The kinematic bicycle model is suitable for most kind of experiments that don't require to reach high speeds. Since it is simpler and computationally lighter we suggest trying it first and switching to the dynamic kinematic bicycle model only if actually needed. Also note that the data necessary to fit the kinematic bicycle model can be collected with the on-board sensors, while the dynamic bicycle model requires an external motion capture system. Let's start with the kinematic model.
 
 **Kinematic bicycle model:**
 ```math
@@ -151,7 +158,7 @@ The lane following controller allows the vehicle to autonomously track a user-de
 To build a map of the environment first launch the file:
 
 ```
-roslaunch localization_and_mapping_pkg gmapping_universal.launch
+roslaunch localization_and_mapping_pkg mapping_controller.launch
 ```
 Note that the vehicle needs to navigate the environment in order to map it. A convenient way of doing so is to run the velocity tracking controller described in the previous section. We also assume that the lidar has been properly set up as detailed in the building instructions.
 
