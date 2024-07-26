@@ -290,7 +290,7 @@ def process_raw_vicon_data(df,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta
     #evaluate steering angle (needed for front slip angle)
     a =  1.6379064321517944
     b =  0.3301370143890381
-    c =  0.019644200801849365 * 1.5
+    c =  0.019644200801849365 - 0.04 # this value can be tweaked to get the tyre model curves to allign better
     d =  0.37879398465156555
     e =  1.6578725576400757
     w = 0.5 * (np.tanh(30*(df['steering']+c))+1)
@@ -675,14 +675,15 @@ class force_model(torch.nn.Sequential):
 
 
 class linear_tire_model(torch.nn.Sequential):
-    def __init__(self,param_vals):
+    def __init__(self,param_vals,a_minmax,b_minmax):
         super(linear_tire_model, self).__init__()
         # define mass of the robot
 
         # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
         self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
         self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-
+        self.a_minmax = a_minmax
+        self.b_minmax = b_minmax
 
     def transform_parameters_norm_2_real(self):
         # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
@@ -693,8 +694,8 @@ class linear_tire_model(torch.nn.Sequential):
         constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
 
         #friction curve F= -  a * tanh(b  * v) - v * c
-        a = self.minmax_scale_hm(0,1,constraint_weights(self.a))
-        b = self.minmax_scale_hm(-2,+2,constraint_weights(self.b))
+        a = self.minmax_scale_hm(self.a_minmax[0],self.a_minmax[1],constraint_weights(self.a))
+        b = self.minmax_scale_hm(self.b_minmax[0],self.b_minmax[1],constraint_weights(self.b))
         return [a,b]
         
     def minmax_scale_hm(self,min,max,normalized_value):
@@ -796,5 +797,169 @@ def plot_motor_friction_curves(df,acceleration_curve_model_obj,fitting_friction)
         ax2.grid()
 
         return (ax1,ax2)
-
     
+
+
+
+
+def produce_long_term_predictions(input_data, model,prediction_window):
+    # plotting long term predictions on data
+    # each prediction window starts from a data point and then the quantities are propagated according to the provided model,
+    # so they are not tied to the Vx Vy W data in any way. Though the throttle and steering inputs are taken from the data of course.
+
+    # --- plot fitting results ---
+    # input_data = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
+
+    #prepare tuple containing the long term predictions
+    long_term_preds = ()
+    
+
+
+    # iterate through each prediction window
+    print('------------------------------')
+    print('producing long term predictions')
+    from tqdm import tqdm
+    tqdm_obj = tqdm(range(input_data.shape[0]), desc="long term preds", unit="pred")
+
+    for i in tqdm_obj:
+        
+
+        #reset couner
+        k = 0
+        elpsed_time_long_term_pred = 0
+
+        # set up initial positions
+        long_term_pred = np.expand_dims(input_data[i, :],0)
+
+
+        # iterate through time indexes of each prediction window
+        while elpsed_time_long_term_pred < prediction_window and k + i + 1 < len(input_data):
+            #store time values
+            #long_term_pred[k+1,0] = input_data[k+i, 0] 
+            dt = input_data[i + k + 1, 0] - input_data[i + k, 0]
+            elpsed_time_long_term_pred = elpsed_time_long_term_pred + dt
+            
+
+            # extract actuation at new time point
+            action_k = [long_term_pred[k,4], long_term_pred[k,5]]# throttle and steering
+
+            #produce propaagated state
+            state_action_k = long_term_pred[k,[1,2,3,4,5]]
+            
+            # run it through the model
+            accelrations = model.forward(state_action_k) # absolute accelerations in the current vehicle frame of reference
+            new_state = long_term_pred[k,[1,2,3]] + accelrations * dt
+
+            # convert new state in new vehicle frame of reference
+            rot_angle = long_term_pred[k,3] * dt # adjust by the delta rotation
+            R = np.array([
+                [np.cos(rot_angle), -np.sin(rot_angle), 0],
+                [np.sin(rot_angle), np.cos(rot_angle), 0],
+                [0, 0, 1]
+            ])
+            new_state_new_frame = R @ new_state
+
+            # forward propagate x y yaw state
+            rot_angle = long_term_pred[k,8]
+            R = np.array([
+                [np.cos(rot_angle), -np.sin(rot_angle), 0],
+                [np.sin(rot_angle), np.cos(rot_angle), 0],
+                [0, 0, 1]
+            ])
+            # propagate x y yaw according to the previous state
+            new_xyyaw = R @ np.array([long_term_pred[k,6],long_term_pred[k,7],long_term_pred[k,8]]) +\
+                            np.array([long_term_pred[k,2],long_term_pred[k,3],long_term_pred[k,4]]) * dt
+
+            # put everything together
+            new_row = np.array([input_data[i + k + 1, 0],*new_state_new_frame,input_data[k+i,4],input_data[k+i,5],*new_xyyaw])
+            long_term_pred = np.vstack([long_term_pred, new_row])
+
+            # update k
+            k = k + 1
+
+        long_term_preds += (long_term_pred,)  
+
+    return long_term_preds
+
+
+
+
+class dyn_model_culomb_tires():
+    def __init__(self,m,lr,lf,Jz,a_f,b_f,a_r,b_r):
+
+        self.m = m
+        self.lr = lr
+        self.lf = lf
+        self.Jz = Jz
+        self.a_f = a_f
+        self.b_f = b_f
+        self.a_r = a_r
+        self.b_r = b_r
+
+    def steer_angle(self,steer):
+        #evaluate steering angle (needed for front slip angle)
+        a =  1.6379064321517944
+        b =  0.3301370143890381
+        c =  0.019644200801849365 - 0.04 # this value can be tweaked to get the tyre model curves to allign better
+        d =  0.37879398465156555
+        e =  1.6578725576400757
+        w = 0.5 * (np.tanh(30*(steer+c))+1)
+        steering_angle1 = b * np.tanh(a * (steer + c)) 
+        steering_angle2 = d * np.tanh(e * (steer + c)) 
+        steering_angle = (w)*steering_angle1+(1-w)*steering_angle2 
+        return steering_angle
+
+    def motor_force(self,th,v):
+        a =  28.887779235839844
+        b =  5.986172199249268
+        c =  -0.15045104920864105
+        w = 0.5 * (np.tanh(100*(th+c))+1)
+        Fm =  (a - v * b) * w * (th+c)
+        return Fm
+
+    def friction(self,v):
+        a =  1.7194761037826538
+        b =  13.312559127807617
+        c =  0.289848655462265
+        Ff = - a * np.tanh(b  * v) - v * c
+        return Ff
+    
+    def lateral_tire_forces(self,vy_wheel_f,vy_wheel_r):
+        return [self.a_f * (vy_wheel_f + self.b_f), self.a_r * (vy_wheel_r + self.b_r)]
+    
+    def forward(self, state_action):
+        #returns vx_dot,vy_dot,w_dot in the vehicle body frame
+        #state_action = [vx,vy,w,throttle,steer]
+        vx = state_action[0]
+        vy = state_action[1]
+        w = state_action[2]
+        throttle = state_action[3]
+        steering = state_action[4]
+        
+
+        #evaluate forward force
+        Fx = self.motor_force(throttle,vx) + self.friction(vx)
+
+        # evalaute steering angle
+        steer_angle = self.steer_angle(steering)
+
+        # evaluate lateral tire forces
+        Vy_wheel_f = np.cos(-steer_angle)*(vy + self.lf*w) + np.sin(-steer_angle) * vx
+        Vy_wheel_r = vy - self.lr*w
+
+        lateral_forces_wheel = self.lateral_tire_forces(Vy_wheel_f,Vy_wheel_r)
+        b = np.array(  [Fx/2,
+                        lateral_forces_wheel[0],
+                        lateral_forces_wheel[1]])
+        
+        A = np.array([  [1+np.cos(steer_angle),-np.sin(steer_angle),0],
+                        [+np.sin(steer_angle),+np.cos(steer_angle),1],
+                        [+np.sin(steer_angle)*self.lf  ,np.cos(steer_angle)*self.lf  ,-self.lr]])
+        
+        body_forces = A @ b
+
+        return np.array([body_forces[0]/self.m,body_forces[1]/self.m,body_forces[2]/self.Jz])
+
+
+
+

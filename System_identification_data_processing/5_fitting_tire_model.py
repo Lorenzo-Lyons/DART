@@ -113,7 +113,9 @@ initial_guess = torch.ones(2) * 0.5 # initialize parameters in the middle of the
 # NOTE that the parmeter range constraint is set in the self.transform_parameters_norm_2_real method.
 
 #instantiate the model
-linear_tire_model_obj = linear_tire_model(initial_guess)
+a_minmax = [0,1]
+b_minmax = [-2,2]
+linear_tire_model_obj = linear_tire_model(initial_guess,a_minmax,b_minmax)
 
 # define number of training iterations
 train_its = 100
