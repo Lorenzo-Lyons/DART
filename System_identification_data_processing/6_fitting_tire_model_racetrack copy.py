@@ -513,10 +513,16 @@ cbar_rear.set_label('Steering Value')
 # construct a model that takes as inputs Vx,Vy,W,tau,Steer ---> Vx_dot,Vy_dot,W_dot
 dynamic_model = dyn_model_culomb_tires(m,lr,lf,Jz,a_f,b_f,a_r,b_r)
 
+
+
+
+
 columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
-long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window)
+jumps = 25
+forward_propagate_indexes = [1,2,3] # 1 =vx, 2=vy, 3=w
+long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
 
 # plot long term predictions over real data
 fig, ((ax10,ax11,ax12)) = plt.subplots(3, 1, figsize=(10, 6))
@@ -529,6 +535,8 @@ fig.subplots_adjust(top=0.995,
 
 time_vec_data = df['vicon time'].to_numpy()
 
+
+# velocities
 ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
 ax10.set_xlabel('Time [s]')
 ax10.set_ylabel('Vx body[m/s]')
@@ -536,11 +544,154 @@ ax10.legend()
 ax10.set_title('Vx')
 
 
+ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
+ax11.set_xlabel('Time [s]')
+ax11.set_ylabel('Vy body[m/s]')
+ax11.legend()
+ax11.set_title('Vy')
+
+
+ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
+ax12.set_xlabel('Time [s]')
+ax12.set_ylabel('W [rad/s]')
+ax12.legend()
+ax12.set_title('W')
+
+
+# positions
+fig, ((ax13,ax14,ax15)) = plt.subplots(3, 1, figsize=(10, 6))
+fig.subplots_adjust(top=0.995,
+                    bottom=0.11,
+                    left=0.095,
+                    right=0.995,
+                    hspace=0.345,
+                    wspace=0.2)
+
+
+
+ax13.plot(time_vec_data,input_data_long_term_predictions[:,6],color='dodgerblue',label='x',linewidth=4,linestyle='-')
+ax13.set_xlabel('time [s]')
+ax13.set_ylabel('y [m]')
+ax13.legend()
+ax13.set_title('trajectory in the x-y plane')
+
+ax14.plot(time_vec_data,input_data_long_term_predictions[:,7],color='orangered',label='y',linewidth=4,linestyle='-')
+ax14.set_xlabel('time [s]')
+ax14.set_ylabel('y [m]')
+ax14.legend()
+ax14.set_title('trajectory in the x-y plane')
+
+ax15.plot(time_vec_data,input_data_long_term_predictions[:,8],color='orchid',label='yaw',linewidth=4,linestyle='-')
+ax15.set_xlabel('time [s]')
+ax15.set_ylabel('yaw [rad]')
+ax15.legend()
+ax15.set_title('vehicle yaw')
+
+
+# trajectory
+fig, ((ax16)) = plt.subplots(1, 1, figsize=(10, 6))
+fig.subplots_adjust(top=0.995,
+                    bottom=0.11,
+                    left=0.095,
+                    right=0.995,
+                    hspace=0.345,
+                    wspace=0.2)
+
+ax16.plot(input_data_long_term_predictions[:,6],input_data_long_term_predictions[:,7],color='orange',label='trajectory',linewidth=4,linestyle='-')
+ax16.set_xlabel('x [m]')
+ax16.set_ylabel('y [m]')
+ax16.legend()
+ax16.set_title('vehicle trajectory in the x-y plane')
+
+
+
+
 for i in range(0,len(long_term_predictions)):
     pred = long_term_predictions[i]
-    ax10.plot(pred[:,0],pred[:,1],color='k',alpha=0.1)
+    #velocities
+    ax10.plot(pred[:,0],pred[:,1],color='k',alpha=0.2)
+    ax11.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
+    ax12.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
+    # positions
+    ax13.plot(pred[:,0],pred[:,6],color='k',alpha=0.2)
+    ax14.plot(pred[:,0],pred[:,7],color='k',alpha=0.2)
+    ax15.plot(pred[:,0],pred[:,8],color='k',alpha=0.2)
+    #trajectory
+    ax16.plot(pred[:,6],pred[:,7],color='k',alpha=0.2)
 
-
-
+ax16.set_aspect('equal')
 plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
+# input_data_long_term_predictions = df[columns_to_extract].to_numpy()
+# prediction_window = 1.5 # [s]
+# jumps = 50
+# forward_propagate_indexes = [1,2,3] # 1 =vx, 2=vy, 3=w
+# long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
+
+# # plot long term predictions over real data
+# fig, ((ax10,ax11,ax12)) = plt.subplots(3, 1, figsize=(10, 6))
+# fig.subplots_adjust(top=0.995,
+#                     bottom=0.11,
+#                     left=0.095,
+#                     right=0.995,
+#                     hspace=0.345,
+#                     wspace=0.2)
+
+# time_vec_data = df['vicon time'].to_numpy()
+
+# ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
+# ax10.set_xlabel('Time [s]')
+# ax10.set_ylabel('Vx body[m/s]')
+# ax10.legend()
+# ax10.set_title('Vx')
+
+# ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
+# ax11.set_xlabel('Time [s]')
+# ax11.set_ylabel('Vy body[m/s]')
+# ax11.legend()
+# ax11.set_title('Vy')
+
+
+# ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
+# ax12.set_xlabel('Time [s]')
+# ax12.set_ylabel('W [rad/s]')
+# ax12.legend()
+# ax12.set_title('W')
+
+
+
+# for i in range(0,len(long_term_predictions)):
+#     pred = long_term_predictions[i]
+#     ax10.plot(pred[:,0],pred[:,1],color='k',alpha=0.1)
+#     ax11.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
+#     ax12.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
+
+
+# plt.show()
 

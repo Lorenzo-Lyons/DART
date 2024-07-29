@@ -802,7 +802,7 @@ def plot_motor_friction_curves(df,acceleration_curve_model_obj,fitting_friction)
 
 
 
-def produce_long_term_predictions(input_data, model,prediction_window):
+def produce_long_term_predictions(input_data, model,prediction_window,jumps,forward_propagate_indexes):
     # plotting long term predictions on data
     # each prediction window starts from a data point and then the quantities are propagated according to the provided model,
     # so they are not tied to the Vx Vy W data in any way. Though the throttle and steering inputs are taken from the data of course.
@@ -819,7 +819,7 @@ def produce_long_term_predictions(input_data, model,prediction_window):
     print('------------------------------')
     print('producing long term predictions')
     from tqdm import tqdm
-    tqdm_obj = tqdm(range(input_data.shape[0]), desc="long term preds", unit="pred")
+    tqdm_obj = tqdm(range(0,input_data.shape[0],jumps), desc="long term preds", unit="pred")
 
     for i in tqdm_obj:
         
@@ -838,26 +838,44 @@ def produce_long_term_predictions(input_data, model,prediction_window):
             #long_term_pred[k+1,0] = input_data[k+i, 0] 
             dt = input_data[i + k + 1, 0] - input_data[i + k, 0]
             elpsed_time_long_term_pred = elpsed_time_long_term_pred + dt
-            
-
-            # extract actuation at new time point
-            action_k = [long_term_pred[k,4], long_term_pred[k,5]]# throttle and steering
 
             #produce propaagated state
             state_action_k = long_term_pred[k,[1,2,3,4,5]]
             
             # run it through the model
             accelrations = model.forward(state_action_k) # absolute accelerations in the current vehicle frame of reference
-            new_state = long_term_pred[k,[1,2,3]] + accelrations * dt
+            # correct for centripetal acceleration
+            #accelrations[1] = accelrations[1] - state_action_k[0] * state_action_k[2]
+            new_state_new_frame = long_term_pred[k,[1,2,3]] + accelrations * dt
 
             # convert new state in new vehicle frame of reference
-            rot_angle = long_term_pred[k,3] * dt # adjust by the delta rotation
-            R = np.array([
-                [np.cos(rot_angle), -np.sin(rot_angle), 0],
-                [np.sin(rot_angle), np.cos(rot_angle), 0],
-                [0, 0, 1]
-            ])
-            new_state_new_frame = R @ new_state
+            # rot_angle = long_term_pred[k,3] * dt # adjust by the delta rotation
+            # R = np.array([
+            #     [np.cos(rot_angle), -np.sin(rot_angle), 0],
+            #     [np.sin(rot_angle), np.cos(rot_angle), 0],
+            #     [0, 0, 1]
+            # ])
+            # new_state_new_frame = R @ new_state
+
+
+
+            # chose quantities to forward propagate
+            if 1 in forward_propagate_indexes:
+                new_vx = new_state_new_frame[0]
+            else:
+                new_vx = input_data[i+k+1, 1]
+
+            if 2 in forward_propagate_indexes:
+                new_vy = new_state_new_frame[1]
+            else:
+                new_vy = input_data[i+k+1, 2]
+
+            if 3 in forward_propagate_indexes:
+                new_w = new_state_new_frame[2]
+            else:
+                new_w = input_data[i+k+1, 3] 
+
+            new_state_new_frame = np.array([new_vx,new_vy,new_w])
 
             # forward propagate x y yaw state
             rot_angle = long_term_pred[k,8]
@@ -866,9 +884,13 @@ def produce_long_term_predictions(input_data, model,prediction_window):
                 [np.sin(rot_angle), np.cos(rot_angle), 0],
                 [0, 0, 1]
             ])
+
+            # absolute velocities
+            abs_vxvyw = R @ np.array([long_term_pred[k,1],long_term_pred[k,2],long_term_pred[k,3]])
+
+
             # propagate x y yaw according to the previous state
-            new_xyyaw = R @ np.array([long_term_pred[k,6],long_term_pred[k,7],long_term_pred[k,8]]) +\
-                            np.array([long_term_pred[k,2],long_term_pred[k,3],long_term_pred[k,4]]) * dt
+            new_xyyaw = np.array([long_term_pred[k,6],long_term_pred[k,7],long_term_pred[k,8]]) + abs_vxvyw * dt
 
             # put everything together
             new_row = np.array([input_data[i + k + 1, 0],*new_state_new_frame,input_data[k+i,4],input_data[k+i,5],*new_xyyaw])
@@ -959,7 +981,294 @@ class dyn_model_culomb_tires():
         body_forces = A @ b
 
         return np.array([body_forces[0]/self.m,body_forces[1]/self.m,body_forces[2]/self.Jz])
+    
+
+
+
+import torch
+import gpytorch
+import tqdm
+import random
+from gpytorch.models import ApproximateGP
+from gpytorch.variational import CholeskyVariationalDistribution
+from gpytorch.variational import VariationalStrategy
+
+
+
+# SVGP 
+class SVGPModel(ApproximateGP):
+    def __init__(self, inducing_points):
+        variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
+        variational_strategy = VariationalStrategy(self, inducing_points, variational_distribution, learn_inducing_locations=True)
+        super(SVGPModel, self).__init__(variational_strategy)
+        self.mean_module = gpytorch.means.ZeroMean()
+        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=inducing_points.size(dim=1)))
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
 
 
+def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, train_y_w, n_inducing_points):
+    
+    # start fitting
+    # make contiguous (not sure why)
+    train_x = train_x.contiguous()
+    train_y_vx = train_y_vx.contiguous()
+    train_y_vy = train_y_vy.contiguous()
+    train_y_w = train_y_w.contiguous()
+
+    # define batches for training (each bach will be used to perform a gradient descent step in each iteration. So toal parameters updates are Epochs*n_batches)
+    from torch.utils.data import TensorDataset, DataLoader
+    train_dataset_vx = TensorDataset(train_x, train_y_vx)
+    train_dataset_vy = TensorDataset(train_x, train_y_vy)
+    train_dataset_w = TensorDataset(train_x, train_y_w)
+
+    # define data loaders
+    train_loader_vx = DataLoader(train_dataset_vx, batch_size=250, shuffle=True)
+    train_loader_vy = DataLoader(train_dataset_vy, batch_size=250, shuffle=True)
+    train_loader_w = DataLoader(train_dataset_w, batch_size=250, shuffle=True)
+
+    #choosing initial guess inducing points as a random subset of the training data
+    random.seed(10) # set the seed so to have same points for every run
+    # throttle_min, throttle_max = train_x[:,3].min(), train_x[:,3].max()
+    # steering_min, steering_max = train_x[:,4].min(), train_x[:,4].max()
+    # # Generate the uniform mesh
+    # x = torch.linspace(throttle_min, throttle_max, int(np.sqrt(n_inducing_points)))
+    # y = torch.linspace(steering_min, steering_max, int(np.sqrt(n_inducing_points)))
+    # x_mesh, y_mesh = np.meshgrid(x, y)
+
+    # # Convert the mesh to a list of coordinate pairs
+    # mesh_points = np.vstack([x_mesh.ravel(), y_mesh.ravel()]).T
+
+    # # generate the remaing values as random values between min and max
+    # # Define the min and max values for each column
+    # min_values = [train_x[:,0].min().item(), train_x[:,1].min().item(), train_x[:,2].min().item()]
+    # max_values = [train_x[:,0].max().item(), train_x[:,1].max().item(), train_x[:,2].max().item()]
+
+    # # Generate the nx3 matrix with uniform random numbers
+    # random_matrix = np.column_stack([
+    #     np.random.uniform(low=min_values[0], high=max_values[0], size=n_inducing_points),
+    #     np.random.uniform(low=min_values[1], high=max_values[1], size=n_inducing_points),
+    #     np.random.uniform(low=min_values[2], high=max_values[2], size=n_inducing_points)
+    # ])
+
+    # inducing_points = np.hstack((random_matrix, mesh_points))
+    # # convert to tensor
+    # inducing_points = torch.tensor(inducing_points).cuda()
+
+
+    # random selection of inducing points
+    random_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
+    inducing_points = train_x[random_indexes, :]
+
+
+    inducing_points = inducing_points.to(torch.float32)
+
+    #initialize models
+    model_vx = SVGPModel(inducing_points=inducing_points)
+    model_vy = SVGPModel(inducing_points=inducing_points)
+    model_w = SVGPModel(inducing_points=inducing_points)
+
+
+
+    # Assign training data to models just to have it all together for later plotting
+    model_vx.train_x = train_x 
+    model_vx.train_y_vx = train_y_vx
+
+    model_vy.train_x = train_x 
+    model_vy.train_y_vy = train_y_vy
+
+    model_w.train_x = train_x 
+    model_w.train_y_w = train_y_w
+
+
+    #define likelyhood objects
+    likelihood_vx = gpytorch.likelihoods.GaussianLikelihood()
+    likelihood_vy = gpytorch.likelihoods.GaussianLikelihood()
+    likelihood_w = gpytorch.likelihoods.GaussianLikelihood()
+ 
+
+
+    #move to GPU for faster fitting
+    if torch.cuda.is_available():
+        model_vx = model_vx.cuda()
+        model_vy = model_vy.cuda()
+        model_w = model_w.cuda()
+        likelihood_vx = likelihood_vx.cuda()
+        likelihood_vy = likelihood_vy.cuda()
+        likelihood_w = likelihood_w.cuda()
+
+    #set to training mode
+    model_vx.train()
+    model_vy.train()
+    model_w.train()
+    likelihood_vx.train()
+    likelihood_vy.train()
+    likelihood_w.train()
+
+    #set up optimizer and its options
+    optimizer_vx = torch.optim.AdamW([{'params': model_vx.parameters()}, {'params': likelihood_vx.parameters()},], lr=learning_rate)
+    optimizer_vy = torch.optim.AdamW([{'params': model_vy.parameters()}, {'params': likelihood_vy.parameters()},], lr=learning_rate)
+    optimizer_w = torch.optim.AdamW([{'params': model_w.parameters()}, {'params': likelihood_w.parameters()},], lr=learning_rate)
+
+
+    # Set up loss object. We're using the VariationalELBO
+    mll_vx = gpytorch.mlls.VariationalELBO(likelihood_vx, model_vx, num_data=train_y_vx.size(0))#, beta=1)
+    mll_vy = gpytorch.mlls.VariationalELBO(likelihood_vy, model_vy, num_data=train_y_vy.size(0))#, beta=1)
+    mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=train_y_w.size(0))#, beta=1)
+
+    # start training (tqdm is just to show the loading bar)
+    epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
+
+
+
+    loss_2_print_vx_vec = []
+    loss_2_print_vy_vec = []
+    loss_2_print_w_vec = []
+
+    for i in epochs_iter:
+        # Within each iteration, we will go over each minibatch of data
+        minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False, disable=True)
+        minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False, disable=True)
+        minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False, disable=True)
+
+        for x_batch_vx, y_batch_vx in minibatch_iter_vx:
+            optimizer_vx.zero_grad()
+            output_vx = model_vx(x_batch_vx)
+            loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
+            minibatch_iter_vx.set_postfix(loss=loss_vx.item())
+            loss_vx.backward()
+            optimizer_vx.step()
+
+        loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
+
+        for x_batch_vy, y_batch_vy in minibatch_iter_vy:
+            optimizer_vy.zero_grad()
+            output_vy = model_vy(x_batch_vy)
+            loss_vy = -mll_vy(output_vy, y_batch_vy[:,0])
+            minibatch_iter_vy.set_postfix(loss=loss_vy.item())
+            loss_vy.backward()
+            optimizer_vy.step()
+
+        loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
+
+        for x_batch_w, y_batch_w in minibatch_iter_w:
+            optimizer_w.zero_grad()
+            output_w = model_w(x_batch_w)
+            loss_w = -mll_w(output_w, y_batch_w[:,0])
+            minibatch_iter_w.set_postfix(loss=loss_w.item())
+            loss_w.backward()
+            optimizer_w.step()
+
+        loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+           
+    #plot loss functions
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+    ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+    ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+    ax.legend()
+
+    # #move to cpu to save dict
+    # model_vx = model_vx.cpu()
+    # model_vy = model_vy.cpu()
+    # model_w = model_w.cpu()
+
+    #extract parameters from model to save them
+    # x_inducing_vx = model_vx.variational_strategy.inducing_points
+    # y_inducing_vx = model_vx(x_inducing_vx).mean
+
+    # x_inducing_vy = model_vy.variational_strategy.inducing_points
+    # y_inducing_vy = model_vy(x_inducing_vy).mean
+
+    # x_inducing_w = model_w.variational_strategy.inducing_points
+    # y_inducing_w = model_w(x_inducing_w).mean
+
+
+    # test set
+    #test_y_Delta_vx = model_vx(train_x.cpu()).mean
+    #test_y_Delta_vy = model_vy(train_x.cpu()).mean
+    #test_y_Delta_w = model_w(train_x.cpu()).mean
+    # if GP_and_nominal_model:
+    #     abs_path_to_folder = paths.abs_path_to_residual_dyn_SVGP_model_folder
+    # else:
+    #     if orthogonally_decoupled:
+    #         abs_path_to_folder = paths.abs_path_to_orthogonally_decoupled_SVGP_model_folder
+    #     else:
+    #         abs_path_to_folder = paths.abs_path_to_SVGP_model_folder
+    
+
+    # # Save the models - NOTE that test set is now overwritten
+    # torch.save(['SVGP',orthogonally_decoupled], abs_path_to_folder + '/model_attributes.pt')
+
+    # torch.save(x_inducing_vx.cpu(), abs_path_to_folder + '/train_x_vx.pt')
+    # torch.save(x_inducing_vy.cpu(), abs_path_to_folder + '/train_x_vy.pt')
+    # torch.save(x_inducing_w.cpu(), abs_path_to_folder + '/train_x_w.pt')
+    # torch.save(y_inducing_vx.detach(), abs_path_to_folder + '/train_y_Delta_vx.pt')
+    # torch.save(y_inducing_vy.detach(), abs_path_to_folder + '/train_y_Delta_vy.pt')
+    # torch.save(y_inducing_w.detach(), abs_path_to_folder + '/train_y_Delta_w.pt')
+    # torch.save(train_x.cpu(), abs_path_to_folder + '/test_x.pt')
+    # torch.save(model_vx.state_dict(), abs_path_to_folder + '/model_Delta_vx.pth')
+    # torch.save(model_vy.state_dict(), abs_path_to_folder + '/model_Delta_vy.pth')
+    # torch.save(model_w.state_dict(), abs_path_to_folder + '/model_Delta_w.pth')
+    # #
+    # #torch.save(test_y_Delta_vx.detach(), abs_path_to_folder + '/test_y_Delta_vx.pt')
+    # #torch.save(test_y_Delta_vy.detach(), abs_path_to_folder + '/test_y_Delta_vy.pt')
+    # #torch.save(test_y_Delta_w.detach(), abs_path_to_folder + '/test_y_Delta_w.pt')
+
+    # # save likelyhoods to get noise values because in an SVGP the noise is only written in the likelyhood, not in the state dict
+    # torch.save(likelihood_vx, abs_path_to_folder + '/likelyhood_vx.pt')
+    # torch.save(likelihood_vy, abs_path_to_folder + '/likelyhood_vy.pt')
+    # torch.save(likelihood_w, abs_path_to_folder + '/likelyhood_w.pt')
+
+
+
+    # if orthogonally_decoupled == True:
+    #     #orthogonally decoupled SVGP need also the x_inducing of the covariance
+    #     torch.save(x_inducing_vx_cov.cpu(), abs_path_to_folder + '/train_x_vx_cov.pt')
+    #     torch.save(x_inducing_vy_cov.cpu(), abs_path_to_folder + '/train_x_vy_cov.pt')
+    #     torch.save(x_inducing_w_cov.cpu(), abs_path_to_folder + '/train_x_w_cov.pt')
+
+    # save GP parameters as forces pro vectors
+    # these outputs are really needed only for plotting and checking the results afterwards.. 
+    # exponential_kernel_gamma = [] # this is needed only because this function will be called from the MPCC controller
+    # #if the exponential kernel is used. This is because we need to re-evaluate the right block vec accordingly.
+    # save_forces_params = True
+
+    # train_x_vx, train_x_vy, train_x_w, test_x, \
+    # train_y_Delta_vx, train_y_Delta_vy, train_y_Delta_w,\
+    # model_Delta_vx, model_Delta_vy, model_Delta_w,\
+    # likelihood_Delta_vx, likelihood_Delta_vy,\
+    # likelihood_Delta_w, n_train_datapoints,n_data_cov, m_features,\
+    # train_x_vx_cov,train_x_vy_cov,train_x_w_cov,\
+    # orthogonally_decoupled, model_type = load_GP_models_and_save_forces_params(abs_path_to_folder,save_forces_params, exponential_kernel_gamma)
+    # #test_y_Delta_vx, test_y_Delta_vy, test_y_Delta_w,\ these were removed for memory saturation reasons
+
+
+
+    #move to gpu for later evaluation
+    model_vx = model_vx.cuda()
+    model_vy = model_vy.cuda()
+    model_w = model_w.cuda()
+
+    return model_vx, model_vy, model_w, likelihood_vx, likelihood_vy, likelihood_w
+
+class dyn_model_SVGP():
+    def __init__(self,model_vx,model_vy,model_w):
+
+        self.model_vx = model_vx
+        self.model_vy = model_vy
+        self.model_w = model_w
+
+    def forward(self, state_action):
+        input = torch.unsqueeze(torch.Tensor(state_action),0).cuda()
+        ax= self.model_vx(input).mean.detach().cpu().numpy()[0]
+        ay= self.model_vy(input).mean.detach().cpu().numpy()[0]
+        aw= self.model_w(input).mean.detach().cpu().numpy()[0]
+
+        return np.array([ax,ay,aw])

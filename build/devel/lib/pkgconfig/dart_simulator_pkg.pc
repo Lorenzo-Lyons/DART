@@ -1,0 +1,8 @@
+prefix=/home/lorenzo/OneDrive/PhD/Code/DART/build/devel
+
+Name: dart_simulator_pkg
+Description: Description of dart_simulator_pkg
+Version: 0.0.0
+Cflags: -I/home/lorenzo/OneDrive/PhD/Code/DART/build/devel/include
+Libs: -L${prefix}/lib 
+Requires: 
