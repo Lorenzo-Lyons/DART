@@ -204,18 +204,47 @@ def process_raw_vicon_data(df,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta
     df['vx_abs_raw'] = [*np.divide(np.diff(df['vicon x'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0] # add a zero for dimensionality issues
     df['vy_abs_raw'] = [*np.divide(np.diff(df['vicon y'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
     df['w_abs_raw'] =  [*np.divide(np.diff(df['unwrapped yaw'].to_numpy()),np.diff(df['vicon time'].to_numpy())) ,0]
+    # Calculate the derivatives using values 5 indices apart
+
+
+    steps_shift = 10
+    shifted_time0 = df['vicon time'].shift(+steps_shift)
+    shifted_x0 = df['vicon x'].shift(+steps_shift)
+    shifted_y0 = df['vicon y'].shift(+steps_shift)
+    shifted_yaw0 = df['unwrapped yaw'].shift(+steps_shift)
+
+    shifted_time2 = df['vicon time'].shift(-steps_shift)
+    shifted_x2 = df['vicon x'].shift(-steps_shift)
+    shifted_y2 = df['vicon y'].shift(-steps_shift)
+    shifted_yaw2 = df['unwrapped yaw'].shift(-steps_shift)
+
+
+    # Finite differences
+    df['vx_abs_filtered'] = (shifted_x2 - shifted_x0) / (shifted_time2 - shifted_time0)
+    df['vy_abs_filtered'] = (shifted_y2 - shifted_y0) / (shifted_time2 - shifted_time0)
+    df['w_abs_filtered']  = (shifted_yaw2 - shifted_yaw0) / (shifted_time2 - shifted_time0)
+
+    # Handle the last 5 elements (they will be NaN due to the shift)
+    df['vx_abs_filtered'].iloc[-steps_shift:] = 0
+    df['vy_abs_filtered'].iloc[-steps_shift:] = 0
+    df['w_abs_filtered'].iloc[-steps_shift:] = 0
+
+    df['vx_abs_filtered'].iloc[:steps_shift] = 0
+    df['vy_abs_filtered'].iloc[:steps_shift] = 0
+    df['w_abs_filtered'].iloc[:steps_shift] = 0
+
 
     # filtered first time derivative
     spl_x = CubicSpline(time_vec_vicon, df['vicon x'].to_numpy())
     spl_y = CubicSpline(time_vec_vicon, df['vicon y'].to_numpy())
     spl_theta = CubicSpline(time_vec_vicon, df['unwrapped yaw'].to_numpy())
 
-    window_size = 20
+    window_size = 10
     poly_order = 1
     # Apply Savitzky-Golay filter
-    df['vx_abs_filtered'] = savgol_filter(spl_x(time_vec_vicon,1), window_size, poly_order)
-    df['vy_abs_filtered'] = savgol_filter(spl_y(time_vec_vicon,1), window_size, poly_order)
-    df['w_abs_filtered'] = savgol_filter(spl_theta(time_vec_vicon,1), window_size, poly_order)
+    #df['vx_abs_raw'] = savgol_filter(spl_x(time_vec_vicon,1), window_size, poly_order)
+    #df['vy_abs_raw'] = savgol_filter(spl_y(time_vec_vicon,1), window_size, poly_order)
+    #df['w_abs_raw'] = savgol_filter(spl_theta(time_vec_vicon,1), window_size, poly_order)
 
 
 
@@ -225,23 +254,50 @@ def process_raw_vicon_data(df,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta
     df['ax_abs_raw'] = [*np.divide(np.diff(df['vx_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0] # add a zero for dimensionality issues
     df['ay_abs_raw'] = [*np.divide(np.diff(df['vy_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
     df['aw_abs_raw'] =  [*np.divide(np.diff(df['w_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
+    
+    # Shifted values for steps_shift indices ahead
+    shifted_vx0 = df['vx_abs_filtered'].shift(+steps_shift)
+    shifted_vy0 = df['vy_abs_filtered'].shift(+steps_shift)
+    shifted_w0 = df['w_abs_filtered'].shift(+steps_shift)
+
+    shifted_vx2 = df['vx_abs_filtered'].shift(-steps_shift)
+    shifted_vy2 = df['vy_abs_filtered'].shift(-steps_shift)
+    shifted_w2 = df['w_abs_filtered'].shift(-steps_shift)
+
+    # Calculate the finite differences for acceleration
+    df['ax_abs_filtered_more'] = (shifted_vx2 - shifted_vx0) / (shifted_time2 - shifted_time0)
+    df['ay_abs_filtered_more'] = (shifted_vy2 - shifted_vy0) / (shifted_time2 - shifted_time0)
+    df['aw_abs_filtered_more'] = (shifted_w2 - shifted_w0) / (shifted_time2 - shifted_time0)
+
+    # Handle the last 5 elements (they will be NaN due to the shift)
+    df['ax_abs_filtered_more'].iloc[-steps_shift:] = 0
+    df['ay_abs_filtered_more'].iloc[-steps_shift:] = 0
+    df['aw_abs_filtered_more'].iloc[-steps_shift:] = 0
+
+    df['ax_abs_filtered_more'].iloc[:steps_shift] = 0
+    df['ay_abs_filtered_more'].iloc[:steps_shift] = 0
+    df['aw_abs_filtered_more'].iloc[:steps_shift] = 0
 
     # filtering from second time derivative of position
     # window_size = 10
     # poly_order = 1
     # Apply Savitzky-Golay filter
-    df['ax_abs_filtered'] = savgol_filter(spl_x(time_vec_vicon,2), window_size, poly_order)
-    df['ay_abs_filtered'] = savgol_filter(spl_y(time_vec_vicon,2), window_size, poly_order)
-    df['aw_abs_filtered'] = savgol_filter(spl_theta(time_vec_vicon,2), window_size, poly_order)
+    # df['ax_abs_raw'] = savgol_filter(spl_x(time_vec_vicon,2), window_size, poly_order)
+    # df['ay_abs_raw'] = savgol_filter(spl_y(time_vec_vicon,2), window_size, poly_order)
+    # df['aw_abs_raw'] = savgol_filter(spl_theta(time_vec_vicon,2), window_size, poly_order)
+
+
+    # handle the first 5 and last 5 elements
+
 
     # filtering from filtered velocity
     spl_vx = CubicSpline(time_vec_vicon, df['vx_abs_filtered'].to_numpy())
     spl_vy = CubicSpline(time_vec_vicon, df['vy_abs_filtered'].to_numpy())
     spl_w = CubicSpline(time_vec_vicon, df['w_abs_filtered'].to_numpy())
 
-    df['ax_abs_filtered_more'] = savgol_filter(spl_vx(time_vec_vicon,1), window_size, poly_order)
-    df['ay_abs_filtered_more'] = savgol_filter(spl_vy(time_vec_vicon,1), window_size, poly_order)
-    df['aw_abs_filtered_more'] = savgol_filter(spl_w(time_vec_vicon,1), window_size, poly_order)
+    df['ax_abs_filtered'] =savgol_filter(spl_vx(time_vec_vicon,1), window_size, poly_order)
+    df['ay_abs_filtered'] =savgol_filter(spl_vy(time_vec_vicon,1), window_size, poly_order)
+    df['aw_abs_filtered'] =savgol_filter(spl_w(time_vec_vicon,1), window_size, poly_order)
 
 
     # --- convert velocity and acceleration into body frame ---
@@ -348,9 +404,9 @@ def plot_vicon_data(df):
     ax1.legend()
 
     ax4.set_title('acceleration x')
-    ax4.plot(plotting_time_vec, df['ax_abs_raw'].to_numpy(), label="vicon abs ax raw", color='k')
-    ax4.plot(plotting_time_vec, df['ax_abs_filtered'].to_numpy(), label="vicon abs ax filtered", color='dodgerblue')
-    ax4.plot(plotting_time_vec, df['ax_abs_filtered_more'].to_numpy(), label="vicon abs ax filtered more", color='gray')
+    #ax4.plot(plotting_time_vec, df['ax_abs_raw'].to_numpy(), label="vicon abs ax raw", color='k')
+    ax4.plot(plotting_time_vec, df['ax_abs_filtered'].to_numpy(), label="vicon abs ax filtered", color='k')
+    ax4.plot(plotting_time_vec, df['ax_abs_filtered_more'].to_numpy(), label="vicon abs ax filtered more", color='dodgerblue')
     ax4.legend()
 
 
@@ -360,9 +416,9 @@ def plot_vicon_data(df):
     ax2.legend()
 
     ax5.set_title('acceleration y')
-    ax5.plot(plotting_time_vec, df['ay_abs_raw'].to_numpy(), label="vicon abs ay raw", color='k')
-    ax5.plot(plotting_time_vec, df['ay_abs_filtered'].to_numpy(), label="vicon abs ay filtered", color='orangered')
-    ax5.plot(plotting_time_vec, df['ay_abs_filtered_more'].to_numpy(), label="vicon abs ay filtered more", color='gray')
+    #ax5.plot(plotting_time_vec, df['ay_abs_raw'].to_numpy(), label="vicon abs ay raw", color='k')
+    ax5.plot(plotting_time_vec, df['ay_abs_filtered'].to_numpy(), label="vicon abs ay filtered", color='k')
+    ax5.plot(plotting_time_vec, df['ay_abs_filtered_more'].to_numpy(), label="vicon abs ay filtered more", color='orangered')
     ax5.legend()
 
 
@@ -372,9 +428,9 @@ def plot_vicon_data(df):
     ax3.legend()
 
     ax6.set_title('acceleration yaw')
-    ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
-    ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='slateblue')
-    ax6.plot(plotting_time_vec, df['aw_abs_filtered_more'].to_numpy(), label="vicon aw filtered more", color='gray')
+    #ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
+    ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
+    ax6.plot(plotting_time_vec, df['aw_abs_filtered_more'].to_numpy(), label="vicon aw filtered more", color='slateblue')
     ax6.legend()
 
 
@@ -1034,37 +1090,9 @@ def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, 
 
     #choosing initial guess inducing points as a random subset of the training data
     random.seed(10) # set the seed so to have same points for every run
-    # throttle_min, throttle_max = train_x[:,3].min(), train_x[:,3].max()
-    # steering_min, steering_max = train_x[:,4].min(), train_x[:,4].max()
-    # # Generate the uniform mesh
-    # x = torch.linspace(throttle_min, throttle_max, int(np.sqrt(n_inducing_points)))
-    # y = torch.linspace(steering_min, steering_max, int(np.sqrt(n_inducing_points)))
-    # x_mesh, y_mesh = np.meshgrid(x, y)
-
-    # # Convert the mesh to a list of coordinate pairs
-    # mesh_points = np.vstack([x_mesh.ravel(), y_mesh.ravel()]).T
-
-    # # generate the remaing values as random values between min and max
-    # # Define the min and max values for each column
-    # min_values = [train_x[:,0].min().item(), train_x[:,1].min().item(), train_x[:,2].min().item()]
-    # max_values = [train_x[:,0].max().item(), train_x[:,1].max().item(), train_x[:,2].max().item()]
-
-    # # Generate the nx3 matrix with uniform random numbers
-    # random_matrix = np.column_stack([
-    #     np.random.uniform(low=min_values[0], high=max_values[0], size=n_inducing_points),
-    #     np.random.uniform(low=min_values[1], high=max_values[1], size=n_inducing_points),
-    #     np.random.uniform(low=min_values[2], high=max_values[2], size=n_inducing_points)
-    # ])
-
-    # inducing_points = np.hstack((random_matrix, mesh_points))
-    # # convert to tensor
-    # inducing_points = torch.tensor(inducing_points).cuda()
-
-
     # random selection of inducing points
     random_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
     inducing_points = train_x[random_indexes, :]
-
 
     inducing_points = inducing_points.to(torch.float32)
 
@@ -1073,6 +1101,12 @@ def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, 
     model_vy = SVGPModel(inducing_points=inducing_points)
     model_w = SVGPModel(inducing_points=inducing_points)
 
+
+    # assign first guess lengthscales
+    #                                                            vx, vy ,w, throttle,steer
+    model_vx.covar_module.base_kernel.lengthscale = torch.tensor([0.1,1,10,  0.1,    1])
+    model_vy.covar_module.base_kernel.lengthscale = torch.tensor([1,1,10,10,1])
+    model_w.covar_module.base_kernel.lengthscale =  torch.tensor([2,2,2,2,2])
 
 
     # Assign training data to models just to have it all together for later plotting
@@ -1174,81 +1208,192 @@ def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, 
     ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
     ax.legend()
 
-    # #move to cpu to save dict
-    # model_vx = model_vx.cpu()
-    # model_vy = model_vy.cpu()
-    # model_w = model_w.cpu()
 
-    #extract parameters from model to save them
-    # x_inducing_vx = model_vx.variational_strategy.inducing_points
-    # y_inducing_vx = model_vx(x_inducing_vx).mean
+    #move to gpu for later evaluation
+    model_vx = model_vx.cuda()
+    model_vy = model_vy.cuda()
+    model_w = model_w.cuda()
 
-    # x_inducing_vy = model_vy.variational_strategy.inducing_points
-    # y_inducing_vy = model_vy(x_inducing_vy).mean
-
-    # x_inducing_w = model_w.variational_strategy.inducing_points
-    # y_inducing_w = model_w(x_inducing_w).mean
+    return model_vx, model_vy, model_w, likelihood_vx, likelihood_vy, likelihood_w
 
 
-    # test set
-    #test_y_Delta_vx = model_vx(train_x.cpu()).mean
-    #test_y_Delta_vy = model_vy(train_x.cpu()).mean
-    #test_y_Delta_w = model_w(train_x.cpu()).mean
-    # if GP_and_nominal_model:
-    #     abs_path_to_folder = paths.abs_path_to_residual_dyn_SVGP_model_folder
-    # else:
-    #     if orthogonally_decoupled:
-    #         abs_path_to_folder = paths.abs_path_to_orthogonally_decoupled_SVGP_model_folder
-    #     else:
-    #         abs_path_to_folder = paths.abs_path_to_SVGP_model_folder
+
+
+
+#define orthogonally decoupled SVGP model
+# Orthogonally decoupled SVGP
+def make_orthogonal_vs(model,mean_inducing_points,covar_inducing_points):
+    # mean_inducing_points = torch.randn(1000, train_x.size(-1), dtype=train_x.dtype, device=train_x.device)
+    # covar_inducing_points = torch.randn(100, train_x.size(-1), dtype=train_x.dtype, device=train_x.device)
+
+    covar_variational_strategy = gpytorch.variational.VariationalStrategy(
+        model, covar_inducing_points,
+        gpytorch.variational.CholeskyVariationalDistribution(covar_inducing_points.size(-2)),
+        learn_inducing_locations=True
+    )
+
+    variational_strategy = gpytorch.variational.OrthogonallyDecoupledVariationalStrategy(
+        covar_variational_strategy, mean_inducing_points,
+        gpytorch.variational.DeltaVariationalDistribution(mean_inducing_points.size(-2)),
+    )
+    return variational_strategy
+
+class OrthDecoupledApproximateGP(ApproximateGP):
+    def __init__(self,mean_inducing_points,covar_inducing_points):
+        #variational_distribution = gpytorch.variational.DeltaVariationalDistribution(inducing_points.size(-2))
+        variational_strategy = make_orthogonal_vs(self,mean_inducing_points,covar_inducing_points)
+        super().__init__(variational_strategy)
+        self.mean_module = gpytorch.means.ZeroMean()
+        self.covar_module =  gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=mean_inducing_points.size(dim=1)))
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+def train_decoupled_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, train_y_w, n_inducing_points_mean,n_inducing_points_cov):
     
+    # start fitting
+    # make contiguous (not sure why)
+    train_x = train_x.contiguous()
+    train_y_vx = train_y_vx.contiguous()
+    train_y_vy = train_y_vy.contiguous()
+    train_y_w = train_y_w.contiguous()
 
-    # # Save the models - NOTE that test set is now overwritten
-    # torch.save(['SVGP',orthogonally_decoupled], abs_path_to_folder + '/model_attributes.pt')
+    # define batches for training (each bach will be used to perform a gradient descent step in each iteration. So toal parameters updates are Epochs*n_batches)
+    from torch.utils.data import TensorDataset, DataLoader
+    train_dataset_vx = TensorDataset(train_x, train_y_vx)
+    train_dataset_vy = TensorDataset(train_x, train_y_vy)
+    train_dataset_w = TensorDataset(train_x, train_y_w)
 
-    # torch.save(x_inducing_vx.cpu(), abs_path_to_folder + '/train_x_vx.pt')
-    # torch.save(x_inducing_vy.cpu(), abs_path_to_folder + '/train_x_vy.pt')
-    # torch.save(x_inducing_w.cpu(), abs_path_to_folder + '/train_x_w.pt')
-    # torch.save(y_inducing_vx.detach(), abs_path_to_folder + '/train_y_Delta_vx.pt')
-    # torch.save(y_inducing_vy.detach(), abs_path_to_folder + '/train_y_Delta_vy.pt')
-    # torch.save(y_inducing_w.detach(), abs_path_to_folder + '/train_y_Delta_w.pt')
-    # torch.save(train_x.cpu(), abs_path_to_folder + '/test_x.pt')
-    # torch.save(model_vx.state_dict(), abs_path_to_folder + '/model_Delta_vx.pth')
-    # torch.save(model_vy.state_dict(), abs_path_to_folder + '/model_Delta_vy.pth')
-    # torch.save(model_w.state_dict(), abs_path_to_folder + '/model_Delta_w.pth')
-    # #
-    # #torch.save(test_y_Delta_vx.detach(), abs_path_to_folder + '/test_y_Delta_vx.pt')
-    # #torch.save(test_y_Delta_vy.detach(), abs_path_to_folder + '/test_y_Delta_vy.pt')
-    # #torch.save(test_y_Delta_w.detach(), abs_path_to_folder + '/test_y_Delta_w.pt')
+    # define data loaders
+    train_loader_vx = DataLoader(train_dataset_vx, batch_size=250, shuffle=True)
+    train_loader_vy = DataLoader(train_dataset_vy, batch_size=250, shuffle=True)
+    train_loader_w = DataLoader(train_dataset_w, batch_size=250, shuffle=True)
 
-    # # save likelyhoods to get noise values because in an SVGP the noise is only written in the likelyhood, not in the state dict
-    # torch.save(likelihood_vx, abs_path_to_folder + '/likelyhood_vx.pt')
-    # torch.save(likelihood_vy, abs_path_to_folder + '/likelyhood_vy.pt')
-    # torch.save(likelihood_w, abs_path_to_folder + '/likelyhood_w.pt')
+    #choosing initial guess inducing points as a random subset of the training data
+    random.seed(10) # set the seed so to have same points for every run
+    # random selection of inducing points
+    random_indexes_mean = random.choices(range(train_x.shape[0]), k=n_inducing_points_mean)
+    inducing_points_mean = train_x[random_indexes_mean, :]
+    inducing_points_mean = inducing_points_mean.to(torch.float32)
+
+    random_indexes_cov = random.choices(range(inducing_points_mean.shape[0]), k=n_inducing_points_cov)
+    inducing_points_cov = train_x[random_indexes_cov, :]
 
 
+    #initialize models
+    model_vx = OrthDecoupledApproximateGP(inducing_points_mean,inducing_points_cov)
+    model_vy = OrthDecoupledApproximateGP(inducing_points_mean,inducing_points_cov)
+    model_w = OrthDecoupledApproximateGP(inducing_points_mean,inducing_points_cov)
 
-    # if orthogonally_decoupled == True:
-    #     #orthogonally decoupled SVGP need also the x_inducing of the covariance
-    #     torch.save(x_inducing_vx_cov.cpu(), abs_path_to_folder + '/train_x_vx_cov.pt')
-    #     torch.save(x_inducing_vy_cov.cpu(), abs_path_to_folder + '/train_x_vy_cov.pt')
-    #     torch.save(x_inducing_w_cov.cpu(), abs_path_to_folder + '/train_x_w_cov.pt')
 
-    # save GP parameters as forces pro vectors
-    # these outputs are really needed only for plotting and checking the results afterwards.. 
-    # exponential_kernel_gamma = [] # this is needed only because this function will be called from the MPCC controller
-    # #if the exponential kernel is used. This is because we need to re-evaluate the right block vec accordingly.
-    # save_forces_params = True
+    # assign first guess lengthscales
+    #                                                            vx, vy ,w, throttle,steer
+    # model_vx.covar_module.base_kernel.lengthscale = torch.tensor([0.1,1,10,  0.1,    1])
+    # model_vy.covar_module.base_kernel.lengthscale = torch.tensor([1,1,10,10,1])
+    # model_w.covar_module.base_kernel.lengthscale =  torch.tensor([2,2,2,2,2])
 
-    # train_x_vx, train_x_vy, train_x_w, test_x, \
-    # train_y_Delta_vx, train_y_Delta_vy, train_y_Delta_w,\
-    # model_Delta_vx, model_Delta_vy, model_Delta_w,\
-    # likelihood_Delta_vx, likelihood_Delta_vy,\
-    # likelihood_Delta_w, n_train_datapoints,n_data_cov, m_features,\
-    # train_x_vx_cov,train_x_vy_cov,train_x_w_cov,\
-    # orthogonally_decoupled, model_type = load_GP_models_and_save_forces_params(abs_path_to_folder,save_forces_params, exponential_kernel_gamma)
-    # #test_y_Delta_vx, test_y_Delta_vy, test_y_Delta_w,\ these were removed for memory saturation reasons
 
+    # Assign training data to models just to have it all together for later plotting
+    model_vx.train_x = train_x 
+    model_vx.train_y_vx = train_y_vx
+
+    model_vy.train_x = train_x 
+    model_vy.train_y_vy = train_y_vy
+
+    model_w.train_x = train_x 
+    model_w.train_y_w = train_y_w
+
+
+    #define likelyhood objects
+    likelihood_vx = gpytorch.likelihoods.GaussianLikelihood()
+    likelihood_vy = gpytorch.likelihoods.GaussianLikelihood()
+    likelihood_w = gpytorch.likelihoods.GaussianLikelihood()
+ 
+
+
+    #move to GPU for faster fitting
+    if torch.cuda.is_available():
+        model_vx = model_vx.cuda()
+        model_vy = model_vy.cuda()
+        model_w = model_w.cuda()
+        likelihood_vx = likelihood_vx.cuda()
+        likelihood_vy = likelihood_vy.cuda()
+        likelihood_w = likelihood_w.cuda()
+
+    #set to training mode
+    model_vx.train()
+    model_vy.train()
+    model_w.train()
+    likelihood_vx.train()
+    likelihood_vy.train()
+    likelihood_w.train()
+
+    #set up optimizer and its options
+    optimizer_vx = torch.optim.AdamW([{'params': model_vx.parameters()}, {'params': likelihood_vx.parameters()},], lr=learning_rate)
+    optimizer_vy = torch.optim.AdamW([{'params': model_vy.parameters()}, {'params': likelihood_vy.parameters()},], lr=learning_rate)
+    optimizer_w = torch.optim.AdamW([{'params': model_w.parameters()}, {'params': likelihood_w.parameters()},], lr=learning_rate)
+
+
+    # Set up loss object. We're using the VariationalELBO
+    mll_vx = gpytorch.mlls.VariationalELBO(likelihood_vx, model_vx, num_data=train_y_vx.size(0))#, beta=1)
+    mll_vy = gpytorch.mlls.VariationalELBO(likelihood_vy, model_vy, num_data=train_y_vy.size(0))#, beta=1)
+    mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=train_y_w.size(0))#, beta=1)
+
+    # start training (tqdm is just to show the loading bar)
+    epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
+
+
+
+    loss_2_print_vx_vec = []
+    loss_2_print_vy_vec = []
+    loss_2_print_w_vec = []
+
+    for i in epochs_iter:
+        # Within each iteration, we will go over each minibatch of data
+        minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False, disable=True)
+        minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False, disable=True)
+        minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False, disable=True)
+
+        for x_batch_vx, y_batch_vx in minibatch_iter_vx:
+            optimizer_vx.zero_grad()
+            output_vx = model_vx(x_batch_vx)
+            loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
+            minibatch_iter_vx.set_postfix(loss=loss_vx.item())
+            loss_vx.backward()
+            optimizer_vx.step()
+
+        loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
+
+        for x_batch_vy, y_batch_vy in minibatch_iter_vy:
+            optimizer_vy.zero_grad()
+            output_vy = model_vy(x_batch_vy)
+            loss_vy = -mll_vy(output_vy, y_batch_vy[:,0])
+            minibatch_iter_vy.set_postfix(loss=loss_vy.item())
+            loss_vy.backward()
+            optimizer_vy.step()
+
+        loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
+
+        for x_batch_w, y_batch_w in minibatch_iter_w:
+            optimizer_w.zero_grad()
+            output_w = model_w(x_batch_w)
+            loss_w = -mll_w(output_w, y_batch_w[:,0])
+            minibatch_iter_w.set_postfix(loss=loss_w.item())
+            loss_w.backward()
+            optimizer_w.step()
+
+        loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+           
+    #plot loss functions
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+    ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+    ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+    ax.legend()
 
 
     #move to gpu for later evaluation
@@ -1257,6 +1402,12 @@ def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, 
     model_w = model_w.cuda()
 
     return model_vx, model_vy, model_w, likelihood_vx, likelihood_vy, likelihood_w
+
+
+
+
+
+
 
 class dyn_model_SVGP():
     def __init__(self,model_vx,model_vy,model_w):
@@ -1272,3 +1423,18 @@ class dyn_model_SVGP():
         aw= self.model_w(input).mean.detach().cpu().numpy()[0]
 
         return np.array([ax,ay,aw])
+    
+def rebuild_Kxy_RBF_vehicle_dynamics(X,Y,outputscale,lengthscale):
+    n = X.shape[0]
+    m = Y.shape[0]
+    KXY = np.zeros((n,m))
+    for i in range(n):
+        for j in range(m):
+            KXY[i,j] = RBF_kernel_rewritten(X[i,:],Y[j,:],outputscale,lengthscale)
+    return KXY
+
+def RBF_kernel_rewritten(x,y,outputscale,lengthscale):
+    exp_arg = np.zeros(len(lengthscale))
+    for i in range(len(lengthscale)):
+        exp_arg[i] = (x[i]-y[i])**2/lengthscale[i]**2
+    return outputscale * np.exp(-0.5*np.sum(exp_arg))

@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,dyn_model_SVGP,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten
+,dyn_model_culomb_tires,produce_long_term_predictions,train_decoupled_SVGP_model,dyn_model_SVGP,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -26,11 +26,13 @@ font = {'family' : 'normal',
 
 # set these parameters as they will determine the running time of this script
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
-check_SVGP_analytic_rebuild = False
+check_SVGP_analytic_rebuild = True
 over_write_saved_parameters = True
-epochs = 50 # epochs for training the SVGP
+epochs = 200 # epochs for training the SVGP
 jumps = 200 # how many intervals between the long term predicions
-
+# set number of inducing points for mean and covariance
+n_inducing_points_mean = 1000
+n_inducing_points_cov = 100
 
 
 
@@ -94,9 +96,10 @@ elif folder_path == 'System_identification_data_processing/Data/5_tire_model_dat
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
 
+
 # plot 
 plot_vicon_data(df)
-
+#plt.show()
 
 # inertial charcteristics
 m = 1.67
@@ -146,6 +149,8 @@ for i in range(0,df.shape[0]):
                   df['ay_abs_filtered_more'].iloc[i],
                   df['aw_abs_filtered_more'].iloc[i]])
     
+
+
     yaw_i = df['unwrapped yaw'].iloc[i]
 
     R = np.array([[+np.cos(-yaw_i),-np.sin(-yaw_i),0],
@@ -164,8 +169,7 @@ for i in range(0,df.shape[0]):
 
 
 # train the SVGP model
-n_inducing_points = 400
-learning_rate = 0.05
+learning_rate = 0.01
 
       
 # generate data in tensor form for torch
@@ -180,7 +184,7 @@ train_y_w  = torch.unsqueeze(torch.tensor(aw_body_vec),1).cuda()
 #cast to float to avoid issues with data types
 # add some state noise to stabilize predictions in the long term
 # Define different standard deviations for each column
-std_devs = [0.0, 0.0, 0.0]  
+std_devs = [0.05, 0.05, 0.05]  
 
 # Generate noise for each column with the specified standard deviations
 noise1 = torch.randn(train_x.size(0)) * std_devs[0]
@@ -202,7 +206,8 @@ train_y_w = train_y_w.to(torch.float32)
 
 
 
-model_vx, model_vy, model_w, likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs, train_x, train_y_vx, train_y_vy, train_y_w, n_inducing_points)
+model_vx, model_vy, model_w, likelihood_vx, likelihood_vy, likelihood_w = \
+train_decoupled_SVGP_model(learning_rate,epochs, train_x, train_y_vx, train_y_vy, train_y_w, n_inducing_points_mean,n_inducing_points_cov)
 
 
 
@@ -257,51 +262,39 @@ ax3.legend()
 
 
 
-
-
-
 # analytical version of the model [necessary for solver implementation]
 # rebuild SVGP using m and S 
-inducing_locations_x = model_vx.variational_strategy.inducing_points.cpu().detach().numpy()
+inducing_locations_x_mean = model_vx.variational_strategy.inducing_points.cpu().detach().numpy()
+inducing_locations_x_cov = model_vx.variational_strategy.base_variational_strategy.inducing_points.cpu().detach().numpy()
 outputscale_x = model_vx.covar_module.outputscale.item()
 lengthscale_x = model_vx.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
 
-inducing_locations_y = model_vy.variational_strategy.inducing_points.cpu().detach().numpy()
+inducing_locations_y_mean = model_vy.variational_strategy.inducing_points.cpu().detach().numpy()
+inducing_locations_y_cov = model_vy.variational_strategy.base_variational_strategy.inducing_points.cpu().detach().numpy()
 outputscale_y = model_vy.covar_module.outputscale.item()
 lengthscale_y = model_vy.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
 
-inducing_locations_w = model_w.variational_strategy.inducing_points.cpu().detach().numpy()
+inducing_locations_w_mean = model_w.variational_strategy.inducing_points.cpu().detach().numpy()
+inducing_locations_w_cov = model_w.variational_strategy.base_variational_strategy.inducing_points.cpu().detach().numpy()
 outputscale_w = model_w.covar_module.outputscale.item()
 lengthscale_w = model_w.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
 
 
+# rebuild the kernel matrices
+KZZ_x_mean = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x_mean),np.squeeze(inducing_locations_x_mean),outputscale_x,lengthscale_x)
+KZZ_x_cov = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x_cov),np.squeeze(inducing_locations_x_cov),outputscale_x,lengthscale_x)
 
+KZZ_y_mean = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y_mean),np.squeeze(inducing_locations_y_mean),outputscale_y,lengthscale_y)
+KZZ_y_cov = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y_cov),np.squeeze(inducing_locations_y_cov),outputscale_y,lengthscale_y)
 
-KZZ_x = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x),np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
-KZZ_y = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y),np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
-KZZ_w = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w),np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
+KZZ_w_mean = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w_mean),np.squeeze(inducing_locations_w_mean),outputscale_w,lengthscale_w)
+KZZ_w_cov  = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w_cov),np.squeeze(inducing_locations_w_cov),outputscale_w,lengthscale_w)
 
-#kXZ = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(train_x.cpu().numpy()),np.squeeze(inducing_locations_x),outputscale,lengthscale)
-#KXX = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(train_x.cpu().numpy()),np.squeeze(train_x.cpu().numpy()),outputscale,lengthscale)
-
-# #plot covariance matrix eigenvalues
-# # Compute the eigenvalues
-# eigenvalues = np.linalg.eigvalsh(KZZ)
-
-# # Sort the eigenvalues in decreasing order
-# sorted_eigenvalues = np.sort(eigenvalues)[::-1]
-
-# # Plot the eigenvalues
-# plt.figure(figsize=(8, 5))
-# plt.plot(sorted_eigenvalues, 'o-', markersize=8, color='blue', label='Eigenvalues')
-# plt.title('Eigenvalues of the KXX Matrix in Decreasing Order')
-# plt.xlabel('Index')
-# plt.ylabel('Eigenvalue')
-# plt.grid(True)
 # plt.legend()
 
 # call prediction module on inducing locations
-jitter_term = 0.0001 * np.eye(n_inducing_points)  # this is very important for numerical stability
+jitter_term_cov = 0.001 * np.eye(n_inducing_points_cov)  # this is very important for numerical stability
+jitter_term_mean= 0.00001 * np.eye(n_inducing_points_mean)
 
 
 
@@ -311,13 +304,16 @@ preds_zz_y = model_vy(model_vy.variational_strategy.inducing_points)
 preds_zz_w = model_w( model_w.variational_strategy.inducing_points)
 
 m_x = preds_zz_x.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
-S_x = model_vx.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  # preds_zz.covariance_matrix.detach().cpu().numpy() # 
+S_x = model_vx.variational_strategy.base_variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  # preds_zz.covariance_matrix.detach().cpu().numpy() # 
 
 m_y = preds_zz_y.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
-S_y = model_vy.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+S_y = model_vy.variational_strategy.base_variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
 
 m_w = preds_zz_w.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
-S_w = model_w.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+S_w = model_w.variational_strategy.base_variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+
+
+
 
 # Compute the covariance of q(f)
 # K_XX + k_XZ K_ZZ^{-1/2} (S - I) K_ZZ^{-1/2} k_ZX
@@ -326,49 +322,50 @@ S_w = model_w.variational_strategy.variational_distribution.covariance_matrix.de
 from scipy.linalg import solve_triangular
 
 # Define a lower triangular matrix L and a matrix B
-L_inv_x = np.linalg.inv(np.linalg.cholesky(KZZ_x + jitter_term))
-#KZZ_inv_x = np.linalg.inv(KZZ_x + jitter_term)
-right_vec_x = np.linalg.solve(KZZ_x + jitter_term, m_x)
-middle_x = S_x - np.eye(n_inducing_points)
+L_inv_x = np.linalg.inv(np.linalg.cholesky(KZZ_x_cov + jitter_term_cov))
+#KZZ_inv_x_mean = np.linalg.inv(KZZ_x_mean + jitter_term_mean)
+right_vec_x = np.linalg.solve(KZZ_x_mean + jitter_term_mean, m_x)
+middle_x = S_x - np.eye(n_inducing_points_cov)
 
-L_inv_y = np.linalg.inv(np.linalg.cholesky(KZZ_y + jitter_term))
-#KZZ_inv_y = np.linalg.inv(KZZ_y + jitter_term)
-right_vec_y = np.linalg.solve(KZZ_y + jitter_term, m_y)
-middle_y = S_y - np.eye(n_inducing_points)
+L_inv_y = np.linalg.inv(np.linalg.cholesky(KZZ_y_cov + jitter_term_cov))
+#KZZ_inv_y_mean = np.linalg.inv(KZZ_y_mean + jitter_term_mean)
+right_vec_y = np.linalg.solve(KZZ_y_mean+ jitter_term_mean, m_y)
+middle_y = S_y - np.eye(n_inducing_points_cov)
 
-L_inv_w = np.linalg.inv(np.linalg.cholesky(KZZ_w + jitter_term))
-#KZZ_inv_w = np.linalg.inv(KZZ_w + jitter_term)
-right_vec_w = np.linalg.solve(KZZ_w + jitter_term, m_w)
-middle_w = S_w - np.eye(n_inducing_points)
+L_inv_w = np.linalg.inv(np.linalg.cholesky(KZZ_w_cov + jitter_term_cov))
+#KZZ_inv_w_mean = np.linalg.inv(KZZ_w_mean + jitter_term_mean)
+right_vec_w = np.linalg.solve(KZZ_w_mean+ jitter_term_mean, m_w)
+middle_w = S_w - np.eye(n_inducing_points_cov)
 
 
 if over_write_saved_parameters:
     # save quantities to use them later in a solver
-    folder_path = 'System_identification_data_processing/SVGP_saved_parameters/'
-    np.save(folder_path+'m_x.npy', m_x)
+    folder_path = 'System_identification_data_processing/orthogonally_decoupled_SVGP_saved_parameters/'
+
     np.save(folder_path+'middle_x.npy', middle_x)
     np.save(folder_path+'L_inv_x.npy', L_inv_x)
     np.save(folder_path+'right_vec_x.npy', right_vec_x)
-    np.save(folder_path+'inducing_locations_x.npy', inducing_locations_x)
+    np.save(folder_path+'inducing_locations_x_mean.npy', inducing_locations_x_mean)
+    np.save(folder_path+'inducing_locations_x_cov.npy', inducing_locations_x_cov)
     np.save(folder_path+'outputscale_x.npy', outputscale_x)
     np.save(folder_path+'lengthscale_x.npy', lengthscale_x)
 
-    np.save(folder_path+'m_y.npy', m_y)
+
     np.save(folder_path+'middle_y.npy', middle_y)
     np.save(folder_path+'L_inv_y.npy', L_inv_y)
     np.save(folder_path+'right_vec_y.npy', right_vec_y)
-    np.save(folder_path+'inducing_locations_y.npy', inducing_locations_y)
+    np.save(folder_path+'inducing_locations_y_mean.npy', inducing_locations_y_mean)
+    np.save(folder_path+'inducing_locations_y_cov.npy', inducing_locations_y_cov)
     np.save(folder_path+'outputscale_y.npy', outputscale_y)
     np.save(folder_path+'lengthscale_y.npy', lengthscale_y)
 
-    np.save(folder_path+'m_w.npy', m_w)
     np.save(folder_path+'middle_w.npy', middle_w)
     np.save(folder_path+'L_inv_w.npy', L_inv_w)
     np.save(folder_path+'right_vec_w.npy', right_vec_w)
-    np.save(folder_path+'inducing_locations_w.npy', inducing_locations_w)
+    np.save(folder_path+'inducing_locations_w_mean.npy', inducing_locations_w_mean)
+    np.save(folder_path+'inducing_locations_w_cov.npy', inducing_locations_w_cov)
     np.save(folder_path+'outputscale_w.npy', outputscale_w)
     np.save(folder_path+'lengthscale_w.npy', lengthscale_w)
-
 
 
 
@@ -387,10 +384,12 @@ if check_SVGP_analytic_rebuild:
         loc = np.expand_dims(train_x.cpu().numpy()[i,:],0)
 
 
-        kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
+        kXZ_x_mean = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_x_mean),outputscale_x,lengthscale_x)
+        kXZ_x_cov = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_x_cov),outputscale_x,lengthscale_x)
+
 
         #X = solve_triangular(L, kXZ.T, lower=True)
-        X_x = L_inv_x @ kXZ_x.T
+        X_x = L_inv_x @ kXZ_x_cov.T
 
         # prediction
         KXX_x = RBF_kernel_rewritten(loc[0],loc[0],outputscale_x,lengthscale_x)
@@ -398,15 +397,16 @@ if check_SVGP_analytic_rebuild:
 
         # store for plotting
         two_sigma_cov_rebuilt_x[i] = np.sqrt(cov_mS_x) * 2
-        mean_mS_x[i] = kXZ_x @ right_vec_x
+        mean_mS_x[i] = kXZ_x_mean @ right_vec_x
 
 
 
 
-        kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
+        kXZ_y_mean = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_y_mean),outputscale_y,lengthscale_y)
+        kXZ_y_cov = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_y_cov),outputscale_y,lengthscale_y)
 
         #X = solve_triangular(L, kXZ.T, lower=True)
-        X_y = L_inv_y @ kXZ_y.T
+        X_y = L_inv_y @ kXZ_y_cov.T
 
         # prediction
         KXX_y = RBF_kernel_rewritten(loc[0],loc[0],outputscale_y,lengthscale_y)
@@ -414,14 +414,15 @@ if check_SVGP_analytic_rebuild:
 
         # store for plotting
         two_sigma_cov_rebuilt_y[i] = np.sqrt(cov_mS_y) * 2
-        mean_mS_y[i] = kXZ_y @ right_vec_y
+        mean_mS_y[i] = kXZ_y_mean @ right_vec_y
 
 
 
-        kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
+        kXZ_w_mean = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_w_mean),outputscale_w,lengthscale_w)
+        kXZ_w_cov = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_w_cov),outputscale_w,lengthscale_w)
 
         #X = solve_triangular(L, kXZ.T, lower=True)
-        X_w = L_inv_w @ kXZ_w.T
+        X_w = L_inv_w @ kXZ_w_cov.T
 
         # prediction
         KXX_w = RBF_kernel_rewritten(loc[0],loc[0],outputscale_w,lengthscale_w)
@@ -429,7 +430,7 @@ if check_SVGP_analytic_rebuild:
 
         # store for plotting
         two_sigma_cov_rebuilt_w[i] = np.sqrt(cov_mS_w) * 2
-        mean_mS_w[i] = kXZ_w @ right_vec_w
+        mean_mS_w[i] = kXZ_w_mean @ right_vec_w
 
 
 
