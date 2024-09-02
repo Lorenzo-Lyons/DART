@@ -58,6 +58,8 @@ font = {'family' : 'normal',
 #folder_path = 'System_identification_data_processing/Data/5_tire_model_data' 
 #folder_path = 'System_identification_data_processing/Data/6_racetrack_lap_v_060' 
 folder_path = 'System_identification_data_processing/Data/7_racetrack_lap_v_1' 
+#folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor'
+
 
 # get the raw data
 df_raw_data = get_data(folder_path)
@@ -75,6 +77,11 @@ lr = 0.53*l #0.45 the reference point taken by the data is not exaclty in the ce
 
 lf = l-lr
 theta_correction = 1.5/180*np.pi #0.5/180*np.pi works for front wheel and 1.5 works for back wheel
+
+
+
+
+
 
 df = process_raw_vicon_data(df_raw_data,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta_correction)
 
@@ -96,12 +103,6 @@ elif folder_path == 'System_identification_data_processing/Data/7_racetrack_lap_
     # time_finish = 28
     df = df[df['elapsed time sensors'] > time_cut]
     df = df[df['elapsed time sensors'] < time_finish]
-
-    
-
-
-
-
 
 elif folder_path == 'System_identification_data_processing/Data/5_tire_model_data':
     df1 = df[df['elapsed time sensors'] > 5.0]

@@ -235,9 +235,9 @@ def process_raw_vicon_data(df,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta
 
 
     # filtered first time derivative
-    spl_x = CubicSpline(time_vec_vicon, df['vicon x'].to_numpy())
-    spl_y = CubicSpline(time_vec_vicon, df['vicon y'].to_numpy())
-    spl_theta = CubicSpline(time_vec_vicon, df['unwrapped yaw'].to_numpy())
+    # spl_x = CubicSpline(time_vec_vicon, df['vicon x'].to_numpy())
+    # spl_y = CubicSpline(time_vec_vicon, df['vicon y'].to_numpy())
+    # spl_theta = CubicSpline(time_vec_vicon, df['unwrapped yaw'].to_numpy())
 
     window_size = 10
     poly_order = 1
@@ -599,6 +599,7 @@ class motor_curve_model(torch.nn.Sequential):
         self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
         self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
         self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
+        self.register_parameter(name='d', param=torch.nn.Parameter(torch.Tensor([param_vals[3]]).cuda()))
 
 
     def transform_parameters_norm_2_real(self):
@@ -609,10 +610,11 @@ class motor_curve_model(torch.nn.Sequential):
         constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
 
         # motor curve F= (a - v * b) * w * (throttle+c) : w = 0.5 * (torch.tanh(100*(throttle+c))+1)
-        a = self.minmax_scale_hm(5,40,constraint_weights(self.a))
-        b = self.minmax_scale_hm(0.1,10,constraint_weights(self.b))
-        c = self.minmax_scale_hm(-0.3,0.3,constraint_weights(self.c))
-        return [a,b,c]
+        a = self.minmax_scale_hm(25,45,constraint_weights(self.a))
+        b = self.minmax_scale_hm(0,15,constraint_weights(self.b))
+        c = self.minmax_scale_hm(-0.3,0,constraint_weights(self.c))
+        d = self.minmax_scale_hm(-0.3,0.3,constraint_weights(self.d))
+        return [a,b,c,d]
         
     def minmax_scale_hm(self,min,max,normalized_value):
     # normalized value should be between 0 and 1
@@ -622,9 +624,10 @@ class motor_curve_model(torch.nn.Sequential):
         throttle = torch.unsqueeze(train_x[:,0],1)
         v = torch.unsqueeze(train_x[:,1],1)
         # evaluate motor force as a function of the throttle
-        [a,b,c] = self.transform_parameters_norm_2_real()
+        [a,b,c,d] = self.transform_parameters_norm_2_real()
         w = 0.5 * (torch.tanh(100*(throttle+c))+1)
-        Fx =  (a - v * b) * w * (throttle+c)
+        Fx =  (a - v * b) * w * (throttle+c) + a * d * w * (throttle+c)**2 # - d * w * (v)**2 * (throttle+c) #
+
         return Fx
     
 
@@ -638,6 +641,7 @@ class friction_curve_model(torch.nn.Sequential):
         self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
         self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
         self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
+        self.register_parameter(name='d', param=torch.nn.Parameter(torch.Tensor([param_vals[3]]).cuda()))
 
 
     def transform_parameters_norm_2_real(self):
@@ -652,7 +656,8 @@ class friction_curve_model(torch.nn.Sequential):
         a = self.minmax_scale_hm(0.1,3.0,constraint_weights(self.a))
         b = self.minmax_scale_hm(1,100,constraint_weights(self.b))
         c = self.minmax_scale_hm(0.01,2,constraint_weights(self.c))
-        return [a,b,c]
+        d = self.minmax_scale_hm(-0.2,0.2,constraint_weights(self.d))
+        return [a,b,c,d]
   
     def minmax_scale_hm(self,min,max,normalized_value):
     # normalized value should be between 0 and 1
@@ -660,8 +665,8 @@ class friction_curve_model(torch.nn.Sequential):
     
     def forward(self, train_x):  # this is the model that will be fitted
         # --- friction evalaution
-        [a,b,c] = self.transform_parameters_norm_2_real()
-        Fx = - a * torch.tanh(b  * train_x) - train_x * c
+        [a,b,c,d] = self.transform_parameters_norm_2_real()
+        Fx = - ( a * torch.tanh(b  * train_x) + c * train_x + d * train_x**2 )
 
         return Fx
 

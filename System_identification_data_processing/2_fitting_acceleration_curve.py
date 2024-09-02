@@ -16,8 +16,9 @@ matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
-
+#folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
+folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor' 
+#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
 
 
 
@@ -32,8 +33,8 @@ ax0,ax1,ax2 = plot_raw_data(df_raw_data)
 
 # smooth velocity data
 # Set the window size for the moving average
-window_size = 5#5
-poly_order = 2
+window_size = 3#5
+poly_order = 1
 
 # Apply Savitzky-Golay filter
 smoothed_vel_encoder = savgol_filter(df_raw_data['vel encoder'].to_numpy(), window_size, poly_order)
@@ -48,14 +49,20 @@ plt.legend()
 
 
 # identify  delay
-delay_th = 0.1 # [s]
+delay_th = 0.15 # [s]
 
 # process the raw data
 m =1.67 #mass of the robot
-# friction curve parameters
-a_friction  =  1.6837230920791626
-b_friction  =  13.49715518951416
-c_friction  =  0.3352389633655548
+# friction curve parameters from smooth floor
+# a_friction  =  1.6837230920791626
+# b_friction  =  13.49715518951416
+# c_friction  =  0.3352389633655548
+
+# friction curve parameters from rubbery floor
+a_friction =  1.5837167501449585
+b_friction =  14.215554237365723
+c_friction =  0.5013455152511597
+d_friction =  -0.057962968945503235
 
 
 # df = process_raw_data_acceleration(df_raw_data, delay_st)
@@ -63,17 +70,21 @@ df = df_raw_data[['elapsed time sensors','throttle']].copy()
 df['throttle delayed'] = np.interp(df_raw_data['elapsed time sensors'].to_numpy()-delay_th, df_raw_data['elapsed time sensors'].to_numpy(), df_raw_data['throttle'].to_numpy())
 df['vel encoder smoothed'] =  smoothed_vel_encoder # df_raw_data['vel encoder'] #non smoothed
 
-spl_vel = CubicSpline(df['elapsed time sensors'].to_numpy(), df['vel encoder smoothed'].to_numpy())
+
+# using raw velocity data
+df['vel encoder'] = df_raw_data['vel encoder']
+spl_vel = CubicSpline(df['elapsed time sensors'].to_numpy(), df_raw_data['vel encoder'].to_numpy())  #df['vel encoder smoothed']
+
 df['force'] =   m * spl_vel(df['elapsed time sensors'].to_numpy(),1) # take the first derivative of the spline
-df['friction force'] = + a_friction * np.tanh(b_friction  * df['vel encoder smoothed'] ) + df['vel encoder smoothed'] * c_friction
+df['friction force'] = + ( a_friction * np.tanh(b_friction  * df['vel encoder smoothed'] ) + c_friction * df['vel encoder smoothed'] + d_friction * df['vel encoder smoothed']**2)
 df['motor force'] = df['force'] + df['friction force']
 
 
-#df = df[df['vel encoder smoothed']>0.2]
-#v_spline_dev = v_spline.derivative()
-#df['force'] =  v_spline_dev(df['elapsed time sensors'].to_numpy()) # take the first derivative of the spline
 
 
+# select datapoints with velocity larger than a minimum value
+df = df[df['vel encoder smoothed']>0.2]
+#df = df[df['throttle']>0.2] # only active throttle
 
 
 
@@ -92,13 +103,10 @@ fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, ws
 
 ax3.set_title('velocity Vs motor force')
 ax3.plot(df['elapsed time sensors'].to_numpy(),df['vel encoder smoothed'].to_numpy(),label="velocity [m/s]",color='dodgerblue',linewidth=3)
-#ax3.plot(df['elapsed time sensors'].to_numpy(),df['force'].to_numpy(),label="force",color='gray')
 ax3.plot(df['elapsed time sensors'].to_numpy(),df['friction force'].to_numpy(),label="estimated friction force [N]",color='dimgray',linewidth=3)
 ax3.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),label="motor force [N]",color='k',linewidth=3)
-#ax3.step(df['elapsed time sensors'].to_numpy(),df['throttle delayed'].to_numpy(),label="throttle delayed",color='dimgray')
-#ax3.step(df['elapsed time sensors'].to_numpy(),df['throttle'].to_numpy(),label="throttle",color='gray',linestyle="--")
 ax3.set_xlabel('time [s]')
-ax3.legend()
+
 
 
 # --------------- fitting acceleration curve--------------- 
@@ -106,7 +114,7 @@ print('')
 print('Fitting acceleration curve model')
 
 # define first guess for parameters
-initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
+initial_guess = torch.ones(4) * 0.5 # initialize parameters in the middle of their range constraint
 # NOTE that the parmeter range constraint is set in the self.transform_parameters_norm_2_real method.
 initial_guess[0] = torch.Tensor([0.95])
 
@@ -120,10 +128,10 @@ train_its = 500
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss(reduction = 'mean') 
-optimizer_object = torch.optim.Adam(motor_curve_model_obj.parameters(), lr=0.01)
+optimizer_object = torch.optim.Adam(motor_curve_model_obj.parameters(), lr=0.003)
         
 # generate data in tensor form for torch
-train_x = torch.tensor(df[['throttle','vel encoder smoothed']].to_numpy()).cuda()
+train_x = torch.tensor(df[['throttle','vel encoder']].to_numpy()).cuda()  # non smothed velocity 'vel encoder smoothed'  # throttle should be delayed or not?
 #train_x = torch.unsqueeze(torch.tensor(df['throttle'].to_numpy()),1).cuda()
 train_y = torch.unsqueeze(torch.tensor(df['motor force'].to_numpy()),1).cuda()
 
@@ -155,12 +163,12 @@ for i in range(train_its):
     optimizer_object.step() # this updates parameters automatically according to the optimizer you chose
 
 # --- print out parameters ---
-[a,b,c] = motor_curve_model_obj.transform_parameters_norm_2_real()
-a, b, c = a.item(), b.item(), c.item()
+[a,b,c,d] = motor_curve_model_obj.transform_parameters_norm_2_real()
+a, b, c, d = a.item(), b.item(), c.item(), d.item()
 print('a = ', a)
 print('b = ', b)
 print('c = ', c)
-
+print('d = ', d)
 
 # plot loss function
 plt.figure()
@@ -249,7 +257,7 @@ plt.legend()
 
 #add predicted motor force to previous plot
 ax3.plot(df['elapsed time sensors'].to_numpy(),output.cpu().detach().numpy(),color='orangered',linewidth=3,label="estimated motor force")
-
+ax3.legend()
 
 plt.show()
 

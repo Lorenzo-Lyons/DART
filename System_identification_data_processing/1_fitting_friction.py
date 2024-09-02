@@ -15,7 +15,8 @@ matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/1_step_input_data'  
+#folder_path = 'System_identification_data_processing/Data/1_step_input_data'  
+folder_path = 'System_identification_data_processing/Data/11_step_input_data_rubbery_floor' 
 
 # get the raw data
 df_raw_data = get_data(folder_path)
@@ -23,34 +24,38 @@ df_raw_data = get_data(folder_path)
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df_raw_data)
 
-# smooth velocity data
+# --- smooth velocity data ---
 # Set the window size for the moving average
 window_size = 5 
 poly_order = 2
 
 # Apply Savitzky-Golay filter
 smoothed_vel_encoder = savgol_filter(df_raw_data['vel encoder'].to_numpy(), window_size, poly_order)
-
 # add smoothed velocity data to plot
 ax1.plot(df_raw_data['elapsed time sensors'].to_numpy(),smoothed_vel_encoder,label="vel encoder smoothed",color='k',linestyle='--')
 plt.legend()
 
 # setdelay
-delay_th = 0.1 # [s]
+delay_th = 0.15 #0.1 # [s]
 
 # --- process the raw data ---
 df = df_raw_data[['elapsed time sensors','throttle']].copy() 
 df['throttle delayed'] = np.interp(df_raw_data['elapsed time sensors'].to_numpy()-delay_th, df_raw_data['elapsed time sensors'].to_numpy(), df_raw_data['throttle'].to_numpy())
 df['vel encoder smoothed'] =  smoothed_vel_encoder # df_raw_data['vel encoder'] #non smoothed
 
-spl_vel = CubicSpline(df['elapsed time sensors'].to_numpy(), df['vel encoder smoothed'].to_numpy())
+
+#evaluate acceleration
 m =1.67 #mass of the robot
+spl_vel = CubicSpline(df['elapsed time sensors'].to_numpy(), df['vel encoder smoothed'].to_numpy())
 df['force'] =  m * spl_vel(df['elapsed time sensors'].to_numpy(),1) # take the first derivative of the spline
 
-# select only the data points where th throttle is 0
-df = df[df['throttle']==0]
-df = df[df['force']>-4]
 
+
+
+# select only the data points where th throttle delayed is 0
+df = df[df['throttle delayed']==0]
+#df = df[df['force']<0] # only negative force
+df = df[df['force']<0] # only negative force
 
 
 # plot velocity information against force
@@ -75,7 +80,7 @@ print('Fitting acceleration curve model')
 
 
 # define first guess for parameters
-initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
+initial_guess = torch.ones(4) * 0.5 # initialize parameters in the middle of their range constraint
 # NOTE that the parmeter range constraint is set in the self.transform_parameters_norm_2_real method.
 
 #instantiate the model
@@ -90,7 +95,7 @@ optimizer_object = torch.optim.Adam(friction_curve_model_obj.parameters(), lr=0.
         
 # generate data in tensor form for torch
 train_x = torch.unsqueeze(torch.tensor(df['vel encoder smoothed'].to_numpy()),1).cuda()
-train_y = torch.unsqueeze(torch.tensor(df['force'].to_numpy()),1).cuda()
+train_y = torch.unsqueeze(torch.tensor(df['force'].to_numpy()),1).cuda()  # using forces evaluated using finite differences smoothed
 
 # save loss values for later plot
 loss_vec = np.zeros(train_its)
@@ -115,12 +120,12 @@ for i in range(train_its):
 
 
 # --- print out parameters ---
-[a,b,c] = friction_curve_model_obj.transform_parameters_norm_2_real()
-a, b, c = a.item(), b.item(), c.item()
+[a,b,c,d] = friction_curve_model_obj.transform_parameters_norm_2_real()
+a, b, c, d = a.item(), b.item(), c.item(), d.item()
 print('a = ', a)
 print('b = ', b)
 print('c = ', c)
-
+print('d = ', d)
 
 
 # --- plot loss function ---
@@ -148,6 +153,8 @@ plt.plot(v_vec.cpu().numpy(),force_vec,label = 'Friction curve',zorder=20,color=
 plt.xlabel('Velocity [m\s]')
 plt.ylabel('Force [N]')
 #ax1.set_title('Friction curve')
+plt.xlim([-0.2,4])
+plt.ylim([-4,0.2])
 plt.legend()
 
 plt.show()
