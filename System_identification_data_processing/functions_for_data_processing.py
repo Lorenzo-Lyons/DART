@@ -589,47 +589,7 @@ class steering_actuator_model(torch.nn.Sequential):
     
 
 
-class motor_curve_model(torch.nn.Sequential):
-    def __init__(self,param_vals):
-        super(motor_curve_model, self).__init__()
-        # define mass of the robot
 
-
-        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
-        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
-        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
-        self.register_parameter(name='d', param=torch.nn.Parameter(torch.Tensor([param_vals[3]]).cuda()))
-
-
-    def transform_parameters_norm_2_real(self):
-        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
-        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
-        # so every parameter is effectively constrained to be within a certain range.
-        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
-        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
-
-        # motor curve F= (a - v * b) * w * (throttle+c) : w = 0.5 * (torch.tanh(100*(throttle+c))+1)
-        a = self.minmax_scale_hm(25,45,constraint_weights(self.a))
-        b = self.minmax_scale_hm(0,15,constraint_weights(self.b))
-        c = self.minmax_scale_hm(-0.3,0,constraint_weights(self.c))
-        d = self.minmax_scale_hm(-0.3,0.3,constraint_weights(self.d))
-        return [a,b,c,d]
-        
-    def minmax_scale_hm(self,min,max,normalized_value):
-    # normalized value should be between 0 and 1
-        return min + normalized_value * (max-min)
-    
-    def forward(self, train_x):  # this is the model that will be fitted
-        throttle = torch.unsqueeze(train_x[:,0],1)
-        v = torch.unsqueeze(train_x[:,1],1)
-        # evaluate motor force as a function of the throttle
-        [a,b,c,d] = self.transform_parameters_norm_2_real()
-        w = 0.5 * (torch.tanh(100*(throttle+c))+1)
-        Fx =  (a - v * b) * w * (throttle+c) + a * d * w * (throttle+c)**2 # - d * w * (v)**2 * (throttle+c) #
-
-        return Fx
-    
 
 
 
@@ -670,6 +630,118 @@ class friction_curve_model(torch.nn.Sequential):
 
         return Fx
 
+
+
+class motor_curve_model(torch.nn.Sequential):
+    def __init__(self,param_vals):
+        super(motor_curve_model, self).__init__()
+        # define mass of the robot
+
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
+        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
+        self.register_parameter(name='d', param=torch.nn.Parameter(torch.Tensor([param_vals[3]]).cuda()))
+        self.register_parameter(name='e', param=torch.nn.Parameter(torch.Tensor([param_vals[4]]).cuda()))
+        self.register_parameter(name='f', param=torch.nn.Parameter(torch.Tensor([param_vals[5]]).cuda()))
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+
+        # motor curve F= (a - v * b) * w * (throttle+c) : w = 0.5 * (torch.tanh(100*(throttle+c))+1)
+        a = self.minmax_scale_hm(25,45,constraint_weights(self.a))
+        b = self.minmax_scale_hm(0,15,constraint_weights(self.b))
+        c = self.minmax_scale_hm(-0.3,0,constraint_weights(self.c))
+        # d = self.minmax_scale_hm(-0.3,0.3,constraint_weights(self.d))
+        # e = self.minmax_scale_hm(2,10,constraint_weights(self.e))
+        # f = self.minmax_scale_hm(-2,4,constraint_weights(self.f))
+
+        #b = self.minmax_scale_hm(0,1,constraint_weights(self.b))
+        d = self.minmax_scale_hm(0,1,constraint_weights(self.d))
+        e = self.minmax_scale_hm(0,1,constraint_weights(self.e))
+        f = self.minmax_scale_hm(0,1,constraint_weights(self.f))
+
+
+        return [a,b,c,d,e,f]
+        
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+    def forward(self, train_x):  # this is the model that will be fitted
+        throttle = torch.unsqueeze(train_x[:,0],1)
+        v = torch.unsqueeze(train_x[:,1],1)
+        throttle_prev = torch.unsqueeze(train_x[:,2],1)
+        throttle_prev_prev = torch.unsqueeze(train_x[:,3],1)
+
+        # evaluate motor force as a function of the throttle
+        [a,b,c,d,e,f] = self.transform_parameters_norm_2_real()
+
+        throttle_filtered = (d * throttle + e * throttle_prev + f * throttle_prev_prev)/(d+e+f)
+        w = 0.5 * (torch.tanh(100*(throttle+c))+1)
+
+        W_correction_term_activation = 0.5+0.5*torch.tanh(e*(v-f))
+        vel_term = b * v  #b * torch.tanh(e*v)
+        #additional_throttle_term =  d * (1-torch.tanh((e * v)))  #a * d  * w * (throttle+c) * v**3
+        Fx =  (a - vel_term) * w * (throttle_filtered+c) #+ additional_throttle_term #+ a * d * w * (throttle+c)**1 * v**3 * W_correction_term_activation  #+ a * d * w * (throttle+c)**2 # - d * w * (v)**2 * (throttle+c) #
+        # #+ additional_throttle_term #
+
+
+
+        # W_correction_term_activation = d * (v*0.2)**e * (throttle)**f
+        #Fx =  (a - v * (1 - W_correction_term_activation) * b) * w * (throttle+c) #+ a * d * w * (throttle+c)**1 * v**3 * W_correction_term_activation
+
+        return Fx
+
+
+
+
+
+class motor_curve_model_inductance(torch.nn.Sequential):
+    def __init__(self,param_vals):
+        super(motor_curve_model_inductance, self).__init__()
+        # define mass of the robot
+
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
+        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+
+        a = self.minmax_scale_hm(10,50,constraint_weights(self.a))
+        b = self.minmax_scale_hm(10,-10,constraint_weights(self.b))
+        c = self.minmax_scale_hm(10,-10,constraint_weights(self.c))
+
+        return [a,b,c]
+        
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+    def forward(self, train_x):  # this is the model that will be fitted
+        throttle = torch.unsqueeze(train_x[:,0],1)
+        v = torch.unsqueeze(train_x[:,1],1)
+        F = torch.unsqueeze(train_x[:,2],1)
+
+        # evaluate motor force derivative as a function of the throttle,velocity and current motor force
+        [a,b,c] = self.transform_parameters_norm_2_real()
+        Fx_dot = a * throttle + b * v + c * F
+
+        return Fx_dot
 
 
 class force_model(torch.nn.Sequential):
