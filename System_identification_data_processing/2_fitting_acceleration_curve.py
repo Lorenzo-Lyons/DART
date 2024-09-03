@@ -18,9 +18,9 @@ matplotlib.rc('font', **font)
 # this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor' 
-#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
+folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST' 
-folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST_inductance' 
+#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST_inductance' 
 
 
 # get the raw data
@@ -28,7 +28,7 @@ df_raw_data = get_data(folder_path)
 
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df_raw_data)
-#plt.show()
+
 
 
 # smooth velocity data
@@ -105,11 +105,12 @@ df['friction force'] = + ( a_friction * np.tanh(b_friction  * df['vel encoder'] 
 df['motor force'] = df['force'] + df['friction force']
 
 
-
-
-# select datapoints with velocity larger than a minimum value
-#df = df[df['vel encoder']>0]
-#df = df[df['throttle']>0.2] # only active throttle
+#adding delayed throttle signal
+df['throttle prev1'] = np.append(0,df['throttle'].to_numpy()[:-1])
+df['throttle prev2'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
+df['throttle prev3'] = np.append([0,0,0],df['throttle'].to_numpy()[:-3])
+df['throttle prev4'] = np.append([0,0,0,0],df['throttle'].to_numpy()[:-4])
+df['throttle prev5'] = np.append([0,0,0,0,0],df['throttle'].to_numpy()[:-5])
 
 
 
@@ -143,48 +144,45 @@ ax3.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),colo
 
 
 
-
 ax3.set_xlabel('time [s]')
 ax3.set_title('Processed training data')
 
-# plot throttle signal and it's filtered version against the motor force. This is to se if we can capture the inductance dynamics in this way
+# # plot throttle signal and it's filtered version against the motor force. This is to se if we can capture the inductance dynamics in this way
+# # this is needed to set a first guess of what the filter should be
+# throttle_filtered = np.zeros(df['throttle'].shape[0])
+# alpha = 0.8
+# for i in range(1,df['throttle'].shape[0]):
+#     throttle_filtered[i] = (1 - alpha)*throttle_filtered[i-1] + alpha*df['throttle'].to_numpy()[i]
 
-throttle_filtered = np.zeros(df['throttle'].shape[0])
-alpha = 0.8
-for i in range(1,df['throttle'].shape[0]):
-    throttle_filtered[i] = (1 - alpha)*throttle_filtered[i-1] + alpha*df['throttle'].to_numpy()[i]
+# df['throttle filtered'] = throttle_filtered
 
-df['throttle filtered'] = throttle_filtered
-
-#adding delayed throttle signal
-df['throttle prev'] = np.append(0,df['throttle'].to_numpy()[:-1])
-df['throttle prev prev'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
-
-
-
-fig, ((ax4)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
-fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, wspace=0.2)
-
-plot_scale_factor = df['motor force'].max() / df['throttle'].max()
-
-# throttle
-ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle'].to_numpy(),where='post',color='gray',linewidth=2,label="throttle")
-ax4.plot(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle'].to_numpy(),color='gray',linewidth=2,marker='.',markersize=10,linestyle='none')
-
-# ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle prev'].to_numpy(),where='post',color='brown',linewidth=2,label="throttle prev")
-# ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle prev prev'].to_numpy(),where='post',color='brown',linewidth=2,label="throttle prev prev")
-
-# filtered throttle
-ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * throttle_filtered,where='post',color='maroon',linewidth=2,label="throttle")
-ax4.plot(df['elapsed time sensors'].to_numpy(),plot_scale_factor * throttle_filtered,color='maroon',linewidth=2,marker='.',markersize=10,linestyle='none')
+# #adding delayed throttle signal
+# df['throttle prev'] = np.append(0,df['throttle'].to_numpy()[:-1])
+# df['throttle prev prev'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
 
 
 
-# estimated motor force
-ax4.step(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),where='post',color='k',linewidth=2,label="motor force [N]")
-ax4.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),color='k',linewidth=2,marker='.',markersize=10,linestyle='none')
+# fig, ((ax4)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
+# fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, wspace=0.2)
 
-ax4.legend()
+# plot_scale_factor = df['motor force'].max() / df['throttle'].max()
+
+# # throttle
+# ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle'].to_numpy(),where='post',color='gray',linewidth=2,label="throttle")
+# ax4.plot(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle'].to_numpy(),color='gray',linewidth=2,marker='.',markersize=10,linestyle='none')
+
+# # filtered throttle
+# ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * throttle_filtered,where='post',color='maroon',linewidth=2,label="throttle")
+# ax4.plot(df['elapsed time sensors'].to_numpy(),plot_scale_factor * throttle_filtered,color='maroon',linewidth=2,marker='.',markersize=10,linestyle='none')
+
+# # estimated motor force
+# ax4.step(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),where='post',color='k',linewidth=2,label="motor force [N]")
+# ax4.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),color='k',linewidth=2,marker='.',markersize=10,linestyle='none')
+
+# ax4.legend()
+
+
+
 
 
 # --------------- fitting acceleration curve--------------- 
@@ -194,25 +192,26 @@ print('Fitting acceleration curve model')
 # define first guess for parameters
 initial_guess = torch.ones(6) * 0.5 # initialize parameters in the middle of their range constraint
 # NOTE that the parmeter range constraint is set in the self.transform_parameters_norm_2_real method.
-initial_guess[3] = torch.Tensor([0.8])
-initial_guess[4] = torch.Tensor([0.16])
-initial_guess[5] = torch.Tensor([0.032])
+# initial_guess[3] = torch.Tensor([0.8])
+# initial_guess[0] = torch.Tensor([0.01])
+# initial_guess[5] = torch.Tensor([0])
 
 
 
 # NOTE that the parmeter range constraint is set in motor_curve_model.transform_parameters_norm_2_real method.
-motor_curve_model_obj = motor_curve_model(initial_guess)
+n_past_throttle = 3
+motor_curve_model_obj = motor_curve_model(initial_guess,n_past_throttle)
 
 # define number of training iterations
 normalize_output = False
-train_its = 2000
+train_its = 750
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss(reduction = 'mean') 
 optimizer_object = torch.optim.Adam(motor_curve_model_obj.parameters(), lr=0.003)
         
 # generate data in tensor form for torch
-train_x = torch.tensor(df[['throttle','vel encoder','throttle prev','throttle prev prev']].to_numpy()).cuda()  
+train_x = torch.tensor(df[['throttle','vel encoder','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()).cuda()  
 train_y = torch.unsqueeze(torch.tensor(df['motor force'].to_numpy()),1).cuda()
 
 # save loss values for later plot
@@ -223,8 +222,12 @@ loss_vec = np.zeros(train_its)
 
 # determine maximum value of training data for output normalization
 if normalize_output:
+    # Define a small threshold value
+    threshold = 1e-6  # Adjust this value based on your needs
     max_y = train_y.max().item()
     rescale_vector = torch.Tensor(train_y.cpu().detach().numpy() / max_y).cuda()
+    # Replace values that are close to zero with ones
+    rescale_vector[rescale_vector.abs() < threshold] = 1
 else:
     rescale_vector=torch.ones(train_y.shape[0]).cuda()
 
@@ -258,6 +261,49 @@ print('d = ', d)
 print('e = ', e)
 print('f = ', f)
 
+
+
+# evalauting filter coefficient
+k0 = d
+k1 = d * (1-d)
+k2 = d * (1-d)**2
+k3 = d * (1-d)**3 
+k4 = d * (1-d)**4 
+k5 = d * (1-d)**5 
+
+
+k_vec = np.array([k0,k1,k2,k3,k4,k5])
+k_vec = k_vec[:n_past_throttle+1]
+sum = np.sum(k_vec)
+k_vec = k_vec/sum
+
+# coefficients if k0 were used as a filter
+c0 = k0/sum
+c1 = k0/sum * (1-k0/sum)
+c2 = k0/sum * (1-k0/sum) ** 2
+c3 = k0/sum * (1-k0/sum) ** 3
+c4 = k0/sum * (1-k0/sum) ** 4  
+c5 = k0/sum * (1-k0/sum) ** 5
+c_vec = np.array([c0,c1,c2,c3,c4,c5])
+c_vec = c_vec[:n_past_throttle+1]
+
+# Calculate the error
+error = c_vec - k_vec
+
+# Print out the error with 4 decimal places
+print('filter coefficients')
+for i in range(1+n_past_throttle):
+    print(f"k_{i}: {k_vec[i]:.4f}")
+print('')
+# Print out the error with 4 decimal places
+print('Error between coefficients and filter coefficients')
+for i in range(1+n_past_throttle):
+    print(f"Error at index {i}: {error[i]:.4f}")
+
+#print ('coefficients = ',k0/sum,' ',k1/sum,' ',k2/sum)
+#print('error between coeffiecients = ',k1/sum*(1-k1/sum)-k2/sum,' ',k1/sum*(1-k1/sum)**2-k3/sum)
+
+
 # plot loss function
 plt.figure()
 plt.title('Loss')
@@ -273,9 +319,52 @@ ax3.legend()
 
 
 
-plt.show()
+
+#plot throttle signal and it's filtered version against the motor force. This is to se if we can capture the inductance dynamics in this way
+# this is needed to set a first guess of what the filter should be
+throttle_filtered = np.zeros(df['throttle'].shape[0])
+alpha = k_vec[0] # set to a fixed value to set an initial guess for the fitting procedure
+
+for i in range(1,df['throttle'].shape[0]):
+    throttle_filtered[i] = (1 - alpha)*throttle_filtered[i-1] + alpha*df['throttle'].to_numpy()[i]
+df['throttle filtered'] = throttle_filtered
 
 
+# throttle filtered as in model
+#throttle_weighted_average = np.zeros(df['throttle'].shape[0])
+throttle_matrix = df[['throttle','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()
+throttle_matrix = throttle_matrix[:,:n_past_throttle+1]
+
+# for i in range(df['throttle'].shape[0]):
+#     throttle_weighted_average[i] = 
+throttle_weighted_average = throttle_matrix @ np.expand_dims(k_vec,1)
+
+
+fig, ((ax4)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
+fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, wspace=0.2)
+
+
+# throttle
+ax4.step(df['elapsed time sensors'].to_numpy(),df['throttle'].to_numpy(),where='post',color='gray',linewidth=2,label="throttle")
+ax4.plot(df['elapsed time sensors'].to_numpy(),df['throttle'].to_numpy(),color='gray',linewidth=2,marker='.',markersize=10,linestyle='none')
+
+# filtered throttle
+ax4.step(df['elapsed time sensors'].to_numpy(),throttle_weighted_average,where='post',color='orangered',linewidth=2,label="throttle weighted")
+ax4.plot(df['elapsed time sensors'].to_numpy(),throttle_weighted_average,color='orangered',linewidth=2,marker='.',markersize=10,linestyle='none')
+
+# filtered throttle
+ax4.step(df['elapsed time sensors'].to_numpy(),throttle_filtered,where='post',color='k',linewidth=2,label="throttle filtered",linestyle='--')
+ax4.plot(df['elapsed time sensors'].to_numpy(),throttle_filtered,color='k',linewidth=2,marker='.',markersize=10,linestyle='none')
+
+
+ax4.legend()
+
+
+# add to the fitting results plot, the value of force using the filtered throttle
+output_filtered_throttle = motor_curve_model_obj.motor_equation(torch.Tensor(throttle_filtered).cuda(),train_x[:,1]).detach().cpu().view(-1).numpy()
+ax3.step(df['elapsed time sensors'].to_numpy(),output_filtered_throttle,where='post',color='red',linewidth=2,label="estimated motor force filtered throttle")
+ax3.plot(df['elapsed time sensors'].to_numpy(),output_filtered_throttle,color='red',linewidth=2,marker='.',markersize=10,linestyle='none')
+ax3.legend()
 
 
 
@@ -285,11 +374,10 @@ plt.show()
 from mpl_toolkits.mplot3d import Axes3D
 fig = plt.figure(figsize=(8, 6))
 ax = fig.add_subplot(111, projection='3d')
-x = train_x[:,0].cpu().detach().numpy()
+x = throttle_weighted_average #train_x[:,0].cpu().detach().numpy()
 y = train_x[:,1].cpu().detach().numpy()
 z = train_y.cpu().detach().numpy()
 ax.scatter(x, y, z, c='b', marker='o')
-
 
 
 # Create a meshgrid for the surface plot
@@ -309,7 +397,7 @@ input_points = np.column_stack(
 )
 
 input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
-Force_grid = motor_curve_model_obj(input_grid).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
+Force_grid = motor_curve_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
 
 # Plot the surface
 ax.plot_surface(throttle_grid, velocity_grid, Force_grid, cmap='viridis', alpha=1)
@@ -358,8 +446,6 @@ plt.legend()
 
 
 
-
-
 #plot error between model and data
 fig = plt.figure(figsize=(8, 6))
 ax = fig.add_subplot(111, projection='3d')
@@ -367,7 +453,7 @@ z = output.cpu().detach().numpy() - train_y.cpu().detach().numpy()
 flat_x = x.flatten()
 flat_y = y.flatten()    
 flat_z = z.flatten()
-mask = flat_x >= 0.2
+mask = flat_x >= 0.1
 flat_x = flat_x[mask]
 flat_y = flat_y[mask]
 flat_z = flat_z[mask]

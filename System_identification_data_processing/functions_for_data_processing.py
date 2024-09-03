@@ -633,9 +633,10 @@ class friction_curve_model(torch.nn.Sequential):
 
 
 class motor_curve_model(torch.nn.Sequential):
-    def __init__(self,param_vals):
+    def __init__(self,param_vals,n_previous_throttle):
         super(motor_curve_model, self).__init__()
-        # define mass of the robot
+        # define number of past throttle actions to keep use
+        self.n_previous_throttle = n_previous_throttle
 
 
         # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
@@ -655,7 +656,7 @@ class motor_curve_model(torch.nn.Sequential):
         constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
 
         # motor curve F= (a - v * b) * w * (throttle+c) : w = 0.5 * (torch.tanh(100*(throttle+c))+1)
-        a = self.minmax_scale_hm(25,45,constraint_weights(self.a))
+        a = self.minmax_scale_hm(0,45,constraint_weights(self.a))
         b = self.minmax_scale_hm(0,15,constraint_weights(self.b))
         c = self.minmax_scale_hm(-0.3,0,constraint_weights(self.c))
         # d = self.minmax_scale_hm(-0.3,0.3,constraint_weights(self.d))
@@ -677,28 +678,34 @@ class motor_curve_model(torch.nn.Sequential):
     def forward(self, train_x):  # this is the model that will be fitted
         throttle = torch.unsqueeze(train_x[:,0],1)
         v = torch.unsqueeze(train_x[:,1],1)
-        throttle_prev = torch.unsqueeze(train_x[:,2],1)
-        throttle_prev_prev = torch.unsqueeze(train_x[:,3],1)
+        #throttle_prev = torch.unsqueeze(train_x[:,2],1)
+        #throttle_prev_prev = torch.unsqueeze(train_x[:,3],1)
+        throttle_prev = train_x[:,2:2+self.n_previous_throttle]
 
         # evaluate motor force as a function of the throttle
         [a,b,c,d,e,f] = self.transform_parameters_norm_2_real()
+        # evaluate coefficients for the throttle filter
+        k0 = d
+        k1 = d * (1-d)
+        k2 = d * (1-d)**2
+        k3 = d * (1-d)**3 
+        k4 = d * (1-d)**4 
+        k5 = d * (1-d)**5 
+        sum = (k0+k1+k2+k3+k4+k5)
 
-        throttle_filtered = (d * throttle + e * throttle_prev + f * throttle_prev_prev)/(d+e+f)
-        w = 0.5 * (torch.tanh(100*(throttle+c))+1)
+        k_vec = torch.unsqueeze(torch.cat([k1,k2,k3,k4,k5],0)[:self.n_previous_throttle],1).double()
 
-        W_correction_term_activation = 0.5+0.5*torch.tanh(e*(v-f))
-        vel_term = b * v  #b * torch.tanh(e*v)
-        #additional_throttle_term =  d * (1-torch.tanh((e * v)))  #a * d  * w * (throttle+c) * v**3
-        Fx =  (a - vel_term) * w * (throttle_filtered+c) #+ additional_throttle_term #+ a * d * w * (throttle+c)**1 * v**3 * W_correction_term_activation  #+ a * d * w * (throttle+c)**2 # - d * w * (v)**2 * (throttle+c) #
-        # #+ additional_throttle_term #
-
-
-
-        # W_correction_term_activation = d * (v*0.2)**e * (throttle)**f
-        #Fx =  (a - v * (1 - W_correction_term_activation) * b) * w * (throttle+c) #+ a * d * w * (throttle+c)**1 * v**3 * W_correction_term_activation
+        throttle_filtered = (k0 * throttle + throttle_prev @ k_vec)/sum
+        
+        Fx = self.motor_equation(throttle_filtered,v)
 
         return Fx
-
+    
+    def motor_equation(self,throttle_filtered,v):
+        [a,b,c,d,e,f] = self.transform_parameters_norm_2_real()
+        w = 0.5 * (torch.tanh(100*(throttle_filtered+c))+1)
+        Fx =  (a - b * v) * w * (throttle_filtered+c)
+        return Fx
 
 
 
