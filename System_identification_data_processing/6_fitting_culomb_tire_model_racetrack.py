@@ -57,8 +57,8 @@ font = {'family' : 'normal',
 # this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/5_tire_model_data' 
 #folder_path = 'System_identification_data_processing/Data/6_racetrack_lap_v_060' 
-folder_path = 'System_identification_data_processing/Data/7_racetrack_lap_v_1' 
-#folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor'
+#folder_path = 'System_identification_data_processing/Data/7_racetrack_lap_v_1' 
+folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor'
 
 
 # get the raw data
