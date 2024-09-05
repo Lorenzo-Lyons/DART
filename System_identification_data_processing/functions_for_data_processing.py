@@ -345,9 +345,9 @@ def process_raw_vicon_data(df,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta
 
     #evaluate steering angle (needed for front slip angle)
     a =  1.6379064321517944
-    b =  0.3301370143890381
-    c =  0.019644200801849365 - 0.04 # this value can be tweaked to get the tyre model curves to allign better
-    d =  0.37879398465156555
+    b =  0.3301370143890381 + 0.04
+    c =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
+    d =  0.37879398465156555 + 0.04
     e =  1.6578725576400757
     w = 0.5 * (np.tanh(30*(df['steering']+c))+1)
     steering_angle1 = b * np.tanh(a * (df['steering'] + c)) 
@@ -447,7 +447,7 @@ def plot_vicon_data(df):
     ax1.legend()
 
     # plot body frame data time history
-    ax2.set_title('Vy data raw optitrack')
+    ax2.set_title('Vy data raw vicon')
     ax2.plot(plotting_time_vec, df['throttle'].to_numpy(), label="Throttle",color='gray', alpha=1)
     ax2.plot(plotting_time_vec, df['vel encoder'].to_numpy(),label="Velocity Encoder raw", color='indigo')
     ax2.plot(plotting_time_vec, df['vx body'].to_numpy(), label="Vx body frame",color='dodgerblue')
@@ -509,17 +509,17 @@ def plot_vicon_data(df):
 
     # plot acceleration data
     fig1, ((ax1,ax2,ax3)) = plt.subplots(1, 3, figsize=(10, 6), constrained_layout=True)
-    ax1.plot(df['vicon time'].to_numpy(), df['ax body'].to_numpy(),label='acc x from v abs')
+    ax1.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='acc x absolute measured in body frame',color = 'dodgerblue')
     ax1.set_xlabel('time [s]')
-    ax1.set_title('Acc x')
+    ax1.set_title('X_ddot @ R(yaw)')
     ax1.legend()
 
-    ax2.plot(df['vicon time'].to_numpy(), df['ay body'].to_numpy(),label='acc y from v abs')
+    ax2.plot(df['vicon time'].to_numpy(), df['ay body no centrifugal'].to_numpy(),label='acc y absolute measured in body frame',color = 'orangered')
     ax2.set_xlabel('time [s]')
-    ax2.set_title('Acc y')
+    ax2.set_title('Y_ddot @ R(yaw)')
     ax2.legend()
 
-    ax3.plot(df['vicon time'].to_numpy(), df['aw_abs_filtered_more'].to_numpy())
+    ax3.plot(df['vicon time'].to_numpy(), df['aw_abs_filtered_more'].to_numpy(),label='dt',color = 'slateblue')
     ax3.set_xlabel('time [s]')
     ax3.set_title('Acc w')
     ax3.legend()
@@ -849,6 +849,48 @@ class linear_tire_model(torch.nn.Sequential):
         return F_y
     
 
+class culomb_pacejka_tire_model(torch.nn.Sequential):
+    def __init__(self,param_vals):
+        super(culomb_pacejka_tire_model, self).__init__()
+        # define mass of the robot
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        self.register_parameter(name='d', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        #self.register_parameter(name='e', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+
+        #friction curve F= -  a * tanh(b  * v) - v * c
+        #friction curve F= -  a * tanh(b  * v) - v * c
+        d = self.minmax_scale_hm(-1,-10,constraint_weights(self.d))
+        c = self.minmax_scale_hm(0.5,1.5,constraint_weights(self.c))
+        b = self.minmax_scale_hm(0.01,10,constraint_weights(self.b))
+        #e = self.minmax_scale_hm(-0.01,0,constraint_weights(self.e))
+        return [d,c,b]
+        
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+    def forward(self, train_x):  # this is the model that will be fitted
+        [d,c,b] = self.transform_parameters_norm_2_real()
+        # evalaute lateral tire force
+        F_y = d * torch.sin(c * torch.arctan(b * train_x )) # - e * (b * train_x -torch.arctan(b * train_x))
+        return F_y
+
+
+
+
+
 class pacejka_tire_model(torch.nn.Sequential):
     def __init__(self,param_vals):
         super(pacejka_tire_model, self).__init__()
@@ -1047,23 +1089,29 @@ def produce_long_term_predictions(input_data, model,prediction_window,jumps,forw
 
 
 class dyn_model_culomb_tires():
-    def __init__(self,m,lr,lf,Jz,a_f,b_f,a_r,b_r):
+    def __init__(self,m,lr,lf,Jz,d_f,c_f,b_f,e_f,d_r,c_r,b_r,e_r):
 
         self.m = m
         self.lr = lr
         self.lf = lf
         self.Jz = Jz
-        self.a_f = a_f
+
+        self.d_f = d_f
+        self.c_f = c_f
         self.b_f = b_f
-        self.a_r = a_r
+        self.e_f = e_f
+
+        self.d_r = d_r
+        self.c_r = c_r
         self.b_r = b_r
+        self.e_r = e_r
 
     def steer_angle(self,steer):
         #evaluate steering angle (needed for front slip angle)
         a =  1.6379064321517944
-        b =  0.3301370143890381
-        c =  0.019644200801849365 - 0.04 # this value can be tweaked to get the tyre model curves to allign better
-        d =  0.37879398465156555
+        b =  0.3301370143890381+ 0.04
+        c =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
+        d =  0.37879398465156555+ 0.04
         e =  1.6578725576400757
         w = 0.5 * (np.tanh(30*(steer+c))+1)
         steering_angle1 = b * np.tanh(a * (steer + c)) 
