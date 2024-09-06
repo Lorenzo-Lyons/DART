@@ -17,8 +17,8 @@ matplotlib.rc('font', **font)
 
 # this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
-#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor' 
-folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
+folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor' 
+#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST' 
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST_inductance' 
 
@@ -62,10 +62,6 @@ ax0,ax1,ax2 = plot_raw_data(df_raw_data)
 
 # process the raw data
 m =1.67 #mass of the robot
-# friction curve parameters from smooth floor
-# a_friction  =  1.6837230920791626
-# b_friction  =  13.49715518951416
-# c_friction  =  0.3352389633655548
 
 # friction curve parameters from rubbery floor
 a_friction =  1.5837167501449585
@@ -74,14 +70,8 @@ c_friction =  0.5013455152511597
 d_friction =  -0.057962968945503235
 
 
-
-
-
 # df = process_raw_data_acceleration(df_raw_data, delay_st)
 df = df_raw_data[['elapsed time sensors','throttle','vel encoder']].copy() 
-#df['throttle delayed'] = np.interp(df_raw_data['elapsed time sensors'].to_numpy()-delay_th, df_raw_data['elapsed time sensors'].to_numpy(), df_raw_data['throttle'].to_numpy())
-#df['throttle delayed'] = [0,*df_raw_data['throttle'].to_numpy()[:-1]] # add zero to the beginnning to keep tha dimensions the same
-
 
 #df['vel encoder smoothed'] =  smoothed_vel_encoder # df_raw_data['vel encoder'] #non smoothed
 
@@ -111,8 +101,6 @@ df['throttle prev2'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
 df['throttle prev3'] = np.append([0,0,0],df['throttle'].to_numpy()[:-3])
 df['throttle prev4'] = np.append([0,0,0,0],df['throttle'].to_numpy()[:-4])
 df['throttle prev5'] = np.append([0,0,0,0,0],df['throttle'].to_numpy()[:-5])
-
-
 
 
 
@@ -147,39 +135,6 @@ ax3.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),colo
 ax3.set_xlabel('time [s]')
 ax3.set_title('Processed training data')
 
-# # plot throttle signal and it's filtered version against the motor force. This is to se if we can capture the inductance dynamics in this way
-# # this is needed to set a first guess of what the filter should be
-# throttle_filtered = np.zeros(df['throttle'].shape[0])
-# alpha = 0.8
-# for i in range(1,df['throttle'].shape[0]):
-#     throttle_filtered[i] = (1 - alpha)*throttle_filtered[i-1] + alpha*df['throttle'].to_numpy()[i]
-
-# df['throttle filtered'] = throttle_filtered
-
-# #adding delayed throttle signal
-# df['throttle prev'] = np.append(0,df['throttle'].to_numpy()[:-1])
-# df['throttle prev prev'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
-
-
-
-# fig, ((ax4)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
-# fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, wspace=0.2)
-
-# plot_scale_factor = df['motor force'].max() / df['throttle'].max()
-
-# # throttle
-# ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle'].to_numpy(),where='post',color='gray',linewidth=2,label="throttle")
-# ax4.plot(df['elapsed time sensors'].to_numpy(),plot_scale_factor * df['throttle'].to_numpy(),color='gray',linewidth=2,marker='.',markersize=10,linestyle='none')
-
-# # filtered throttle
-# ax4.step(df['elapsed time sensors'].to_numpy(),plot_scale_factor * throttle_filtered,where='post',color='maroon',linewidth=2,label="throttle")
-# ax4.plot(df['elapsed time sensors'].to_numpy(),plot_scale_factor * throttle_filtered,color='maroon',linewidth=2,marker='.',markersize=10,linestyle='none')
-
-# # estimated motor force
-# ax4.step(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),where='post',color='k',linewidth=2,label="motor force [N]")
-# ax4.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),color='k',linewidth=2,marker='.',markersize=10,linestyle='none')
-
-# ax4.legend()
 
 
 
@@ -190,12 +145,7 @@ print('')
 print('Fitting acceleration curve model')
 
 # define first guess for parameters
-initial_guess = torch.ones(6) * 0.5 # initialize parameters in the middle of their range constraint
-# NOTE that the parmeter range constraint is set in the self.transform_parameters_norm_2_real method.
-# initial_guess[3] = torch.Tensor([0.8])
-# initial_guess[0] = torch.Tensor([0.01])
-# initial_guess[5] = torch.Tensor([0])
-
+initial_guess = torch.ones(4) * 0.5 # initialize parameters in the middle of their range constraint
 
 
 # NOTE that the parmeter range constraint is set in motor_curve_model.transform_parameters_norm_2_real method.
@@ -219,7 +169,6 @@ loss_vec = np.zeros(train_its)
 
 
 
-
 # determine maximum value of training data for output normalization
 if normalize_output:
     # Define a small threshold value
@@ -230,7 +179,6 @@ if normalize_output:
     rescale_vector[rescale_vector.abs() < threshold] = 1
 else:
     rescale_vector=torch.ones(train_y.shape[0]).cuda()
-
 
 
 # train the model
@@ -252,14 +200,12 @@ for i in range(train_its):
     optimizer_object.step() # this updates parameters automatically according to the optimizer you chose
 
 # --- print out parameters ---
-[a,b,c,d,e,f] = motor_curve_model_obj.transform_parameters_norm_2_real()
-a, b, c, d, e, f = a.item(), b.item(), c.item(), d.item(),e.item(), f.item()
+[a,b,c,d] = motor_curve_model_obj.transform_parameters_norm_2_real()
+a, b, c, d = a.item(), b.item(), c.item(), d.item()
 print('a = ', a)
 print('b = ', b)
 print('c = ', c)
 print('d = ', d)
-print('e = ', e)
-print('f = ', f)
 
 
 
