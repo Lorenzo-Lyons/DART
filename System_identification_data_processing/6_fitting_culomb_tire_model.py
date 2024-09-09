@@ -61,7 +61,10 @@ e =  1.6578725576400757
 # ------------------------------------------------------
 
 # select data folder NOTE: this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
+#folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
+
 
 
 
