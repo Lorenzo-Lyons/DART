@@ -963,7 +963,53 @@ class pacejka_tire_model(torch.nn.Sequential):
 
 
 
+class steering_friction_model(torch.nn.Sequential):
+    def __init__(self,param_vals):
+        super(steering_friction_model, self).__init__()
+        # define mass of the robot
 
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+
+        #friction curve F= -  a * tanh(b  * v) - v * c
+        a = self.minmax_scale_hm(0,10,constraint_weights(self.a))
+        b = self.minmax_scale_hm(0,10,constraint_weights(self.b))
+        return [a,b]
+        
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+    def forward(self, train_x):  # this is the model that will be fitted
+        [a,b] = self.transform_parameters_norm_2_real()
+        # evalaute extra friction term due to the steering mechanism
+        v = torch.unsqueeze(train_x[:,0],1)
+        steering_angle = torch.unsqueeze(train_x[:,1],1)
+
+        # reproduce friction term
+        # rolling friction model
+        a_f =  1.5837167501449585
+        b_f =  14.215554237365723
+        c_f =  0.5013455152511597
+        d_f =  -0.057962968945503235
+
+        rolling_friction = a_f * torch.tanh(b_f  * v) + c_f * v + d_f * v**2 
+        
+
+        #F_y = d * torch.sin(c * torch.arctan(b * train_x ))
+        F = a * rolling_friction * torch.tanh(b * steering_angle**2) 
+        return F
 
 
 
@@ -1125,7 +1171,8 @@ def produce_long_term_predictions(input_data, model,prediction_window,jumps,forw
 class dyn_model_culomb_tires():
     def __init__(self,m,lr,lf,l_COM,Jz,d_tire,c_tire,b_tire,
                  a_m,b_m,c_m,
-                 a_f,b_f,c_f,d_f):
+                 a_f,b_f,c_f,d_f,
+                 a_stfr,b_stfr):
 
         self.m = m
         self.l_COM = l_COM
@@ -1148,6 +1195,10 @@ class dyn_model_culomb_tires():
         self.b_f =  b_f
         self.c_f =  c_f
         self.d_f =  d_f
+
+        # extra friction due to steering
+        self.a_stfr = a_stfr
+        self.b_stfr = b_stfr
 
 
     def motor_force(self,th,v):
@@ -1173,7 +1224,12 @@ class dyn_model_culomb_tires():
         steer_angle = state_action[4]
 
         #evaluate forward force
-        Fx = self.motor_force(throttle,vx) + self.friction(vx)
+        if self.a_stfr:
+            steering_friction_term   = self.friction(vx) * self.a_stfr * np.tanh(self.b_stfr * steer_angle**2)
+        else:
+            steering_friction_term = 0
+
+        Fx = self.motor_force(throttle,vx) + self.friction(vx) #+ steering_friction_term
 
         # evaluate lateral tire forces
         Vy_wheel_f = np.cos(steer_angle)*(vy + self.lf*w) - np.sin(steer_angle) * vx
@@ -1200,7 +1256,7 @@ class dyn_model_culomb_tires():
         Fx = body_forces[0]
         Fy = body_forces[1]
 
-        return np.array([Fx/self.m,Fy/self.m,body_forces[2]/self.Jz])
+        return np.array([(Fx + steering_friction_term)/self.m,Fy/self.m,body_forces[2]/self.Jz])
     
 
 

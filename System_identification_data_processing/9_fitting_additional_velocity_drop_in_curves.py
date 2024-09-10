@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,linear_tire_model,pacejka_tire_model,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model
+,dyn_model_culomb_tires,steering_friction_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -16,8 +16,6 @@ font = {'family' : 'normal',
 # This script is used to fit the tire model to the data collected using the vicon external tracking system with a 
 # SIMPLE CULOMB friction tyre model.
 
-# chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
-forward_propagate_indexes = [1] # 1 =vx, 2=vy, 3=w
 
 # ---------------  ----------------
 theta_correction = +0.5/180*np.pi 
@@ -27,8 +25,10 @@ COM_positon = 0.09375 #0.0925 #measuring from the rear wheel
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/9_model_validation_long_term_predictions'
-folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
+#folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
 #folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 
 
 # steering dynamics time constant
@@ -74,15 +74,15 @@ d_f =  -0.057962968945503235
 
 # steering angle curve
 a_s =  1.6379064321517944
-b_s =  0.3301370143890381 + 0.04
-c_s =  0.019644200801849365 - 0.03 # this value can be tweaked to get the tyre model curves to allign better
-d_s =  0.37879398465156555 + 0.04
+b_s =  0.3301370143890381 #+ 0.04
+c_s =  0.019644200801849365 #- 0.03 # this value can be tweaked to get the tyre model curves to allign better
+d_s =  0.37879398465156555 #+ 0.04
 e_s =  1.6578725576400757
 
 # tire model
-d_t =  -6.080334186553955
-c_t =  1.0502581596374512
-b_t =  4.208724021911621
+d_t =  -7.446990013122559
+c_t =  0.7474039196968079
+b_t =  5.093936443328857
 
 
 # filtering coefficients
@@ -93,26 +93,50 @@ throttle_time_constant = 0.046 # evaluated by converting alpha from 10 Hz to 100
 
 # Starting data processing
 
-# get the raw data
-df_raw_data = get_data(folder_path)
+# check if there is a processed vicon data file already
+# Check if the file exists
+file_name = 'processed_vicon_data.csv'
+# Check if the CSV file exists in the folder
+file_path = os.path.join(folder_path, file_name)
+
+if not os.path.isfile(file_path):
+    # If the file does not exist, process the raw data
+    # get the raw data
+    df_raw_data = get_data(folder_path)
+
+    # account for latency between vehicle and vicon system (the vehicle inputs are relayed with a certain delay)
+    # NOTE that the delay is actually not constant, but it is assumed to be constant for simplicity
+    # so there will be some little timing discrepancies between predicted stated and data
+
+    robot_vicon_time_delay_st = 5 #6 # seven periods (at 100 Hz is 0.07s)
+    robot_vicon_time_delay_th = 10 # seven periods (at 100 Hz is 0.07s)
+    df_raw_data['steering'] = df_raw_data['steering'].shift(periods=-robot_vicon_time_delay_st)
+    df_raw_data['throttle'] = df_raw_data['throttle'].shift(periods=-robot_vicon_time_delay_th)
+
+    # handle the last values that will be nan
+    df_raw_data['steering'].iloc[-robot_vicon_time_delay_st:] = 0
+    df_raw_data['throttle'].iloc[-robot_vicon_time_delay_th:] = 0
+
+    # process the data
+    df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,steer_time_constant)
+
+    df.to_csv(file_path, index=False)
+    print(f"File '{file_path}' saved.")
+else:
+    print(f"File '{file_path}' already exists, loading data.")
+    df = pd.read_csv(file_path)
+
+
+# select subset of datapoints to do the model fitting
+df = df[df['vx body']>0.5]
+df = df[df['vx body']<3.0]
 
 
 
-# account for latency between vehicle and vicon system (the vehicle inputs are relayed with a certain delay)
-# NOTE that the delay is actually not constant, but it is assumed to be constant for simplicity
-# so there will be some little timing discrepancies between predicted stated and data
 
-robot_vicon_time_delay_st = 5 #6 # seven periods (at 100 Hz is 0.07s)
-robot_vicon_time_delay_th = 10 # seven periods (at 100 Hz is 0.07s)
-df_raw_data['steering'] = df_raw_data['steering'].shift(periods=-robot_vicon_time_delay_st)
-df_raw_data['throttle'] = df_raw_data['throttle'].shift(periods=-robot_vicon_time_delay_th)
-
-
-# process the data
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,steer_time_constant)
 
 # cut the data
-df = df[df['vicon time'] < 85]
+#df = df[df['vicon time'] < 85]
 
 # add filtered throttle
 T = df['vicon time'].diff().mean()  # Calculate the average time step
@@ -156,11 +180,13 @@ plt.legend()
 
 
 # --- produce data for fitting ---
-
+a_stfr= []  # give empty correction terms to not use them
+b_stfr=[]
 # define model NOTE: this will give you the absolute accelerations measured in the body frame
 dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
                  a_m,b_m,c_m,
-                 a_f,b_f,c_f,d_f)
+                 a_f,b_f,c_f,d_f,
+                 a_stfr,b_stfr)
 
 
 
@@ -217,19 +243,135 @@ plt.legend()
 velocity_range = np.linspace(0,df['vx body'].max(),100)
 friction_curve = dynamic_model.friction(velocity_range)
 
-rescale = - 0.8 * np.array(acc_x_model - df['ax body no centrifugal'].to_numpy()).max() / - friction_curve.min()
+# model error in [N]
+missing_force = (acc_x_model - df['ax body no centrifugal'].to_numpy())*m
+
+from mpl_toolkits.mplot3d import Axes3D
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+
+scatter = ax.scatter(
+    df['vx body'].to_numpy(),                    # x-axis
+    df['steering angle time delayed'].to_numpy(),  # y-axis
+    missing_force,                    # z-axis 
+    c=df['steering angle time delayed'].to_numpy(),  # color coded by 'steering angle time delayed'
+    cmap='viridis'  # Colormap
+)
 
 
-plt.figure()
-scatter = plt.scatter(df['vx body'].to_numpy(),acc_x_model - df['ax body no centrifugal'].to_numpy(),label='acc_x_model - measured', c=df['steering angle time delayed'].to_numpy(),
-                      cmap='viridis')
-plt.plot(velocity_range,friction_curve*rescale,label='friction curve rescaled',color='k',alpha=0.5)
+
+#plt.plot(velocity_range,friction_curve*rescale,label='friction curve rescaled',color='k',alpha=0.5)
 #plt.plot(df['vicon time'].to_numpy(),df['steering angle time delayed'].to_numpy(),label='steering',color='orangered')
-plt.xlabel('vx body')
-plt.ylabel('Acceleration x')
+ax.set_xlabel('vx body')
+ax.set_ylabel('steering angle')
+ax.set_zlabel('Force [N]')
 # Add a colorbar to the plot
-plt.colorbar(scatter, label='steering angle time delayed')
+colorbar = fig.colorbar(scatter, label='steering angle time delayed')
+#ax.legend()
+
+
+
+
+
+
+
+
+
+# --------------- fitting extra steering friction model---------------
+
+
+# fitting tyre models
+# define first guess for parameters
+initial_guess = torch.ones(2) * 0.5 # initialize parameters in the middle of their range constraint
+# define number of training iterations
+train_its = 1000
+learning_rate = 0.003
+
+print('')
+print('Fitting extra steering friction model ')
+
+#instantiate the model
+steering_friction_model_obj = steering_friction_model(initial_guess)
+
+#define loss and optimizer objects
+loss_fn = torch.nn.MSELoss() 
+optimizer_object = torch.optim.Adam(steering_friction_model_obj.parameters(), lr=learning_rate)
+
+# generate data in tensor form for torch
+train_x = torch.tensor((df[['vx body','steering angle time delayed']].to_numpy())).cuda()
+train_y = torch.unsqueeze(torch.tensor(missing_force),1).cuda()
+
+
+
+# save loss values for later plot
+loss_vec = np.zeros(train_its)
+
+# train the model
+for i in range(train_its):
+    # clear gradient information from previous step before re-evaluating it for the current iteration
+    optimizer_object.zero_grad()  
+    
+    # compute fitting outcome with current model parameters
+    output = steering_friction_model_obj(train_x)
+
+    # evaluate loss function
+    loss = loss_fn(output,  train_y)
+    loss_vec[i] = loss.item()
+
+    # evaluate the gradient of the loss function with respect to the fitting parameters
+    loss.backward() 
+
+    # use the evaluated gradient to perform a gradient descent step 
+    optimizer_object.step() # this updates parameters
+
+
+# --- print out parameters ---
+[a,b] = steering_friction_model_obj.transform_parameters_norm_2_real()
+a,b= a.item(), b.item()
+print('Front Wheel parameters:')
+print('a = ', a)
+print('b = ', b)
+
+# # # --- plot loss function ---
+plt.figure()
+plt.title('Loss function')
+plt.plot(loss_vec,label='tire model loss')
+plt.xlabel('iterations')
+plt.ylabel('loss')
 plt.legend()
+
+
+
+
+
+
+
+
+# plot surface plot
+v_range = np.linspace(0, df['vx body'].max(), 100)
+steering_range = np.linspace(df['steering angle time delayed'].min(),  df['steering angle time delayed'].max(), 100)
+v_grid, steering_grid = np.meshgrid(v_range, steering_range)
+
+# Create input points
+input_points = np.column_stack(
+    (
+        v_grid.flatten(),
+        steering_grid.flatten(),
+    )
+)
+
+input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
+Force_grid = steering_friction_model_obj.forward(input_grid).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
+
+
+
+# Plot the surface
+ax.plot_surface(v_grid, steering_grid, Force_grid, color='gray', alpha=1)
+# Set labels
+
+
+
+
 
 
 

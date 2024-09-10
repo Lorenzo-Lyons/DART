@@ -17,8 +17,8 @@ matplotlib.rc('font', **font)
 
 # this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
-folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor' 
-#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
+#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor' 
+folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_less15' # velocity up to 1.5 m/s
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST' 
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST_inductance' 
 

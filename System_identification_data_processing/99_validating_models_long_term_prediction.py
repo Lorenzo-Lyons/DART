@@ -17,7 +17,7 @@ font = {'family' : 'normal',
 # SIMPLE CULOMB friction tyre model.
 
 # chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
-forward_propagate_indexes = [2,3] # 1 =vx, 2=vy, 3=w
+forward_propagate_indexes = [1,2,3] # 1 =vx, 2=vy, 3=w
 
 # ---------------  ----------------
 theta_correction = +0.5/180*np.pi 
@@ -26,9 +26,9 @@ COM_positon = 0.09375 #measuring from the rear wheel
 # ------------------------------------------------------
 
 # select data folder NOTE: this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/9_model_validation_long_term_predictions'
-
-
+#folder_path = 'System_identification_data_processing/Data/9_model_validation_long_term_predictions'
+#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
+folder_path = 'System_identification_data_processing/Data/7_racetrack_lap_v_1'
 
 
 # steering dynamics time constant
@@ -55,11 +55,20 @@ lf = l-lr
 # fitted parameters
 # construct a model that takes as inputs Vx,Vy,W,tau,Steer ---> Vx_dot,Vy_dot,W_dot
 
-# motor model
+# motor model velocity < 1.5
 a_m =  28.08614730834961
 b_m =  8.511195182800293
 c_m =  -0.14750763773918152
 d_m =  0.6848964691162109  # filtering coefficient for throttle
+
+# trained on full dataset
+# a_m =  25.795652389526367
+# b_m =  4.820503234863281
+# c_m =  -0.1558982878923416
+# d_m =  0.7068579792976379
+
+
+
 
 # rolling friction model
 a_f =  1.5837167501449585
@@ -68,16 +77,35 @@ c_f =  0.5013455152511597
 d_f =  -0.057962968945503235
 
 # steering angle curve
+# a_s =  1.6379064321517944
+# b_s =  0.3301370143890381 + 0.04
+# c_s =  0.019644200801849365 - 0.03 # this value can be tweaked to get the tyre model curves to allign better
+# d_s =  0.37879398465156555 + 0.04
+# e_s =  1.6578725576400757
+
+# # tire model
+# d_t =  -6.080334186553955
+# c_t =  1.0502581596374512
+# b_t =  4.208724021911621
+
+
+# steering angle curve
 a_s =  1.6379064321517944
-b_s =  0.3301370143890381 + 0.04
-c_s =  0.019644200801849365 - 0.03 # this value can be tweaked to get the tyre model curves to allign better
-d_s =  0.37879398465156555 + 0.04
+b_s =  0.3301370143890381 #+ 0.04
+c_s =  0.019644200801849365 #- 0.03 # this value can be tweaked to get the tyre model curves to allign better
+d_s =  0.37879398465156555 #+ 0.04
 e_s =  1.6578725576400757
 
 # tire model
-d_t =  -6.080334186553955
-c_t =  1.0502581596374512
-b_t =  4.208724021911621
+d_t =  -7.446990013122559
+c_t =  0.7474039196968079
+b_t =  5.093936443328857
+
+
+
+#additional friction due to steering angle
+a_stfr =  3.2869210243225098
+b_stfr =  3.313544273376465
 
 
 # filtering coefficients
@@ -88,7 +116,8 @@ throttle_time_constant = 0.046 # evaluated by converting alpha from 10 Hz to 100
 
 dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
                  a_m,b_m,c_m,
-                 a_f,b_f,c_f,d_f)
+                 a_f,b_f,c_f,d_f,
+                 a_stfr,b_stfr)
 
 
 
@@ -134,6 +163,9 @@ for i in range(1, len(df)):
     filtered_throttle.append(filtered_value)
 
 df['throttle filtered'] = filtered_throttle
+
+
+
 
 
 
