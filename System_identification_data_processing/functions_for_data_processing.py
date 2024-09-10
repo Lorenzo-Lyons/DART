@@ -46,14 +46,13 @@ def merge_data_files_from_a_folder(folder_path):
 
     dataframes = []
     timing_offset = 0
+
     # Read each CSV file and store it in the dataframes list
     for csv_file in csv_files:
         df = pd.read_csv(csv_file)
 
         #sometimes the files have some initial lines where all values are zero, so just remove them
         df = df[df['elapsed time sensors'] != 0.0]
-
-
 
         # set throttle to 0 when safety is off
         df['throttle'][df['safety_value'] == 0.0] = 0.0
@@ -62,11 +61,32 @@ def merge_data_files_from_a_folder(folder_path):
         df['elapsed time sensors'] -= df['elapsed time sensors'].iloc[0]
         df['elapsed time sensors'] += timing_offset
 
+        
+
         if 'vicon time' in df.keys():
             df['vicon time'] -= df['vicon time'].iloc[0]
             df['vicon time'] += timing_offset
             dt = np.average(df['vicon time'].diff().to_numpy()[1:]) # evaluate dt
             timing_offset = df['vicon time'].iloc[-1] + dt 
+            # stitch position together so to avoid instantaneous change of position
+            if dataframes:
+                df['vicon x'] = df['vicon x'] - df['vicon x'].iloc[0]
+                df['vicon y'] = df['vicon y'] - df['vicon y'].iloc[0]
+
+                # now x and y must be rotated to allign with the previous file's last orientation
+                theta = dataframes[-1]['vicon yaw'].iloc[-1] - df['vicon yaw'].iloc[0]
+                # Compute the new x and y coordinates after rotation
+                rotated_x = df['vicon x'].to_numpy() * np.cos(theta) - df['vicon y'].to_numpy() * np.sin(theta)
+                rotated_y = df['vicon x'].to_numpy() * np.sin(theta) + df['vicon y'].to_numpy() * np.cos(theta)
+
+                # this matches up the translation
+                df['vicon x'] = rotated_x + dataframes[-1]['vicon x'].iloc[-1]
+                df['vicon y'] = rotated_y + dataframes[-1]['vicon y'].iloc[-1]
+
+                #not stich together the rotation angle
+                df['vicon yaw'] = df['vicon yaw'] + theta #- df['vicon yaw'].iloc[0] + dataframes[-1]['vicon yaw'].iloc[-1]
+                # correct yaw that may now be less than pi
+                #df['vicon yaw'] = (df['vicon yaw'] + np.pi) % (2 * np.pi) - np.pi
         else:
             #update timing offset
             #extract safety off data and fix issues with timing

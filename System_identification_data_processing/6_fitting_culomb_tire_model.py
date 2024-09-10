@@ -54,16 +54,18 @@ lr = 0.135 # reference point location taken by the vicon system
 COM_positon = 0.09375 #measuring from the rear wheel
 #steering angle curve
 a =  1.6379064321517944
-b =  0.3301370143890381 + 0.04
+b =  0.3301370143890381 #+ 0.04
 c =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
-d =  0.37879398465156555 + 0.04
+d =  0.37879398465156555 #+ 0.2 #0.04
 e =  1.6578725576400757
 # ------------------------------------------------------
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
-folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
+#folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+
 
 
 
@@ -105,6 +107,9 @@ if folder_path == 'System_identification_data_processing/Data/8_circles_rubbery_
     df = df[df['elapsed time sensors'] > 90]
     #df = df[df['elapsed time sensors'] < 235]
 
+# df = df[df['vicon time'] > 69.87058401107788 - 10]
+# df = df[df['vicon time'] < 69.87058401107788 + 10]
+
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
 
@@ -138,7 +143,7 @@ ax10.set_title('Tire model')
 initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
 train_its = 1000
-learning_rate = 0.001
+learning_rate = 0.003
 
 print('')
 print('Fitting pacejka-like culomb friction tire model ')
