@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, motor_curve_model
+from functions_for_data_processing import get_data, plot_raw_data, motor_and_friction_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -16,9 +16,9 @@ matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/2_step_input_data' 
-#folder_path = 'System_identification_data_processing/Data/20_step_input_data_rubbery_floor' 
-folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_08-15' # velocity up to 1.5 m/s
+#folder_path = 'System_identification_data_processing/Data/29_step_input_data' 
+folder_path = 'System_identification_data_processing/Data/20_step_input_data_rubbery_floor' 
+#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_08-15' # velocity up to 1.5 m/s
 
 
 
@@ -65,36 +65,15 @@ ax0,ax1,ax2 = plot_raw_data(df_raw_data)
 # process the raw data
 m =1.67 #mass of the robot
 
-# friction curve parameters from rubbery floor
-a_friction =  1.5837167501449585
-b_friction =  14.215554237365723
-c_friction =  0.5013455152511597
-d_friction =  -0.057962968945503235
-
-
 # df = process_raw_data_acceleration(df_raw_data, delay_st)
 df = df_raw_data[['elapsed time sensors','throttle','vel encoder']].copy() 
 
-#df['vel encoder smoothed'] =  smoothed_vel_encoder # df_raw_data['vel encoder'] #non smoothed
-
-
-# using raw velocity data
-# ---------------------
-# using FORWARD DIFFERENCE to compute the velocity is the best option because, as can be seen in the data,
-# when the throttle is changed, the velocity SLOPE (i.e. the acceleration) changes from the next time step.
-# ---------------------
-# df['vel encoder'] = df_raw_data['vel encoder']
-# spl_vel = CubicSpline(df['elapsed time sensors'].to_numpy(), df_raw_data['vel encoder'].to_numpy())  #df['vel encoder smoothed']
-#df['force'] =   m * spl_vel(df['elapsed time sensors'].to_numpy(),1) # take the first derivative of the spline
-
-acc = (df_raw_data['vel encoder'].to_numpy()[1:] - df_raw_data['vel encoder'].to_numpy()[:-1])/(df_raw_data['elapsed time sensors'].to_numpy()[1:]-df_raw_data['elapsed time sensors'].to_numpy()[:-1])
-acc = np.append(acc , 0)# add a zero at the end to have the same length as the original data
+#evaluate acceleration
+steps = 2
+acc = (df_raw_data['vel encoder'].to_numpy()[steps:] - df_raw_data['vel encoder'].to_numpy()[:-steps])/(df_raw_data['elapsed time sensors'].to_numpy()[steps:]-df_raw_data['elapsed time sensors'].to_numpy()[:-steps])
+for i in range(steps):
+    acc = np.append(acc , 0)# add a zero at the end to have the same length as the original data
 df['force'] = m * acc 
-
-
-
-df['friction force'] = + ( a_friction * np.tanh(b_friction  * df['vel encoder'] ) + c_friction * df['vel encoder'] + d_friction * df['vel encoder']**2)
-df['motor force'] = df['force'] + df['friction force']
 
 
 #adding delayed throttle signal
@@ -103,7 +82,6 @@ df['throttle prev2'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
 df['throttle prev3'] = np.append([0,0,0],df['throttle'].to_numpy()[:-3])
 df['throttle prev4'] = np.append([0,0,0,0],df['throttle'].to_numpy()[:-4])
 df['throttle prev5'] = np.append([0,0,0,0,0],df['throttle'].to_numpy()[:-5])
-
 
 
 
@@ -121,22 +99,13 @@ ax3.step(df['elapsed time sensors'].to_numpy(),df['throttle'].to_numpy(),where='
 ax3.plot(df['elapsed time sensors'].to_numpy(),df['throttle'].to_numpy(),color='gray',linewidth=2,marker='.',markersize=10,linestyle='none')
 
 # measured acceleration
-ax3.plot(df['elapsed time sensors'].to_numpy(),acc,color='darkgreen',linewidth=2,marker='.',markersize=10,linestyle='none')
-ax3.step(df['elapsed time sensors'].to_numpy(),acc,label="acceleration",where='post',color='darkgreen',linewidth=2,linestyle='-')
-
-# estimated friction force
-ax3.step(df['elapsed time sensors'].to_numpy(),df['friction force'].to_numpy(),where='post',color='maroon',linewidth=2,label="estimated friction force [N]")
-ax3.plot(df['elapsed time sensors'].to_numpy(),df['friction force'].to_numpy(),color='maroon',linewidth=2,marker='.',markersize=10,linestyle='none')
-
-# estimated motor force
-ax3.step(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),where='post',color='k',linewidth=2,label="motor force [N]")
-ax3.plot(df['elapsed time sensors'].to_numpy(),df['motor force'].to_numpy(),color='k',linewidth=2,marker='.',markersize=10,linestyle='none')
-
+ax3.plot(df['elapsed time sensors'].to_numpy(),df['force'].to_numpy(),color='darkgreen',linewidth=2,marker='.',markersize=10,linestyle='none')
+ax3.step(df['elapsed time sensors'].to_numpy(),df['force'].to_numpy(),label="measured force",where='post',color='darkgreen',linewidth=2,linestyle='-')
 
 
 ax3.set_xlabel('time [s]')
 ax3.set_title('Processed training data')
-
+ax3.legend()
 
 
 
@@ -144,15 +113,15 @@ ax3.set_title('Processed training data')
 
 # --------------- fitting acceleration curve--------------- 
 print('')
-print('Fitting acceleration curve model')
+print('Fitting motor and friction model')
 
 # define first guess for parameters
-initial_guess = torch.ones(4) * 0.5 # initialize parameters in the middle of their range constraint
+initial_guess = torch.ones(8) * 0.5 # initialize parameters in the middle of their range constraint
 
 
 # NOTE that the parmeter range constraint is set in motor_curve_model.transform_parameters_norm_2_real method.
-n_past_throttle = 3
-motor_curve_model_obj = motor_curve_model(initial_guess,n_past_throttle)
+n_past_throttle = 5
+motor_and_friction_model_obj = motor_and_friction_model(initial_guess,n_past_throttle)
 
 # define number of training iterations
 normalize_output = False
@@ -160,11 +129,11 @@ train_its = 750
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss(reduction = 'mean') 
-optimizer_object = torch.optim.Adam(motor_curve_model_obj.parameters(), lr=0.003)
+optimizer_object = torch.optim.Adam(motor_and_friction_model_obj.parameters(), lr=0.003)
         
 # generate data in tensor form for torch
 train_x = torch.tensor(df[['throttle','vel encoder','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()).cuda()  
-train_y = torch.unsqueeze(torch.tensor(df['motor force'].to_numpy()),1).cuda()
+train_y = torch.unsqueeze(torch.tensor(df['force'].to_numpy()),1).cuda()
 
 # save loss values for later plot
 loss_vec = np.zeros(train_its)
@@ -189,7 +158,7 @@ for i in range(train_its):
     optimizer_object.zero_grad()  
     
     # compute fitting outcome with current model parameters
-    output = motor_curve_model_obj(train_x)
+    output = motor_and_friction_model_obj(train_x)
 
     # evaluate loss function
     loss = loss_fn(torch.div(output , rescale_vector),  torch.div(train_y , rescale_vector))
@@ -202,22 +171,29 @@ for i in range(train_its):
     optimizer_object.step() # this updates parameters automatically according to the optimizer you chose
 
 # --- print out parameters ---
-[a,b,c,d] = motor_curve_model_obj.transform_parameters_norm_2_real()
-a, b, c, d = a.item(), b.item(), c.item(), d.item()
-print('a = ', a)
-print('b = ', b)
-print('c = ', c)
-print('d = ', d)
+[a_m,b_m,c_m,d_m,a_f,b_f,c_f,d_f] = motor_and_friction_model_obj.transform_parameters_norm_2_real()
+a_m,b_m,c_m,d_m,a_f,b_f,c_f,d_f = a_m.item(),b_m.item(),c_m.item(),d_m.item(),a_f.item(),b_f.item(),c_f.item(),d_f.item()
+print('motor parameters')
+print('a_m = ',a_m)
+print('b_m = ',b_m) 
+print('c_m = ',c_m)
+print('d_m = ',d_m)
+print('friction parameters')
+print('a_f = ',a_f)
+print('b_f = ',b_f)
+print('c_f = ',c_f)
+print('d_f = ',d_f)
+
 
 
 
 # evalauting filter coefficient
-k0 = d
-k1 = d * (1-d)
-k2 = d * (1-d)**2
-k3 = d * (1-d)**3 
-k4 = d * (1-d)**4 
-k5 = d * (1-d)**5 
+k0 = d_m
+k1 = d_m * (1-d_m)
+k2 = d_m * (1-d_m)**2
+k3 = d_m * (1-d_m)**3 
+k4 = d_m * (1-d_m)**4 
+k5 = d_m * (1-d_m)**5 
 
 
 k_vec = np.array([k0,k1,k2,k3,k4,k5])
@@ -261,7 +237,7 @@ plt.ylabel('loss')
 
 
 #add predicted motor force to previous plot
-ax3.step(df['elapsed time sensors'].to_numpy(),output.cpu().detach().numpy(),where='post',color='orangered',linewidth=2,label="estimated motor force")
+ax3.step(df['elapsed time sensors'].to_numpy(),output.cpu().detach().numpy(),where='post',color='orangered',linewidth=2,label="estimated force")
 ax3.plot(df['elapsed time sensors'].to_numpy(),output.cpu().detach().numpy(),color='orangered',linewidth=2,marker='.',markersize=10,linestyle='none')
 ax3.legend()
 
@@ -308,12 +284,24 @@ ax4.plot(df['elapsed time sensors'].to_numpy(),throttle_filtered,color='k',linew
 ax4.legend()
 
 
-# add to the fitting results plot, the value of force using the filtered throttle
-output_filtered_throttle = motor_curve_model_obj.motor_equation(torch.Tensor(throttle_filtered).cuda(),train_x[:,1]).detach().cpu().view(-1).numpy()
-ax3.step(df['elapsed time sensors'].to_numpy(),output_filtered_throttle,where='post',color='red',linewidth=2,label="estimated motor force filtered throttle")
-ax3.plot(df['elapsed time sensors'].to_numpy(),output_filtered_throttle,color='red',linewidth=2,marker='.',markersize=10,linestyle='none')
-ax3.legend()
 
+
+
+
+
+
+
+# plot friction curve
+df_friction = df[df['throttle']==0]
+v_range = np.linspace(0,df_friction['vel encoder'].max(),100)
+friction_force = motor_and_friction_model_obj.friction_equation(torch.unsqueeze(torch.tensor(v_range).cuda(),1)).detach().cpu().numpy()
+fig, ax_friction = plt.subplots()
+ax_friction.scatter(df_friction['vel encoder'],df_friction['force'],label='data',color='dodgerblue')
+ax_friction.plot(v_range,friction_force,label='friction curve model',color='orangered')
+
+ax_friction.set_xlabel('velocity [m/s]')
+ax_friction.set_ylabel('friction force [N]')
+ax_friction.legend()    
 
 
 
@@ -345,26 +333,29 @@ input_points = np.column_stack(
 )
 
 input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
-Force_grid = motor_curve_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
+Total_force_grid = motor_and_friction_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy() +\
+             motor_and_friction_model_obj.friction_equation(input_grid[:,1]).detach().cpu().view(100, 100).numpy()
+
+Motor_force_grid = motor_and_friction_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy()
 
 # Plot the surface
-ax.plot_surface(throttle_grid, velocity_grid, Force_grid, cmap='viridis', alpha=1)
+ax.plot_surface(throttle_grid, velocity_grid, Total_force_grid, cmap='viridis', alpha=1)
 # Set labels
 ax.set_xlabel('throttle')
 ax.set_ylabel('velocity')
-ax.set_zlabel('Motor force')
+ax.set_zlabel('Force')
 
 # plotting the obtained motor curve as a level plot
 max_throttle = df['throttle'].max()
-throttle_levels = np.linspace(-c,max_throttle,5).tolist()  # 0.4 set throttle
+throttle_levels = np.linspace(-c_m,max_throttle,5).tolist()  # 0.4 set throttle
 
 fig = plt.figure(figsize=(10, 6))
 fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, wspace=0.2)
 
 #heatmap = plt.imshow(throttle_grid, extent=[velocity_grid.min(), Force_grid.max(), Force_grid.min(), throttle_grid.max()], origin='lower', cmap='plasma')
-contour1 = plt.contourf(velocity_grid, Force_grid ,throttle_grid, levels=100, cmap='plasma') 
-contour2 = plt.contour(velocity_grid, Force_grid ,throttle_grid, levels=throttle_levels, colors='black', linestyles='solid', linewidths=2) 
-cbar = plt.colorbar(contour1, label='Throttle',ticks=[0, *throttle_levels, 1],format='%.2f')
+contour1 = plt.contourf(velocity_grid, Motor_force_grid ,throttle_grid, levels=100, cmap='plasma') 
+contour2 = plt.contour(velocity_grid, Motor_force_grid ,throttle_grid, levels=throttle_levels, colors='black', linestyles='solid', linewidths=2) 
+cbar = plt.colorbar(contour1, label='Throttle',ticks=[0, *throttle_levels],format='%.2f')
 
 # from matplotlib.ticker import StrMethodFormatter
 # cbar.ax.yaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
@@ -377,12 +368,12 @@ plt.clabel(contour2, inline=True, fontsize=18, fmt='%1.2f')
 plt.xlabel('Velocity [m/s]')
 plt.ylabel('Force [N]')
 
-df_data = df[df['vel encoder']>1]
-df_data = df_data[df_data['vel encoder']<3]
-vel_data = df_data['vel encoder'][df_data['throttle']==0.4000000059604645].to_numpy()
-mot_force_data = df_data['motor force'][df_data['throttle']==0.4000000059604645].to_numpy()
-plt.scatter(vel_data,mot_force_data,color='k',label='data for throttle = 0.4')
-plt.legend()
+# df_data = df[df['vel encoder']>1]
+# df_data = df_data[df_data['vel encoder']<3]
+# vel_data = df_data['vel encoder'][df_data['throttle']==0.4000000059604645].to_numpy()
+# mot_force_data = df_data['motor force'][df_data['throttle']==0.4000000059604645].to_numpy()
+# plt.scatter(vel_data,mot_force_data,color='k',label='data for throttle = 0.4')
+#plt.legend()
 
 
 

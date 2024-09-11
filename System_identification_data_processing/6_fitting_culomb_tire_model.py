@@ -1,5 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,linear_tire_model,pacejka_tire_model,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model
+from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,culomb_pacejka_tire_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -73,7 +72,8 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only
 
 # steering dynamics time constant
 # Time constant in the steering dynamics
-steer_time_constant = 0.065  # should be in time domain, not discrete time filtering coefficient
+# filtering coefficients
+alpha_steer_filter = 0.60  # should be in time domain, not discrete time filtering coefficient
 
 
 
@@ -100,7 +100,7 @@ df_raw_data = get_data(folder_path)
 
 
 # process the data
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,steer_time_constant)
+df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_steer_filter)
 
 # select time interval to fit
 if folder_path == 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file':

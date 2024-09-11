@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,linear_tire_model,pacejka_tire_model,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model
+,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -26,14 +26,12 @@ COM_positon = 0.09375 #measuring from the rear wheel
 # ------------------------------------------------------
 
 # select data folder NOTE: this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/9_model_validation_long_term_predictions'
-#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-folder_path = 'System_identification_data_processing/Data/7_racetrack_lap_v_1'
+#folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
+folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
 
 
 # steering dynamics time constant
 # Time constant in the steering dynamics
-steer_time_constant = 0.065  # should be in time domain, not discrete time filtering coefficient
 
 
 
@@ -55,26 +53,18 @@ lf = l-lr
 # fitted parameters
 # construct a model that takes as inputs Vx,Vy,W,tau,Steer ---> Vx_dot,Vy_dot,W_dot
 
-# motor model velocity < 1.5
-a_m =  28.08614730834961
-b_m =  8.511195182800293
-c_m =  -0.14750763773918152
-d_m =  0.6848964691162109  # filtering coefficient for throttle
 
-# trained on full dataset
-# a_m =  25.795652389526367
-# b_m =  4.820503234863281
-# c_m =  -0.1558982878923416
-# d_m =  0.7068579792976379
-
-
-
+# motor model  (from fitting both friction and motor model at the same time) 
+a_m =  24.492280960083008
+b_m =  4.685335159301758
+c_m =  -0.15649330615997314
+d_m =  0.7791252732276917
 
 # rolling friction model
-a_f =  1.5837167501449585
-b_f =  14.215554237365723
-c_f =  0.5013455152511597
-d_f =  -0.057962968945503235
+a_f =  1.3823319673538208
+b_f =  5.101551055908203
+c_f =  0.7144842743873596
+d_f =  -0.10897014290094376
 
 # steering angle curve
 # a_s =  1.6379064321517944
@@ -104,17 +94,15 @@ b_t =  5.093936443328857
 
 
 #additional friction due to steering angle
-a_stfr =  3.2869210243225098
-b_stfr =  3.313544273376465
-
-
-# filtering coefficients
-steer_time_constant = 0.065 
-throttle_time_constant = 0.046 # evaluated by converting alpha from 10 Hz to 100 Hz
+a_stfr =  3.0430359840393066
+b_stfr =  2.975766897201538
 
 
 
-dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
+
+# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new tim instant
+dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
+                 d_t,c_t,b_t,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
                  a_stfr,b_stfr)
@@ -135,17 +123,17 @@ df_raw_data = get_data(folder_path)
 # NOTE that the delay is actually not constant, but it is assumed to be constant for simplicity
 # so there will be some little timing discrepancies between predicted stated and data
 
-robot_vicon_time_delay_st = 5 #6 # seven periods (at 100 Hz is 0.07s)
+robot_vicon_time_delay_st = 15 #6 # seven periods (at 100 Hz is 0.07s)
 robot_vicon_time_delay_th = 10 # seven periods (at 100 Hz is 0.07s)
 df_raw_data['steering'] = df_raw_data['steering'].shift(periods=-robot_vicon_time_delay_st)
 df_raw_data['throttle'] = df_raw_data['throttle'].shift(periods=-robot_vicon_time_delay_th)
 
 
+
+# filtering coefficients
+alpha_steer_filter = 0.10
 # process the data
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,steer_time_constant)
-
-
-
+df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,alpha_steer_filter)
 
 
 
@@ -153,13 +141,14 @@ df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_
 
 # add filtered throttle
 T = df['vicon time'].diff().mean()  # Calculate the average time step
-# Filter coefficient
-alpha_throttle = T / (T + throttle_time_constant)
+# Filter coefficient in the new sampling frequency
+d_m_100Hz = 0.01/(0.01+(0.1/d_m-0.1)) #convert to new sampling frequency
+
 # Initialize the filtered steering angle list
 filtered_throttle = [df['throttle'].iloc[0]]
 # Apply the first-order filter
 for i in range(1, len(df)):
-    filtered_value = alpha_throttle * df['throttle'].iloc[i] + (1 - alpha_throttle) * filtered_throttle[-1]
+    filtered_value = d_m_100Hz * df['throttle'].iloc[i] + (1 - d_m_100Hz) * filtered_throttle[-1]
     filtered_throttle.append(filtered_value)
 
 df['throttle filtered'] = filtered_throttle
@@ -176,7 +165,16 @@ df['throttle filtered'] = filtered_throttle
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-plot_vicon_data(df)
+ax_wheels = plot_vicon_data(df)
+
+
+# add wheel curve on top of the vicon data
+vy_range = np.linspace(-1,1,100)
+Fy_wheels = dynamic_model.lateral_tire_forces(vy_range)
+ax_wheels.plot(vy_range,Fy_wheels,color='k',label='wheel model curve')
+
+
+#plt.show()
 
 # plot filtered throttle signal
 plt.figure()

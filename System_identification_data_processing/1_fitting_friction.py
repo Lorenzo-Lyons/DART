@@ -16,7 +16,7 @@ matplotlib.rc('font', **font)
 
 # this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/1_step_input_data'  
-folder_path = 'System_identification_data_processing/Data/11_step_input_data_rubbery_floor' 
+folder_path = 'System_identification_data_processing/Data/10_step_input_data_rubbery_floor' 
 #folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_TEST_inductance'
 
 # get the raw data
@@ -27,7 +27,7 @@ ax0,ax1,ax2 = plot_raw_data(df_raw_data)
 
 # --- smooth velocity data ---
 # Set the window size for the moving average
-window_size = 5 
+window_size = 5
 poly_order = 2
 
 # Apply Savitzky-Golay filter

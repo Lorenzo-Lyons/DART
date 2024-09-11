@@ -6,7 +6,7 @@ from scipy.interpolate import CubicSpline
 
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/4_sinusoidal_steering_data'   
+folder_path = 'System_identification_data_processing/Data/40_sinusoidal_steering_data'   
 
 # get the raw data
 df_raw_data = get_data(folder_path)

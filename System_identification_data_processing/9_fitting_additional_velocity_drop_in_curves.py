@@ -17,6 +17,9 @@ font = {'family' : 'normal',
 # SIMPLE CULOMB friction tyre model.
 
 
+
+
+
 # ---------------  ----------------
 theta_correction = +0.5/180*np.pi 
 lr = 0.135 # reference point location taken by the vicon system
@@ -33,7 +36,7 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 
 # steering dynamics time constant
 # Time constant in the steering dynamics
-steer_time_constant = 0.065  # should be in time domain, not discrete time filtering coefficient
+steer_time_constant = 0.065  # in time domain,later converted to discrete time filtering coefficient
 
 
 
@@ -52,25 +55,20 @@ lf = l-lr
 # fitted parameters
 # construct a model that takes as inputs Vx,Vy,W,tau,Steer ---> Vx_dot,Vy_dot,W_dot
 
-# motor model
-# # low velocity (1.5 max)
-# a_m =  28.08614730834961
-# b_m =  8.511195182800293
-# c_m =  -0.14750763773918152
-# d_m =  0.6848964691162109  # filtering coefficient for throttle
-
-# high velocity (4.5 max)
-a_m =  25.795652389526367
-b_m =  4.820503234863281
-c_m =  -0.1558982878923416
-d_m =  0.7068579792976379
+# motor model  (from fitting both friction and motor model at the same time) 
+a_m =  24.492280960083008
+b_m =  4.685335159301758
+c_m =  -0.15649330615997314
+d_m =  0.7791252732276917
 
 
 # rolling friction model
-a_f =  1.5837167501449585
-b_f =  14.215554237365723
-c_f =  0.5013455152511597
-d_f =  -0.057962968945503235
+a_f =  1.3823319673538208
+b_f =  5.101551055908203
+c_f =  0.7144842743873596
+d_f =  -0.10897014290094376
+
+
 
 # steering angle curve
 a_s =  1.6379064321517944
@@ -84,12 +82,8 @@ d_t =  -7.446990013122559
 c_t =  0.7474039196968079
 b_t =  5.093936443328857
 
-
 # filtering coefficients
-steer_time_constant = 0.065 
-throttle_time_constant = 0.046 # evaluated by converting alpha from 10 Hz to 100 Hz
-
-
+alpha_steer_filter = 0.60
 
 # Starting data processing
 
@@ -117,8 +111,9 @@ if not os.path.isfile(file_path):
     df_raw_data['steering'].iloc[-robot_vicon_time_delay_st:] = 0
     df_raw_data['throttle'].iloc[-robot_vicon_time_delay_th:] = 0
 
+
     # process the data
-    df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,steer_time_constant)
+    df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,alpha_steer_filter)
 
     df.to_csv(file_path, index=False)
     print(f"File '{file_path}' saved.")
@@ -128,8 +123,8 @@ else:
 
 
 # select subset of datapoints to do the model fitting
-df = df[df['vx body']>0.5]
-df = df[df['vx body']<3.0]
+#df = df[df['vx body']>0.5]
+#df = df[df['vx body']<3.0]
 
 
 
@@ -140,23 +135,41 @@ df = df[df['vx body']<3.0]
 
 # add filtered throttle
 T = df['vicon time'].diff().mean()  # Calculate the average time step
-# Filter coefficient
-alpha_throttle = T / (T + throttle_time_constant)
+# Filter coefficient in the new sampling frequency
+d_m_100Hz = 0.01/(0.01+(0.1/d_m-0.1)) #convert to new sampling frequency
+
 # Initialize the filtered steering angle list
 filtered_throttle = [df['throttle'].iloc[0]]
 # Apply the first-order filter
 for i in range(1, len(df)):
-    filtered_value = alpha_throttle * df['throttle'].iloc[i] + (1 - alpha_throttle) * filtered_throttle[-1]
+    filtered_value = d_m_100Hz * df['throttle'].iloc[i] + (1 - d_m_100Hz) * filtered_throttle[-1]
     filtered_throttle.append(filtered_value)
 
 df['throttle filtered'] = filtered_throttle
 
 
+# # test the filter on a sine wave to see if it works
+# test_x_10_Hz = np.linspace(0,10,10)
+# test_x_100_Hz = np.linspace(0,10,100)
 
+# test_y_10_Hz = np.sin(test_x_10_Hz)
+# test_y_100_Hz = np.sin(test_x_100_Hz)
 
+# filtered_10_Hz = np.zeros(len(test_x_10_Hz))
+# filtered_100_Hz = np.zeros(len(test_x_100_Hz))
 
+# for i in range(1, len(test_x_10_Hz)):
+#     filtered_10_Hz[i] = d_m * test_y_10_Hz[i] + (1 - d_m) * filtered_10_Hz[i-1]
+    
+# for i in range(1, len(test_x_100_Hz)):
+#     filtered_100_Hz[i] = d_m_100Hz * test_y_100_Hz[i] + (1 - d_m_100Hz) * filtered_100_Hz[i-1]
 
-
+# figure, ax = plt.subplots()
+# ax.plot(test_x_100_Hz,test_y_100_Hz,label='original signal 100 Hz')
+# ax.plot(test_x_10_Hz,filtered_10_Hz,label='filtered signal 10 Hz')
+# ax.plot(test_x_100_Hz,filtered_100_Hz,label='filtered signal 100 Hz')
+# ax.legend()
+# plt.show()
 
 
 
@@ -196,46 +209,51 @@ input_data = df[columns_to_extract].to_numpy()
 acc_x_model = np.zeros(input_data.shape[0])
 acc_y_model = np.zeros(input_data.shape[0])
 acc_w_model = np.zeros(input_data.shape[0])
-acc_centrifugal_in_x = np.zeros(input_data.shape[0])
 
+acc_centrifugal_in_x = df['vy body'].to_numpy() * df['w_abs_filtered'].to_numpy()
+acc_centrifugal_in_y = - df['vx body'].to_numpy() * df['w_abs_filtered'].to_numpy()
 
-for i in range(input_data.shape[0]):
+for i in range(df.shape[0]):
     # correct for centrifugal acceleration
     accelerations = dynamic_model.forward(input_data[i,:])
     acc_x_model[i] = accelerations[0]
     acc_y_model[i] = accelerations[1]
     acc_w_model[i] = accelerations[2]
-    acc_centrifugal_in_x[i] = - input_data[i,1] * input_data[i,2]
+
+
+# accelerations in the body frame
+acc_x_body_measured = df['ax body no centrifugal'].to_numpy() + acc_centrifugal_in_x
+acc_y_body_measured = df['ay body no centrifugal'].to_numpy() + acc_centrifugal_in_y
+
+
 
 
 # plot the modelled acceleration
-plt.figure()
-plt.plot(df['vicon time'].to_numpy(),df['ax body no centrifugal'].to_numpy(),label='acc_x',color='dodgerblue')
-plt.plot(df['vicon time'].to_numpy(),acc_x_model,label='acc_x model',color='k',alpha=0.5)
-plt.plot(df['vicon time'].to_numpy(),df['throttle filtered'].to_numpy(),label='throttle filtered',color='blue')
-plt.plot(df['vicon time'].to_numpy(),df['steering angle time delayed'].to_numpy(),label='steering angle time delayed',color='orangered')
-plt.plot(df['vicon time'].to_numpy(),df['vx body'].to_numpy(),label='vx body',color='green')
-plt.plot(df['vicon time'].to_numpy(),acc_centrifugal_in_x,label='acc centrifugal in x',color='purple')
-plt.xlabel('Time [s]')
-plt.ylabel('Acceleration x')
-plt.legend()
+fig, ax_accx = plt.subplots()
+ax_accx.plot(df['vicon time'].to_numpy(),acc_x_body_measured,label='acc_x body frame',color='dodgerblue')
+ax_accx.plot(df['vicon time'].to_numpy(),acc_x_model,label='acc_x model',color='k',alpha=0.5)
+
+# plt.plot(df['vicon time'].to_numpy(),df['throttle filtered'].to_numpy(),label='throttle filtered',color='blue')
+# plt.plot(df['vicon time'].to_numpy(),df['steering angle time delayed'].to_numpy(),label='steering angle time delayed',color='orangered')
+# plt.plot(df['vicon time'].to_numpy(),df['vx body'].to_numpy(),label='vx body',color='green')
+# plt.plot(df['vicon time'].to_numpy(),acc_centrifugal_in_x,label='acc centrifugal in x',color='purple')
+ax_accx.set_xlabel('Time [s]')
+ax_accx.set_ylabel('Acceleration x')
 
 
 # y accelerations
-plt.figure()
-plt.plot(df['vicon time'].to_numpy(),df['ay body no centrifugal'].to_numpy(),label='acc_y',color='orangered')
-plt.plot(df['vicon time'].to_numpy(),acc_y_model,label='acc_y model',color='k',alpha=0.5)
-plt.xlabel('Time [s]')
-plt.ylabel('Acceleration y')
-plt.legend()
+fig, ax_accy = plt.subplots()
+ax_accy.plot(df['vicon time'].to_numpy(),acc_y_body_measured,label='acc_y in the body frame',color='orangered')
+ax_accy.plot(df['vicon time'].to_numpy(),acc_y_model,label='acc_y model',color='k',alpha=0.5)
+ax_accy.set_xlabel('Time [s]')
+ax_accy.set_ylabel('Acceleration y')
 
 # w accelerations
-plt.figure()
-plt.plot(df['vicon time'].to_numpy(),df['aw_abs_filtered_more'].to_numpy(),label='acc_w',color='purple')
-plt.plot(df['vicon time'].to_numpy(),acc_w_model,label='acc_w model',color='k',alpha=0.5)
-plt.xlabel('Time [s]')
-plt.ylabel('Acceleration w')
-plt.legend()
+fig, ax_accw = plt.subplots()
+ax_accw.plot(df['vicon time'].to_numpy(),df['aw_abs_filtered_more'].to_numpy(),label='acc_w',color='purple')
+ax_accw.plot(df['vicon time'].to_numpy(),acc_w_model,label='acc_w model',color='k',alpha=0.5)
+ax_accw.set_xlabel('Time [s]')
+ax_accw.set_ylabel('Acceleration w')
 
 
 
@@ -244,7 +262,11 @@ velocity_range = np.linspace(0,df['vx body'].max(),100)
 friction_curve = dynamic_model.friction(velocity_range)
 
 # model error in [N]
-missing_force = (acc_x_model - df['ax body no centrifugal'].to_numpy())*m
+missing_force = (acc_x_model - acc_x_body_measured)*m
+
+
+
+
 
 from mpl_toolkits.mplot3d import Axes3D
 fig = plt.figure()
@@ -273,10 +295,6 @@ colorbar = fig.colorbar(scatter, label='steering angle time delayed')
 
 
 
-
-
-
-
 # --------------- fitting extra steering friction model---------------
 
 
@@ -291,15 +309,20 @@ print('')
 print('Fitting extra steering friction model ')
 
 #instantiate the model
-steering_friction_model_obj = steering_friction_model(initial_guess)
+steering_friction_model_obj = steering_friction_model(initial_guess,m,lr,lf,l_COM,Jz,
+                 d_t,c_t,b_t,
+                 a_m,b_m,c_m,
+                 a_f,b_f,c_f,d_f,
+                 a_stfr,b_stfr)
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
 optimizer_object = torch.optim.Adam(steering_friction_model_obj.parameters(), lr=learning_rate)
 
 # generate data in tensor form for torch
-train_x = torch.tensor((df[['vx body','steering angle time delayed']].to_numpy())).cuda()
-train_y = torch.unsqueeze(torch.tensor(missing_force),1).cuda()
+train_x = torch.tensor(input_data).cuda()
+train_y = torch.unsqueeze(torch.tensor(acc_x_body_measured),1).cuda()
+
 
 
 
@@ -312,10 +335,10 @@ for i in range(train_its):
     optimizer_object.zero_grad()  
     
     # compute fitting outcome with current model parameters
-    output = steering_friction_model_obj(train_x)
+    output_x, output_y, output_w = steering_friction_model_obj(train_x)
 
     # evaluate loss function
-    loss = loss_fn(output,  train_y)
+    loss = loss_fn(output_x,  train_y)
     loss_vec[i] = loss.item()
 
     # evaluate the gradient of the loss function with respect to the fitting parameters
@@ -328,7 +351,7 @@ for i in range(train_its):
 # --- print out parameters ---
 [a,b] = steering_friction_model_obj.transform_parameters_norm_2_real()
 a,b= a.item(), b.item()
-print('Front Wheel parameters:')
+print('Friction due to steering parameters:')
 print('a = ', a)
 print('b = ', b)
 
@@ -342,37 +365,15 @@ plt.legend()
 
 
 
+# plot fitting results on the model
+ax_accx.plot(df['vicon time'].to_numpy(),output_x.detach().cpu().view(-1).numpy(),label='acc_x model with steering friction (model output)',color='k')
+ax_accx.legend()
 
+ax_accy.plot(df['vicon time'].to_numpy(),output_y.detach().cpu().view(-1).numpy(),label='acc_y model with steering friction (model output)',color='k')
+ax_accy.legend()
 
-
-
-
-# plot surface plot
-v_range = np.linspace(0, df['vx body'].max(), 100)
-steering_range = np.linspace(df['steering angle time delayed'].min(),  df['steering angle time delayed'].max(), 100)
-v_grid, steering_grid = np.meshgrid(v_range, steering_range)
-
-# Create input points
-input_points = np.column_stack(
-    (
-        v_grid.flatten(),
-        steering_grid.flatten(),
-    )
-)
-
-input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
-Force_grid = steering_friction_model_obj.forward(input_grid).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
-
-
-
-# Plot the surface
-ax.plot_surface(v_grid, steering_grid, Force_grid, color='gray', alpha=1)
-# Set labels
-
-
-
-
-
-
+ax_accw.plot(df['vicon time'].to_numpy(),output_w.detach().cpu().view(-1).numpy(),label='acc_w model with steering friction (model output)',color='k')
+ax_accw.legend()
 
 plt.show()
+
