@@ -52,11 +52,11 @@ theta_correction = +0.5/180*np.pi
 lr = 0.135 # reference point location taken by the vicon system
 COM_positon = 0.09375 #measuring from the rear wheel
 #steering angle curve
-a =  1.6379064321517944
-b =  0.3301370143890381 #+ 0.04
-c =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
-d =  0.37879398465156555 #+ 0.2 #0.04
-e =  1.6578725576400757
+a_s =  1.6379064321517944
+b_s =  0.3301370143890381 #+ 0.04
+c_s =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
+d_s =  0.37879398465156555 #+ 0.2 #0.04
+e_s =  1.6578725576400757
 # ------------------------------------------------------
 
 # select data folder NOTE: this assumes that the current directory is DART
@@ -73,12 +73,6 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only
 # steering dynamics time constant
 # Time constant in the steering dynamics
 # filtering coefficients
-alpha_steer_filter = 0.60  # should be in time domain, not discrete time filtering coefficient
-
-
-
-
-
 
 
 # car parameters
@@ -93,47 +87,47 @@ lf = l-lr
 
 
 
-# Starting data processing
+# --- Starting data processing  ------------------------------------------------
 
-# get the raw data
-df_raw_data = get_data(folder_path)
+robot2vicon_delay = 5 # samples delay
+
+# check if there is a processed vicon data file already
+file_name = 'processed_vicon_data.csv'
+# Check if the CSV file exists in the folder
+file_path = os.path.join(folder_path, file_name)
+
+if not os.path.isfile(file_path):
+    # If the file does not exist, process the raw data
+    # get the raw data
+    df_raw_data = get_data(folder_path)
+
+    # process the data
+    df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,robot2vicon_delay)
+
+    df.to_csv(file_path, index=False)
+    print(f"File '{file_path}' saved.")
+else:
+    print(f"File '{file_path}' already exists, loading data.")
+    df = pd.read_csv(file_path)
 
 
-# process the data
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_steer_filter)
 
-# select time interval to fit
-if folder_path == 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file':
-    df = df[df['elapsed time sensors'] > 90]
-    #df = df[df['elapsed time sensors'] < 235]
 
-# df = df[df['vicon time'] > 69.87058401107788 - 10]
-# df = df[df['vicon time'] < 69.87058401107788 + 10]
+if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03':
+    # cut the data in two parts cause something is wrong in the middle (probably a temporary lag in the network)
+    df1=df[df['vicon time']<150] 
+    df2=df[df['vicon time']>185.5] 
+    # Concatenate vertically
+    df = pd.concat([df1, df2], axis=0)
+    # Reset the index if you want a clean, continuous index
+    df.reset_index(drop=True, inplace=True)
+
 
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-plot_vicon_data(df)
-
-
-
-
-
-# plotting the data that will be given to the models
-fig, ((ax10)) = plt.subplots(1, 1, figsize=(15, 15))
-
-# Front wheel
-scatter_front = ax10.scatter(df['V_y front wheel'].to_numpy(), df['Fy front wheel'].to_numpy(), color = "#72a0c1", label='front wheel data',alpha=0.5,s=3)
-# Rear wheel
-scatter_rear = ax10.scatter(df['V_y rear wheel'].to_numpy(), df['Fy rear wheel'].to_numpy(),  color = "#cc92c2", label='rear wheel data',alpha=0.5,s=3)
-
-ax10.set_xlabel('Wheel lateral velocity [m/s]')
-ax10.set_ylabel('Fy wheel [N]')
-ax10.legend()
-ax10.set_title('Tire model')
-
-
+ax_wheels = plot_vicon_data(df)
 
 
 
@@ -184,10 +178,11 @@ for i in range(train_its):
 # --- print out parameters ---
 [d,c,b] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
 d, c, b= d.item(), c.item(), b.item()
-print('Front Wheel parameters:')
-print('d = ', d)
-print('c = ', c)
-print('b = ', b)
+print('Wheel parameters:')
+print('d_t = ', d)
+print('c_t = ', c)
+print('b_t = ', b)
+
 
 # # # --- plot loss function ---
 plt.figure()
@@ -203,9 +198,9 @@ plt.legend()
 # evaluate model on plotting interval
 v_y_wheel_plotting = torch.unsqueeze(torch.linspace(torch.min(train_x),torch.max(train_x),100),1).cuda()
 lateral_force_vec = pacejka_culomb_tire_model_obj(v_y_wheel_plotting).detach().cpu().numpy()
-ax10.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
-ax10.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
-ax10.legend()
+
+ax_wheels.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
+ax_wheels.legend()
 plt.show()
 
 
@@ -213,76 +208,4 @@ plt.show()
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
-# input_data_long_term_predictions = df[columns_to_extract].to_numpy()
-# prediction_window = 1.5 # [s]
-# jumps = 50
-# forward_propagate_indexes = [1,2,3] # 1 =vx, 2=vy, 3=w
-# long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
-
-# # plot long term predictions over real data
-# fig, ((ax10,ax11,ax12)) = plt.subplots(3, 1, figsize=(10, 6))
-# fig.subplots_adjust(top=0.995,
-#                     bottom=0.11,
-#                     left=0.095,
-#                     right=0.995,
-#                     hspace=0.345,
-#                     wspace=0.2)
-
-# time_vec_data = df['vicon time'].to_numpy()
-
-# ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
-# ax10.set_xlabel('Time [s]')
-# ax10.set_ylabel('Vx body[m/s]')
-# ax10.legend()
-# ax10.set_title('Vx')
-
-# ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
-# ax11.set_xlabel('Time [s]')
-# ax11.set_ylabel('Vy body[m/s]')
-# ax11.legend()
-# ax11.set_title('Vy')
-
-
-# ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
-# ax12.set_xlabel('Time [s]')
-# ax12.set_ylabel('W [rad/s]')
-# ax12.legend()
-# ax12.set_title('W')
-
-
-
-# for i in range(0,len(long_term_predictions)):
-#     pred = long_term_predictions[i]
-#     ax10.plot(pred[:,0],pred[:,1],color='k',alpha=0.1)
-#     ax11.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
-#     ax12.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
-
-
-# plt.show()
 

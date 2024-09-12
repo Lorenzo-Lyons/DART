@@ -77,11 +77,20 @@ df['force'] = m * acc
 
 
 #adding delayed throttle signal
-df['throttle prev1'] = np.append(0,df['throttle'].to_numpy()[:-1])
-df['throttle prev2'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
-df['throttle prev3'] = np.append([0,0,0],df['throttle'].to_numpy()[:-3])
-df['throttle prev4'] = np.append([0,0,0,0],df['throttle'].to_numpy()[:-4])
-df['throttle prev5'] = np.append([0,0,0,0,0],df['throttle'].to_numpy()[:-5])
+# df['throttle prev1'] = np.append(0,df['throttle'].to_numpy()[:-1])
+# df['throttle prev2'] = np.append([0,0],df['throttle'].to_numpy()[:-2])
+# df['throttle prev3'] = np.append([0,0,0],df['throttle'].to_numpy()[:-3])
+# df['throttle prev4'] = np.append([0,0,0,0],df['throttle'].to_numpy()[:-4])
+# df['throttle prev5'] = np.append([0,0,0,0,0],df['throttle'].to_numpy()[:-5])
+
+# Adding delayed throttle signals 
+n_past_throttle = 10
+
+# for i in range(1, n_past_throttle+1):
+#     df[f'throttle prev{i}'] = df['throttle'].shift(i, fill_value=0)
+
+
+
 
 
 
@@ -120,7 +129,6 @@ initial_guess = torch.ones(8) * 0.5 # initialize parameters in the middle of the
 
 
 # NOTE that the parmeter range constraint is set in motor_curve_model.transform_parameters_norm_2_real method.
-n_past_throttle = 5
 motor_and_friction_model_obj = motor_and_friction_model(initial_guess,n_past_throttle)
 
 # define number of training iterations
@@ -130,9 +138,23 @@ train_its = 750
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss(reduction = 'mean') 
 optimizer_object = torch.optim.Adam(motor_and_friction_model_obj.parameters(), lr=0.003)
-        
+
+
+def generate_tensor(df, n_past_throttle):
+    # Add delayed throttle signals based on user input
+    for i in range(1, n_past_throttle + 1):
+        df[f'throttle prev{i}'] = df['throttle'].shift(i, fill_value=0)
+
+    # Select columns for generating tensor
+    selected_columns = ['throttle', 'vel encoder'] + [f'throttle prev{i}' for i in range(1, n_past_throttle + 1)]
+    
+    # Convert the selected columns into a tensor and send to GPU (if available)
+    train_x = torch.tensor(df[selected_columns].to_numpy()).cuda()
+    
+    return train_x
+
 # generate data in tensor form for torch
-train_x = torch.tensor(df[['throttle','vel encoder','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()).cuda()  
+train_x = generate_tensor(df, n_past_throttle) #torch.tensor(df[['throttle','vel encoder','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()).cuda()  
 train_y = torch.unsqueeze(torch.tensor(df['force'].to_numpy()),1).cuda()
 
 # save loss values for later plot
@@ -187,32 +209,46 @@ print('d_f = ',d_f)
 
 
 
-# evalauting filter coefficient
-k0 = d_m
-k1 = d_m * (1-d_m)
-k2 = d_m * (1-d_m)**2
-k3 = d_m * (1-d_m)**3 
-k4 = d_m * (1-d_m)**4 
-k5 = d_m * (1-d_m)**5 
+# # evalauting filter coefficient
+# k0 = d_m
+# k1 = d_m * (1-d_m)
+# k2 = d_m * (1-d_m)**2
+# k3 = d_m * (1-d_m)**3 
+# k4 = d_m * (1-d_m)**4 
+# k5 = d_m * (1-d_m)**5 
 
 
-k_vec = np.array([k0,k1,k2,k3,k4,k5])
-k_vec = k_vec[:n_past_throttle+1]
-sum = np.sum(k_vec)
-k_vec = k_vec/sum
+# k_vec = np.array([k0,k1,k2,k3,k4,k5])
+# k_vec = k_vec[:n_past_throttle+1]
+# sum = np.sum(k_vec)
+# k_vec = k_vec/sum
 
-# coefficients if k0 were used as a filter
-c0 = k0/sum
-c1 = k0/sum * (1-k0/sum)
-c2 = k0/sum * (1-k0/sum) ** 2
-c3 = k0/sum * (1-k0/sum) ** 3
-c4 = k0/sum * (1-k0/sum) ** 4  
-c5 = k0/sum * (1-k0/sum) ** 5
-c_vec = np.array([c0,c1,c2,c3,c4,c5])
-c_vec = c_vec[:n_past_throttle+1]
+# # coefficients if k0 were used as a filter
+# c0 = k0/sum
+# c1 = k0/sum * (1-k0/sum)
+# c2 = k0/sum * (1-k0/sum) ** 2
+# c3 = k0/sum * (1-k0/sum) ** 3
+# c4 = k0/sum * (1-k0/sum) ** 4  
+# c5 = k0/sum * (1-k0/sum) ** 5
+# c_vec = np.array([c0,c1,c2,c3,c4,c5])
+# c_vec = c_vec[:n_past_throttle+1]
+
+# # Calculate the error
+# error = c_vec - k_vec
+
+
+# Evaluate filter coefficients dynamically
+k_vec = np.array([d_m * (1 - d_m) ** i for i in range(n_past_throttle + 1)])
+k_vec /= np.sum(k_vec)  # Normalize by sum
+
+# Coefficients if k0 were used as a filter
+c_base = k_vec[0]  # This is k0 / sum, equivalent to normalized k0
+c_vec = np.array([c_base * (1 - c_base) ** i for i in range(n_past_throttle + 1)])
 
 # Calculate the error
 error = c_vec - k_vec
+
+
 
 # Print out the error with 4 decimal places
 print('filter coefficients')
@@ -256,8 +292,14 @@ df['throttle filtered'] = throttle_filtered
 
 # throttle filtered as in model
 #throttle_weighted_average = np.zeros(df['throttle'].shape[0])
-throttle_matrix = df[['throttle','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()
-throttle_matrix = throttle_matrix[:,:n_past_throttle+1]
+# throttle_matrix = df[['throttle','throttle prev1','throttle prev2','throttle prev3','throttle prev4','throttle prev5']].to_numpy()
+# throttle_matrix = throttle_matrix[:,:n_past_throttle+1]
+
+# Dynamically select the throttle and previous throttle columns
+throttle_columns = ['throttle'] + [f'throttle prev{i}' for i in range(1, n_past_throttle + 1)]
+
+# Convert the selected columns to a numpy array
+throttle_matrix = df[throttle_columns].to_numpy()
 
 # for i in range(df['throttle'].shape[0]):
 #     throttle_weighted_average[i] = 

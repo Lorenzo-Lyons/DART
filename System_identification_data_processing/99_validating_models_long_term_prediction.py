@@ -55,16 +55,16 @@ lf = l-lr
 
 
 # motor model  (from fitting both friction and motor model at the same time) 
-a_m =  24.492280960083008
-b_m =  4.685335159301758
-c_m =  -0.15649330615997314
-d_m =  0.7791252732276917
+a_m =  25.82439422607422
+b_m =  5.084076881408691
+c_m =  -0.15623189508914948
+d_m =  0.6883225440979004
 
 # rolling friction model
-a_f =  1.3823319673538208
-b_f =  5.101551055908203
-c_f =  0.7144842743873596
-d_f =  -0.10897014290094376
+a_f =  1.4945894479751587
+b_f =  3.9869790077209473
+c_f =  0.7107542157173157
+d_f =  -0.11705359816551208
 
 # steering angle curve
 # a_s =  1.6379064321517944
@@ -87,9 +87,9 @@ d_s =  0.37879398465156555 #+ 0.04
 e_s =  1.6578725576400757
 
 # tire model
-d_t =  -7.446990013122559
-c_t =  0.7474039196968079
-b_t =  5.093936443328857
+d_t =  -7.433387279510498
+c_t =  0.7730906009674072
+b_t =  5.021744728088379
 
 
 
@@ -138,10 +138,10 @@ robot_vicon_time_delay_th = 10 # seven periods (at 100 Hz is 0.07s)
 
 
 # filtering coefficients
-alpha_steer_filter = 0.1
+#alpha_steer_filter = 0.1
 # process the data
 robot2vicon_delay = 5 # samples delay
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,alpha_steer_filter,robot2vicon_delay)
+df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,robot2vicon_delay)
 
 
 
@@ -222,21 +222,21 @@ time_vec_data = df['vicon time'].to_numpy()
 
 
 # velocities
-ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
+ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax10.set_xlabel('Time [s]')
 ax10.set_ylabel('Vx body[m/s]')
 ax10.legend()
 ax10.set_title('Vx')
 
 
-ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
+ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax11.set_xlabel('Time [s]')
 ax11.set_ylabel('Vy body[m/s]')
 ax11.legend()
 ax11.set_title('Vy')
 
 
-ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
+ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax12.set_xlabel('Time [s]')
 ax12.set_ylabel('W [rad/s]')
 ax12.legend()
@@ -254,19 +254,19 @@ fig.subplots_adjust(top=0.995,
 
 
 
-ax13.plot(time_vec_data,input_data_long_term_predictions[:,6],color='dodgerblue',label='x',linewidth=4,linestyle='-')
+ax13.plot(time_vec_data,input_data_long_term_predictions[:,6],color='dodgerblue',label='x',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax13.set_xlabel('time [s]')
 ax13.set_ylabel('y [m]')
 ax13.legend()
 ax13.set_title('trajectory in the x-y plane')
 
-ax14.plot(time_vec_data,input_data_long_term_predictions[:,7],color='orangered',label='y',linewidth=4,linestyle='-')
+ax14.plot(time_vec_data,input_data_long_term_predictions[:,7],color='orangered',label='y',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax14.set_xlabel('time [s]')
 ax14.set_ylabel('y [m]')
 ax14.legend()
 ax14.set_title('trajectory in the x-y plane')
 
-ax15.plot(time_vec_data,input_data_long_term_predictions[:,8],color='orchid',label='yaw',linewidth=4,linestyle='-')
+ax15.plot(time_vec_data,input_data_long_term_predictions[:,8],color='orchid',label='yaw',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax15.set_xlabel('time [s]')
 ax15.set_ylabel('yaw [rad]')
 ax15.legend()
@@ -282,7 +282,7 @@ fig.subplots_adjust(top=0.995,
                     hspace=0.345,
                     wspace=0.2)
 
-ax16.plot(input_data_long_term_predictions[:,6],input_data_long_term_predictions[:,7],color='orange',label='trajectory',linewidth=4,linestyle='-')
+ax16.plot(input_data_long_term_predictions[:,6],input_data_long_term_predictions[:,7],color='orange',label='trajectory',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 ax16.set_xlabel('x [m]')
 ax16.set_ylabel('y [m]')
 ax16.legend()
@@ -350,20 +350,20 @@ plt.show()
 
 # time_vec_data = df['vicon time'].to_numpy()
 
-# ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
+# ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 # ax10.set_xlabel('Time [s]')
 # ax10.set_ylabel('Vx body[m/s]')
 # ax10.legend()
 # ax10.set_title('Vx')
 
-# ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
+# ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 # ax11.set_xlabel('Time [s]')
 # ax11.set_ylabel('Vy body[m/s]')
 # ax11.legend()
 # ax11.set_title('Vy')
 
 
-# ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
+# ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
 # ax12.set_xlabel('Time [s]')
 # ax12.set_ylabel('W [rad/s]')
 # ax12.legend()
