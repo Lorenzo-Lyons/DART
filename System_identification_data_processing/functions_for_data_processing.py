@@ -191,7 +191,21 @@ def plot_raw_data(df):
 
 
 
-def process_raw_vicon_data(df,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_steer_filter):
+def process_raw_vicon_data(df,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_steer_filter,robot2vicon_delay):
+
+    # there is a timedelay between robot and vicon system. Ideally the right way to do this would be to shift BACKWARDS in time the robot data.
+    # but equivalently we can shift FORWARDS in time the vicon data. This is done by shifting the vicon time backwards by the delay time.
+    # This is ok since we just need the data to be consistent. but be aware of this
+    df['vicon x'] = df['vicon x'].shift(+robot2vicon_delay)
+    df['vicon y'] = df['vicon y'].shift(+robot2vicon_delay)
+    df['vicon yaw'] = df['vicon yaw'].shift(+robot2vicon_delay)
+    # account for fisrt values that will be NaN
+    df['vicon x'].iloc[:robot2vicon_delay] = df['vicon x'].iloc[robot2vicon_delay]
+    df['vicon y'].iloc[:robot2vicon_delay] = df['vicon y'].iloc[robot2vicon_delay]
+    df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
+
+
+
 
     # -----     KINEMATICS      ------
     df['unwrapped yaw'] = unwrap_hm(df['vicon yaw'].to_numpy()) + theta_correction
@@ -206,7 +220,7 @@ def process_raw_vicon_data(df,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_
     df['w_abs_raw'] =  [*np.divide(np.diff(df['unwrapped yaw'].to_numpy()),np.diff(df['vicon time'].to_numpy())) ,0]
     # Calculate the derivatives using values 5 indices apart
 
-    steps_shift = 10
+    steps_shift = 3
     shifted_time0 = df['vicon time'].shift(+steps_shift)
     shifted_x0 = df['vicon x'].shift(+steps_shift)
     shifted_y0 = df['vicon y'].shift(+steps_shift)
@@ -322,12 +336,72 @@ def process_raw_vicon_data(df,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_
 
 
     # Evaluate steering angle and slip angles as they can be useful to tweak the parameters relative to the measuring system
-
+    
     #evaluate steering angle 
     w = 0.5 * (np.tanh(30*(df['steering']+c))+1)
     steering_angle1 = b * np.tanh(a * (df['steering'] + c)) 
     steering_angle2 = d * np.tanh(e * (df['steering'] + c)) 
-    steering_angle = (w)*steering_angle1+(1-w)*steering_angle2 
+    steering_angle = (w)*steering_angle1+(1-w)*steering_angle2
+    df['steering angle'] = steering_angle
+
+    # --- filter the steering angle directly ---
+    # Initialize the filtered steering angle list
+    # filtered_steering_angle = [df['steering angle'].iloc[0]]
+    # # Apply the first-order filter
+    # for i in range(1, len(df)):
+    #     filtered_value = alpha_steer_filter * df['steering angle'].iloc[i] + (1 - alpha_steer_filter) * filtered_steering_angle[-1]
+    #     filtered_steering_angle.append(filtered_value)
+
+    # # Add the filtered values to the DataFrame
+    # df['steering angle time delayed'] = filtered_steering_angle
+
+
+    # evaluate time delayed and filtered version of the steering
+    #steering_delayed = df['steering'].shift(periods=steering_delay)
+    #steering_delayed[:steering_delay] = 0 # account for the last valuse
+
+
+    # modelling the steering as a first order system
+    # filtered_steering = np.zeros(len(df['steering'].to_numpy()))
+    # filtered_steering[0] = df['steering'].to_numpy()[0] # assign first value
+    # # Apply the first-order filter
+    # for i in range(1, len(df['steering'].to_numpy())):
+    #     filtered_value = alpha_steer_filter * df['steering'].iloc[i] + (1 - alpha_steer_filter) * filtered_steering[i-1]
+    #     filtered_steering[i] = filtered_value
+
+    # modelling the steering as a second order system
+    filtered_steering = np.zeros(len(df['steering'].to_numpy()))
+    filtered_steering[0] = df['steering'].to_numpy()[0] # assign first value
+    steering_dot = 0
+    c_st = 4 * 2*np.pi # (1 Hz converted into radians)
+    k_st = 1.5 * c_st**2 / 4 # enforce a critically damped system
+
+
+    # Apply the first-order filter
+    for i in range(1, len(df['steering'].to_numpy())):
+        dt = df['vicon time'].to_numpy()[i] - df['vicon time'].to_numpy()[i-1]
+        # integrate the steering angle
+        steering_ddot = k_st * (df['steering'].iloc[i-1]-filtered_steering[i-1]) - c_st * steering_dot
+        steering_dot += steering_ddot * dt
+        filtered_steering[i] = filtered_steering[i-1] + dt * steering_dot
+
+
+    # Add the filtered values to the DataFrame
+    df['steering time delayed'] = filtered_steering
+
+
+
+
+
+    # evaluated filtered steering angle by converting the filtered steering input to steering angle
+    w = 0.5 * (np.tanh(30*(df['steering time delayed']+c))+1)
+    steering_angle1 = b * np.tanh(a * (df['steering time delayed'] + c)) 
+    steering_angle2 = d * np.tanh(e * (df['steering time delayed'] + c)) 
+    steering_angle = (w)*steering_angle1+(1-w)*steering_angle2
+    df['steering angle time delayed'] = steering_angle
+
+
+
 
 
     # rear slip angle
@@ -351,7 +425,6 @@ def process_raw_vicon_data(df,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_
 
 
     # add new columns
-    df['steering angle'] = steering_angle
     df['slip angle front'] = a_slip_f
     df['slip angle rear'] = a_slip_r
 
@@ -360,15 +433,7 @@ def process_raw_vicon_data(df,lf,lr,theta_correction,m,Jz,l_COM,a,b,c,d,e,alpha_
 
     # since now the steering angle is not necessarily fixed, it is a good idea to apply the first order filter to it, to recover the true steering angle
 
-    # Initialize the filtered steering angle list
-    filtered_steering_angle = [df['steering angle'].iloc[0]]
-    # Apply the first-order filter
-    for i in range(1, len(df)):
-        filtered_value = alpha_steer_filter * df['steering angle'].iloc[i] + (1 - alpha_steer_filter) * filtered_steering_angle[-1]
-        filtered_steering_angle.append(filtered_value)
 
-    # Add the filtered values to the DataFrame
-    df['steering angle time delayed'] = filtered_steering_angle
 
 
     # -----     DYNAMICS      ------
@@ -539,14 +604,16 @@ def plot_vicon_data(df):
 
     # plot Wheel velocity vs force data
     fig1, ((ax_wheels)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
-    ax_wheels.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',color='peru',s=3)
+    #ax_wheels.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',color='peru',s=3) df['steering angle time delayed'].diff().to_numpy()
+    scatter = ax_wheels.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',s=3,c=df['vicon time'].to_numpy(),  # color coded by 'steering angle time delayed'
+    cmap='viridis')
     ax_wheels.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
     ax_wheels.set_xlabel('V_y wheel')
     ax_wheels.set_ylabel('Fy')
     ax_wheels.legend()
     ax_wheels.set_title('time steps')
-
-
+    colorbar = fig1.colorbar(scatter, label='steering angle time delayed derivative')
+ 
 
     # plot dt data to check no jumps occur
     fig1, ((ax1)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)

@@ -82,7 +82,7 @@ d_f =  -0.10897014290094376
 # steering angle curve
 a_s =  1.6379064321517944
 b_s =  0.3301370143890381 #+ 0.04
-c_s =  0.019644200801849365 #- 0.03 # this value can be tweaked to get the tyre model curves to allign better
+c_s =  0.019644200801849365 #+ 0.03 # this value can be tweaked to get the tyre model curves to allign better
 d_s =  0.37879398465156555 #+ 0.04
 e_s =  1.6578725576400757
 
@@ -118,22 +118,30 @@ dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
 # get the raw data
 df_raw_data = get_data(folder_path)
 
+df_raw_data = df_raw_data[df_raw_data['vicon time']>2.8]
+df_raw_data = df_raw_data[df_raw_data['vicon time']<3.4]
+
 
 # account for latency between vehicle and vicon system (the vehicle inputs are relayed with a certain delay)
 # NOTE that the delay is actually not constant, but it is assumed to be constant for simplicity
 # so there will be some little timing discrepancies between predicted stated and data
 
-robot_vicon_time_delay_st = 15 #6 # seven periods (at 100 Hz is 0.07s)
+
+# they can be different cause this is actualy the sum of the wireless communication delay
+# from roobt to computer and the actuation delay, so the actuation delays could be different
+
+robot_vicon_time_delay_st = 0 #6 # seven periods (at 100 Hz is 0.07s)
 robot_vicon_time_delay_th = 10 # seven periods (at 100 Hz is 0.07s)
-df_raw_data['steering'] = df_raw_data['steering'].shift(periods=-robot_vicon_time_delay_st)
-df_raw_data['throttle'] = df_raw_data['throttle'].shift(periods=-robot_vicon_time_delay_th)
+#df_raw_data['steering'] = df_raw_data['steering'].shift(periods=-robot_vicon_time_delay_st)
+#df_raw_data['throttle'] = df_raw_data['throttle'].shift(periods=-robot_vicon_time_delay_th)
 
 
 
 # filtering coefficients
-alpha_steer_filter = 0.10
+alpha_steer_filter = 0.1
 # process the data
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,alpha_steer_filter)
+robot2vicon_delay = 5 # samples delay
+df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,alpha_steer_filter,robot2vicon_delay)
 
 
 
