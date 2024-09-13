@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model
+,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model,model_parameters
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -19,88 +19,23 @@ font = {'family' : 'normal',
 # chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
 forward_propagate_indexes = [1,2,3] # 1 =vx, 2=vy, 3=w
 
-# ---------------  ----------------
-theta_correction = +0.5/180*np.pi 
-lr = 0.135 # reference point location taken by the vicon system
-COM_positon = 0.09375 #measuring from the rear wheel
-# ------------------------------------------------------
-
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
 folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
 
 
-# steering dynamics time constant
-# Time constant in the steering dynamics
 
 
 
+# load model parameters
+[theta_correction, lr, l_COM, Jz, lf, m,
+a_m, b_m, c_m, d_m,
+a_f, b_f, c_f, d_f,
+a_s, b_s, c_s, d_s, e_s,
+d_t, c_t, b_t,
+a_stfr, b_stfr] = model_parameters()
 
-
-
-
-# car parameters
-l = 0.175 # length of the car
-m = 1.67 # mass
-Jz_0 = 0.006513 # Moment of inertia of uniform rectangle of shape 0.18 x 0.12
-
-# Automatically adjust following parameters according to tweaked values
-l_COM = lr - COM_positon #distance of the reference point from the centre of mass)
-Jz = Jz_0 + m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
-lf = l-lr
-
-
-# fitted parameters
-# construct a model that takes as inputs Vx,Vy,W,tau,Steer ---> Vx_dot,Vy_dot,W_dot
-
-
-# motor model  (from fitting both friction and motor model at the same time) 
-a_m =  25.82439422607422
-b_m =  5.084076881408691
-c_m =  -0.15623189508914948
-d_m =  0.6883225440979004
-
-# rolling friction model
-a_f =  1.4945894479751587
-b_f =  3.9869790077209473
-c_f =  0.7107542157173157
-d_f =  -0.11705359816551208
-
-# steering angle curve
-# a_s =  1.6379064321517944
-# b_s =  0.3301370143890381 + 0.04
-# c_s =  0.019644200801849365 - 0.03 # this value can be tweaked to get the tyre model curves to allign better
-# d_s =  0.37879398465156555 + 0.04
-# e_s =  1.6578725576400757
-
-# # tire model
-# d_t =  -6.080334186553955
-# c_t =  1.0502581596374512
-# b_t =  4.208724021911621
-
-
-# steering angle curve
-a_s =  1.6379064321517944
-b_s =  0.3301370143890381 #+ 0.04
-c_s =  0.019644200801849365 #+ 0.03 # this value can be tweaked to get the tyre model curves to allign better
-d_s =  0.37879398465156555 #+ 0.04
-e_s =  1.6578725576400757
-
-# tire model
-d_t =  -7.433387279510498
-c_t =  0.7730906009674072
-b_t =  5.021744728088379
-
-
-
-#additional friction due to steering angle
-a_stfr =  3.0430359840393066
-b_stfr =  2.975766897201538
-
-
-
-
-# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new tim instant
+# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
 dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
                  d_t,c_t,b_t,
                  a_m,b_m,c_m,
@@ -111,37 +46,16 @@ dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
 
 
 
-
-
 # Starting data processing
 
 # get the raw data
 df_raw_data = get_data(folder_path)
-
 df_raw_data = df_raw_data[df_raw_data['vicon time']>2.8]
 df_raw_data = df_raw_data[df_raw_data['vicon time']<3.4]
 
 
-# account for latency between vehicle and vicon system (the vehicle inputs are relayed with a certain delay)
-# NOTE that the delay is actually not constant, but it is assumed to be constant for simplicity
-# so there will be some little timing discrepancies between predicted stated and data
-
-
-# they can be different cause this is actualy the sum of the wireless communication delay
-# from roobt to computer and the actuation delay, so the actuation delays could be different
-
-robot_vicon_time_delay_st = 0 #6 # seven periods (at 100 Hz is 0.07s)
-robot_vicon_time_delay_th = 10 # seven periods (at 100 Hz is 0.07s)
-#df_raw_data['steering'] = df_raw_data['steering'].shift(periods=-robot_vicon_time_delay_st)
-#df_raw_data['throttle'] = df_raw_data['throttle'].shift(periods=-robot_vicon_time_delay_th)
-
-
-
-# filtering coefficients
-#alpha_steer_filter = 0.1
-# process the data
-robot2vicon_delay = 5 # samples delay
-df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,robot2vicon_delay)
+# process raw data
+df = process_raw_vicon_data(df_raw_data)
 
 
 
@@ -203,7 +117,7 @@ plt.legend()
 
 
 
-columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle filtered' ,'steering angle time delayed','vicon x','vicon y','vicon yaw']
+columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle filtered' ,'steering angle','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
 jumps = 25
@@ -222,21 +136,21 @@ time_vec_data = df['vicon time'].to_numpy()
 
 
 # velocities
-ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
 ax10.set_xlabel('Time [s]')
 ax10.set_ylabel('Vx body[m/s]')
 ax10.legend()
 ax10.set_title('Vx')
 
 
-ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
 ax11.set_xlabel('Time [s]')
 ax11.set_ylabel('Vy body[m/s]')
 ax11.legend()
 ax11.set_title('Vy')
 
 
-ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
 ax12.set_xlabel('Time [s]')
 ax12.set_ylabel('W [rad/s]')
 ax12.legend()
@@ -254,19 +168,19 @@ fig.subplots_adjust(top=0.995,
 
 
 
-ax13.plot(time_vec_data,input_data_long_term_predictions[:,6],color='dodgerblue',label='x',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax13.plot(time_vec_data,input_data_long_term_predictions[:,6],color='dodgerblue',label='x',linewidth=4,linestyle='-')
 ax13.set_xlabel('time [s]')
 ax13.set_ylabel('y [m]')
 ax13.legend()
 ax13.set_title('trajectory in the x-y plane')
 
-ax14.plot(time_vec_data,input_data_long_term_predictions[:,7],color='orangered',label='y',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax14.plot(time_vec_data,input_data_long_term_predictions[:,7],color='orangered',label='y',linewidth=4,linestyle='-')
 ax14.set_xlabel('time [s]')
 ax14.set_ylabel('y [m]')
 ax14.legend()
 ax14.set_title('trajectory in the x-y plane')
 
-ax15.plot(time_vec_data,input_data_long_term_predictions[:,8],color='orchid',label='yaw',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax15.plot(time_vec_data,input_data_long_term_predictions[:,8],color='orchid',label='yaw',linewidth=4,linestyle='-')
 ax15.set_xlabel('time [s]')
 ax15.set_ylabel('yaw [rad]')
 ax15.legend()
@@ -282,7 +196,7 @@ fig.subplots_adjust(top=0.995,
                     hspace=0.345,
                     wspace=0.2)
 
-ax16.plot(input_data_long_term_predictions[:,6],input_data_long_term_predictions[:,7],color='orange',label='trajectory',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+ax16.plot(input_data_long_term_predictions[:,6],input_data_long_term_predictions[:,7],color='orange',label='trajectory',linewidth=4,linestyle='-')
 ax16.set_xlabel('x [m]')
 ax16.set_ylabel('y [m]')
 ax16.legend()
@@ -350,20 +264,20 @@ plt.show()
 
 # time_vec_data = df['vicon time'].to_numpy()
 
-# ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+# ax10.plot(time_vec_data,input_data_long_term_predictions[:,1],color='dodgerblue',label='vx',linewidth=4,linestyle='-')
 # ax10.set_xlabel('Time [s]')
 # ax10.set_ylabel('Vx body[m/s]')
 # ax10.legend()
 # ax10.set_title('Vx')
 
-# ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+# ax11.plot(time_vec_data,input_data_long_term_predictions[:,2],color='orangered',label='vy',linewidth=4,linestyle='-')
 # ax11.set_xlabel('Time [s]')
 # ax11.set_ylabel('Vy body[m/s]')
 # ax11.legend()
 # ax11.set_title('Vy')
 
 
-# ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewiculomb_pacejka_tire_steering_dynamics_model_objh=4,linestyle='-')
+# ax12.plot(time_vec_data,input_data_long_term_predictions[:,3],color='orchid',label='w',linewidth=4,linestyle='-')
 # ax12.set_xlabel('Time [s]')
 # ax12.set_ylabel('W [rad/s]')
 # ax12.legend()

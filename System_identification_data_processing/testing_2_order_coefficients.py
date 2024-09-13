@@ -3,8 +3,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-dt = 0.001
-sim_time = 10 # seconds
+dt = 0.002
+sim_time = 4 # seconds
+transient_time = 2 # you need the input response to go to zero within this time otherwise you subtract energy from the signal
+
 t = np.arange(0,sim_time,dt)
 
 # forcing term will be a step input
@@ -16,12 +18,12 @@ x_vec = np.zeros(len(t))
 x_vec_coefficients = np.zeros(len(t))
 x_dot = 0
 
-z = 0.3
-w_Hz = 1 # Hz
+z = 0.5
+w_Hz = 7 # Hz
 w = w_Hz * 2 * np.pi
 
 
-n_past_inputs = 3999
+n_past_inputs = int(transient_time/dt-1)
 # produce matrix of past actions
 past_actions_mat = np.ones((len(t),n_past_inputs+1))
 past_actions_mat[:n_past_inputs+1,:] = np.tril(np.ones((n_past_inputs+1, n_past_inputs+1), dtype=int), -1) + np.eye(n_past_inputs+1) # replace with lower traingular ones matrix
@@ -33,8 +35,9 @@ def produce_past_action_coefficients(z,w):
     #[d,c,b,z,w] = transform_parameters_norm_2_real()
     k_vec = np.zeros((n_past_inputs+1,1))
     for i in range(n_past_inputs+1):
-        k_vec[i]=impulse_response(i*dt,z,w)
-    return k_vec
+        f = impulse_response(i*dt,z,w)
+        k_vec[i]=f * dt 
+    return k_vec  
 
 def impulse_response(t,z,w):
     #second order impulse response
@@ -56,7 +59,7 @@ def impulse_response(t,z,w):
 
 
 
-k_vals = produce_past_action_coefficients(z,w_Hz) * dt
+k_vals = produce_past_action_coefficients(z,w_Hz) 
 
 
 
