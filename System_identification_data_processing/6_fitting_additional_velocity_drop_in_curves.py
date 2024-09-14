@@ -36,13 +36,6 @@ a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
 a_stfr, b_stfr] = model_parameters()
 
-# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
-dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
-                 d_t,c_t,b_t,
-                 a_m,b_m,c_m,
-                 a_f,b_f,c_f,d_f,
-                 a_stfr,b_stfr)
-
 
 
 
@@ -185,7 +178,6 @@ colorbar = fig.colorbar(scatter, label='steering angle time delayed')
 # fitting tyre models
 # define first guess for parameters
 initial_guess = torch.ones(2) * 0.5 # initialize parameters in the middle of their range constraint
-initial_guess[2] = 0.1
 # define number of training iterations
 train_its = 1000
 learning_rate = 0.003

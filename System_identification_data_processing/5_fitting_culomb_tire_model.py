@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,culomb_pacejka_tire_model
+from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,culomb_pacejka_tire_model,model_parameters
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -46,18 +46,30 @@ font = {'family' : 'normal',
 # shifts the entire front wheel data left and right
 
 
-# --------------- TWEAK THESE PARAMETERS ---------------
+# NOTE: all this tweaking is now inside model_parameters
 
-theta_correction = +0.5/180*np.pi 
-lr = 0.135 # reference point location taken by the vicon system
-COM_positon = 0.09375 #measuring from the rear wheel
-#steering angle curve
-a_s =  1.6379064321517944
-b_s =  0.3301370143890381 #+ 0.04
-c_s =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
-d_s =  0.37879398465156555 #+ 0.2 #0.04
-e_s =  1.6578725576400757
-# ------------------------------------------------------
+# # --------------- TWEAK THESE PARAMETERS ---------------
+# theta_correction = +0.5/180*np.pi 
+# lr = 0.135 # reference point location taken by the vicon system
+# COM_positon = 0.09375 #measuring from the rear wheel
+# #steering angle curve
+# a_s =  1.6379064321517944
+# b_s =  0.3301370143890381 #+ 0.04
+# c_s =  0.019644200801849365 #- 0.04 # this value can be tweaked to get the tyre model curves to allign better
+# d_s =  0.37879398465156555 #+ 0.2 #0.04
+# e_s =  1.6578725576400757
+# # ------------------------------------------------------
+# load model parameters
+[theta_correction, lr, l_COM, Jz, lf, m,
+a_m, b_m, c_m, d_m,
+a_f, b_f, c_f, d_f,
+a_s, b_s, c_s, d_s, e_s,
+d_t, c_t, b_t,
+a_stfr, b_stfr] = model_parameters()
+
+
+
+
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
@@ -75,21 +87,21 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only
 # filtering coefficients
 
 
-# car parameters
-l = 0.175 # length of the car
-m = 1.67 # mass
-Jz_0 = 0.006513 # Moment of inertia of uniform rectangle of shape 0.18 x 0.12
+# # car parameters
+# l = 0.175 # length of the car
+# m = 1.67 # mass
+# Jz_0 = 0.006513 # Moment of inertia of uniform rectangle of shape 0.18 x 0.12
 
-# Automatically adjust following parameters according to tweaked values
-l_COM = lr - COM_positon #distance of the reference point from the centre of mass)
-Jz = Jz_0 + m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
-lf = l-lr
+# # Automatically adjust following parameters according to tweaked values
+# l_COM = lr - COM_positon #distance of the reference point from the centre of mass)
+# Jz = Jz_0 + m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
+# lf = l-lr
 
 
 
 # --- Starting data processing  ------------------------------------------------
 
-robot2vicon_delay = 5 # samples delay
+#robot2vicon_delay = 5 # samples delay
 
 # check if there is a processed vicon data file already
 file_name = 'processed_vicon_data.csv'
@@ -102,7 +114,7 @@ if not os.path.isfile(file_path):
     df_raw_data = get_data(folder_path)
 
     # process the data
-    df = process_raw_vicon_data(df_raw_data,lf,lr,theta_correction,m,Jz,l_COM,a_s,b_s,c_s,d_s,e_s,robot2vicon_delay)
+    df = process_raw_vicon_data(df_raw_data)
 
     df.to_csv(file_path, index=False)
     print(f"File '{file_path}' saved.")

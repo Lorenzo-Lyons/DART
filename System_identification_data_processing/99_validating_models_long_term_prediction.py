@@ -47,11 +47,12 @@ dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
 
 
 # Starting data processing
-
+t_min = 0 # 2.8
+t_max = 1000 #3.4
 # get the raw data
 df_raw_data = get_data(folder_path)
-df_raw_data = df_raw_data[df_raw_data['vicon time']>2.8]
-df_raw_data = df_raw_data[df_raw_data['vicon time']<3.4]
+df_raw_data = df_raw_data[df_raw_data['vicon time']>t_min]
+df_raw_data = df_raw_data[df_raw_data['vicon time']<t_max]
 
 
 # process raw data
@@ -80,6 +81,92 @@ df['throttle filtered'] = filtered_throttle
 
 
 
+
+
+# -------------------  forard integrate the steering signal  -------------------
+damping =  1.1754544973373413 #1.6560815572738647 #0.880281388759613
+w_natural =  13.14167594909668 #9.646344184875488 * 2 * np.pi #8.305014610290527
+fixed_delay =  6 # will be done by just shifting forward by a number of steps
+
+
+
+
+df['steering time shifted'] = df['steering'].shift(fixed_delay, fill_value=0)
+# NOTE this is a bit of a hack
+T = df['vicon time'].diff().mean()  # Calculate the average time step
+# forard integrate the steering signal
+# st_vec_ref = np.zeros(df.shape[0])
+# st_dot = 0
+
+# # # #saturate the steering rate
+# # # max_s_dot = 18 # steering/sec
+# # # #max_s_ddot = 60 # steering/sec^2
+# # # # Make the steering reference into a ramp (we simulate a maximum steering rate)
+# # # for i in range(1, df.shape[0]):
+
+# # #     # just give a ramp
+# # #     st_dot =(df['steering'].iloc[i-1]-st_vec_ref[i-1]) / T
+# # #     st_dot = np.min([st_dot,max_s_dot])
+# # #     st_dot = np.max([st_dot,-max_s_dot])
+
+# # #     st_vec_ref[i] = st_vec_ref[i-1] + T * st_dot
+
+
+st_vec = np.zeros(df.shape[0])
+st_dot = 0
+st = 0
+refinement_4_integration = 10
+dt_refined = T/refinement_4_integration
+# Forward integrate the state
+for i in range(1, df.shape[0]):
+    #st = st_vec[i-1]
+    for k in range(refinement_4_integration):
+        s_ddot = w_natural**2 * (df['steering time shifted'].iloc[i-1]-st) - 2*w_natural*damping * st_dot
+        st_dot += s_ddot * dt_refined
+        st += st_dot * dt_refined
+
+    #st_dot += s_ddot * T
+    st_vec[i] = st #st_vec[i-1] + st_dot * T
+
+
+
+
+df['steering integrated'] = st_vec  
+
+# compute steering angle
+w_s = 0.5 * (np.tanh(30*(df['steering integrated']+c_s))+1)
+steering_angle1 = b_s * np.tanh(a_s * (df['steering integrated'] + c_s)) 
+steering_angle2 = d_s * np.tanh(e_s * (df['steering integrated'] + c_s)) 
+steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+df['steering angle integrated'] = steering_angle
+
+
+
+
+
+
+
+
+
+
+
+
+# plot integrated steering signal
+plt.figure()
+plt.plot(df['vicon time'].to_numpy(),df['steering'].to_numpy(),label='steering',color='purple')
+plt.plot(df['vicon time'].to_numpy(),df['steering integrated'].to_numpy(),label='steering integrated',color='k')
+plt.xlabel('Time [s]')
+plt.ylabel('steering')
+plt.legend()
+
+
+# plot integrated steering signal
+plt.figure()
+plt.plot(df['vicon time'].to_numpy(),df['steering angle'].to_numpy(),label='steering angle',color='darkgreen')
+plt.plot(df['vicon time'].to_numpy(),df['steering angle integrated'].to_numpy(),label='steering integrated',color='k')
+plt.xlabel('Time [s]')
+plt.ylabel('steering angle')
+plt.legend()
 
 
 
@@ -117,7 +204,7 @@ plt.legend()
 
 
 
-columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle filtered' ,'steering angle','vicon x','vicon y','vicon yaw']
+columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle filtered' ,'steering angle integrated','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
 jumps = 25
@@ -219,6 +306,34 @@ for i in range(0,len(long_term_predictions)):
     ax16.plot(pred[:,6],pred[:,7],color='k',alpha=0.2)
 
 ax16.set_aspect('equal')
+
+
+
+
+
+
+# visualize the wheel data using the steering dynamics
+df_raw_data_steering_dynamics = get_data(folder_path)
+df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']>t_min]
+df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']<t_max]
+
+df_raw_data_steering_dynamics['steering angle'] = df['steering angle integrated']
+# providing the steering  will make processing data use that instead of recovering it from the raw data
+df_steering_dynamics = process_raw_vicon_data(df_raw_data_steering_dynamics)
+
+
+v_y_wheel_plotting = torch.unsqueeze(torch.linspace(-1,1,100),1)
+lateral_force_vec = dynamic_model.lateral_tire_forces(v_y_wheel_plotting).detach().cpu().numpy()
+ax_wheels.scatter(df_steering_dynamics['V_y front wheel'],df_steering_dynamics['Fy front wheel'],color='skyblue',label='front wheel data',s=6)
+ax_wheels.scatter(df_steering_dynamics['V_y rear wheel'],df_steering_dynamics['Fy rear wheel'],color='teal',label='rear wheel data',s=3)
+ax_wheels.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
+
+ax_wheels.legend()
+
+
+
+
+
 plt.show()
 
 

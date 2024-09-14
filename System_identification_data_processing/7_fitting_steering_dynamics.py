@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,\
-steering_dynamics_model,model_parameters
+fullmodel_with_steering_dynamics_model,model_parameters,steering_dynamics_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -26,7 +26,7 @@ font = {'family' : 'normal',
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-
+#folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'
 
 # Decide how many past steering signals to use. Note that this shold be enough to capture the dynamics of the system. 
 # steering_time_window = 0.04  # [s] # this should be enough to capture the dynamics of the impulse response of the steering dynamics
@@ -75,9 +75,149 @@ else:
 
 
 
+
+# reverse engineering the steering angle 
+def fun(x,Fx,Fy,Vx,Vy,steering_angle_command, d_t ,c_t ,b_t):
+    # x is the true steering angle
+    R_tilde = np.array([[np.cos(steering_angle_command), -np.sin(steering_angle_command)],
+                        [np.sin(steering_angle_command), +np.cos(steering_angle_command)]])
+    
+    F = np.array([[Fx],[Fy]])
+    V = np.array([[Vx],[Vy]])
+    projection_vec = np.array([-np.sin(x), np.cos(x)]).T
+    vy_wheel = projection_vec @ V
+    F_y_wheel = d_t * np.sin(c_t * np.arctan(b_t * vy_wheel[0][0] ))
+    # measured lateral force
+    measured = projection_vec @ R_tilde @ F
+    return  measured[0][0] - F_y_wheel
+    
+
+
+true_steering_angle_vec = np.zeros(df.shape[0])
+from scipy.optimize import fsolve
+
+for i in range(0,df.shape[0]):
+    # get the current data
+    Vx = df['vx body'].iloc[i]
+    if Vx > 0.1:
+        Fx = df['Fx'].iloc[i]
+        Fy = df['Fy front wheel'].iloc[i]
+        
+        Vy = df['vy body'].iloc[i] + lf*df['w_abs_filtered'].iloc[i]
+        steering_angle_command = df['steering angle'].iloc[i]
+        # solve the equation
+        equation = lambda x: fun(x,Fx,Fy,Vx,Vy,steering_angle_command, d_t ,c_t ,b_t)
+        
+        # Solve the equation starting from an initial guess
+        initial_guess = df['steering angle'].iloc[i]
+        true_steering_angle = fsolve(equation, initial_guess)
+        initial_guess = true_steering_angle # update initial guess
+        true_steering_angle_vec[i] = true_steering_angle
+    else:
+        true_steering_angle_vec[i] = df['steering angle'].iloc[i] # just keep previous value
+
+
+
+fig, ax_steering_angle = plt.subplots()
+ax_steering_angle.plot(df['vicon time'],df['steering angle'],label='steering angle',color='purple')
+ax_steering_angle.plot(df['vicon time'],true_steering_angle_vec,label='true steering angle',color='dodgerblue')
+ax_steering_angle.set_xlabel('Time [s]')
+ax_steering_angle.set_ylabel('Steering angle')
+ax_steering_angle.legend()
+
+
+
+
+
+
+
+
+
+# --- fit steering dynamics ----
+
+
+
+def generate_tensor(df, n_past_steering,refinement_factor,key_to_repeat):
+    # due to numerical errors in evauating the convolution integral we need a finer resolution for the time step on the steering
+    df_past_steering = pd.DataFrame()
+    df_past_steering[key_to_repeat] = df[key_to_repeat]
+    # Add delayed steering signals based on user input
+    for i in range(0, n_past_steering):
+        df_past_steering[key_to_repeat + f' prev{i}'] = df[key_to_repeat].shift(i, fill_value=0)
+    # doing a zero order hold on the steering signal to get  a finer resolution
+    df_past_steering_refined = pd.DataFrame()
+    for i in range(0, (n_past_steering)):
+        for k in range(refinement_factor):
+            df_past_steering_refined[key_to_repeat + f' prev{i*refinement_factor+k}'] = df_past_steering[key_to_repeat + f' prev{i}']
+
+
+    # Select columns for generating tensor
+
+    selected_columns_df_steering = [key_to_repeat + f' prev{i}' for i in range(0, (n_past_steering)*refinement_factor)]
+    
+    # Convert the selected columns into a tensor and send to GPU (if available)
+    
+    train_x_df_steering = torch.tensor(df_past_steering_refined[selected_columns_df_steering].to_numpy()).cuda()
+
+    
+    return train_x_df_steering
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # NOTE this is a bit of a hack
+# T = df['vicon time'].diff().mean()  # Calculate the average time step
+# # forard integrate the steering signal
+# st_vec = np.zeros(df.shape[0])
+# st_dot = 0
+
+# #saturate the steering rate
+# max_s_dot = 18 # steering/sec
+# #max_s_ddot = 60 # steering/sec^2
+
+# # Make the steering reference into a ramp (we simulate a maximum steering rate)
+# for i in range(1, df.shape[0]):
+
+#     # just give a ramp
+#     st_dot =(df['steering'].iloc[i-1]-st_vec[i-1]) / T
+#     st_dot = np.min([st_dot,max_s_dot])
+#     st_dot = np.max([st_dot,-max_s_dot])
+
+#     st_vec[i] = st_vec[i-1] + T * st_dot
+
+# df['steering'] = st_vec # substitute the original steering signal with the ramped one
+
+
+
+
+
+
+
+
+
 # add filtered throttle
-T = df['vicon time'].diff().mean()  # Calculate the average time step
+
 # Filter coefficient in the new sampling frequency
+T = df['vicon time'].diff().mean()  # Calculate the average time step
 d_m_100Hz = 0.01/(0.01+(0.1/d_m-0.1)) #convert to new sampling frequency
 
 # Initialize the filtered steering angle list
@@ -99,6 +239,116 @@ ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
 ax_wheels = plot_vicon_data(df)
+
+
+
+
+
+
+
+
+
+
+
+
+# --------------- fitting model---------------
+
+# fitting tyre models
+# define first guess for parameters
+initial_guess = torch.ones(8) * 0.5 # initialize parameters in the middle of their range constraint
+#initial_guess[2] = 0.1
+
+# define number of training iterations
+train_its = 100
+learning_rate = 0.01
+
+print('')
+print('Fitting steering dynamics by looking at the reconstructed steering angle')
+
+#instantiate the model
+#dt = np.diff(df['vicon time'].to_numpy()).mean()
+
+dt_int_steering =  T / refinement_factor
+steering_dynamics_model_obj = steering_dynamics_model(initial_guess,dt_int_steering)
+
+#define loss and optimizer objects
+loss_fn = torch.nn.MSELoss() 
+optimizer_object = torch.optim.Adam(steering_dynamics_model_obj.parameters(), lr=learning_rate)
+
+
+# generate data in tensor form for torch
+key_to_repeat = 'steering'
+train_x_df_steering = generate_tensor(df, n_past_steering,refinement_factor, key_to_repeat)
+
+# y labels are the measured accelerations in the body frame
+train_y = torch.unsqueeze(torch.tensor(true_steering_angle_vec),1).cuda() # acc_x_body_measured,
+
+
+# save loss values for later plot
+loss_vec = np.zeros(train_its)
+
+
+
+from tqdm import tqdm
+tqdm_obj = tqdm(range(0,train_its), desc="training", unit="iterations")
+
+
+for i in tqdm_obj:
+    # clear gradient information from previous step before re-evaluating it for the current iteration
+    optimizer_object.zero_grad()  
+    
+    # compute fitting outcome with current model parameters
+    output = steering_dynamics_model_obj(train_x_df_steering)
+
+
+    loss = loss_fn(output,  train_y)
+    loss_vec[i] = loss.item()
+
+    # evaluate the gradient of the loss function with respect to the fitting parameters
+    loss.backward() 
+
+    # use the evaluated gradient to perform a gradient descent step 
+    optimizer_object.step() # this updates parameters
+
+
+# --- print out parameters ---
+[damping,w_natural,fixed_delay,a_s,b_s,c_s,d_s,e_s]= steering_dynamics_model_obj.transform_parameters_norm_2_real()
+damping,w_natural,fixed_delay,a_s,b_s,c_s,d_s,e_s=  damping.item(), w_natural.item() ,fixed_delay.item(),a_s.item(),b_s.item(),c_s.item(),d_s.item(),e_s.item()
+
+
+print('steering dynamics parameters from direct steering angle matching:')
+print('damping = ', damping)
+print('w_natural = ', w_natural)
+print('fixed_delay = ', fixed_delay)
+
+print('steering curve parameters')
+print('a_s = ', a_s)
+print('b_s = ', b_s)
+print('c_s = ', c_s)
+print('d_s = ', d_s)
+print('e_s = ', e_s)
+
+
+
+
+ax_steering_angle.plot(df['vicon time'].to_numpy(),output.detach().cpu().view(-1).numpy(),label='steering angle model',color='k')
+ax_steering_angle.legend()
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -149,15 +399,14 @@ ax_accw.set_ylabel('Acceleration w')
 
 
 
-
-# --------------- fitting tire model---------------
+# --------------- fitting model---------------
 # fitting tyre models
 # define first guess for parameters
-initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
-
+initial_guess = torch.ones(11) * 0.5 # initialize parameters in the middle of their range constraint
+#initial_guess[2] = 0.1
 
 # define number of training iterations
-train_its = 200
+train_its = 100
 learning_rate = 0.01
 
 print('')
@@ -165,54 +414,26 @@ print('Fitting steering dynamics')
 
 #instantiate the model
 #dt = np.diff(df['vicon time'].to_numpy()).mean()
-steering_dynamics_model_obj = steering_dynamics_model(initial_guess,(n_past_steering)*refinement_factor,dt_int_steering)
+fullmodel_with_steering_dynamics_model_obj = fullmodel_with_steering_dynamics_model(initial_guess,(n_past_steering)*refinement_factor,dt_int_steering)
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
-optimizer_object = torch.optim.Adam(steering_dynamics_model_obj.parameters(), lr=learning_rate)
-
-
+optimizer_object = torch.optim.Adam(fullmodel_with_steering_dynamics_model_obj.parameters(), lr=learning_rate)
 
 
 
 #generate data in tensor form for torch
 #train_x = torch.unsqueeze(torch.tensor(np.concatenate((df['V_y front wheel'].to_numpy(),df['V_y rear wheel'].to_numpy()))),1).cuda()
-
-def generate_tensor(df, n_past_steering,refinement_factor):
-
-    # due to numerical errors in evauating the convolution integral we need a finer resolution for the time step on the steering
-    df_past_steering = pd.DataFrame()
-    df_past_steering['steering'] = df['steering']
-    # Add delayed steering signals based on user input
-    for i in range(0, n_past_steering):
-        df_past_steering[f'steering prev{i}'] = df['steering'].shift(i, fill_value=0)
-    # doing a zero order hold on the steering signal to get  a finer resolution
-    df_past_steering_refined = pd.DataFrame()
-    for i in range(0, (n_past_steering)):
-        for k in range(refinement_factor):
-            df_past_steering_refined[f'steering prev{i*refinement_factor+k}'] = df_past_steering[f'steering prev{i}']
-
-
-    # Select columns for generating tensor
-    selected_columns_df = ['vx body', 'vy body', 'w_abs_filtered','throttle filtered'] 
-    selected_columns_df_steering = [f'steering prev{i}' for i in range(0, (n_past_steering)*refinement_factor)]
-    
-    # Convert the selected columns into a tensor and send to GPU (if available)
-    train_x_df = torch.tensor(df[selected_columns_df].to_numpy()).cuda()
-    train_x_df_steering = torch.tensor(df_past_steering_refined[selected_columns_df_steering].to_numpy()).cuda()
-
-    train_x = torch.cat((train_x_df, train_x_df_steering), dim=1)
-    return train_x
-
-
+selected_columns_df = ['vx body', 'vy body', 'w_abs_filtered','throttle filtered'] 
+train_x_df = torch.tensor(df[selected_columns_df].to_numpy()).cuda()
 
 
 # generate data in tensor form for torch
-train_x = generate_tensor(df, n_past_steering,refinement_factor) 
+#train_x_df, train_x_df_steering = generate_tensor(df, n_past_steering,refinement_factor) 
+train_x = torch.cat((train_x_df, train_x_df_steering), dim=1)
 # y labels are the measured accelerations in the body frame
-train_y = torch.unsqueeze(torch.tensor(np.concatenate((acc_x_body_measured,acc_y_body_measured,df['aw_abs_filtered_more'].to_numpy()))),1).cuda() 
-
-
+train_y = torch.unsqueeze(torch.tensor(np.concatenate((acc_y_body_measured,df['aw_abs_filtered_more'].to_numpy()))),1).cuda() # acc_x_body_measured,
+#train_y = torch.unsqueeze(torch.tensor((df['aw_abs_filtered_more'].to_numpy())),1).cuda() # acc_x_body_measured,
 
 
 # save loss values for later plot
@@ -223,14 +444,17 @@ loss_vec = np.zeros(train_its)
 from tqdm import tqdm
 tqdm_obj = tqdm(range(0,train_its), desc="training", unit="iterations")
 
+max_accw = np.abs(df['aw_abs_filtered_more'].to_numpy()).max()
+max_accy = np.abs(acc_y_body_measured).max()
+
 for i in tqdm_obj:
     # clear gradient information from previous step before re-evaluating it for the current iteration
     optimizer_object.zero_grad()  
     
     # compute fitting outcome with current model parameters
-    acc_x,acc_y,acc_w, steering_angle = steering_dynamics_model_obj(train_x)
-    acc_output = torch.vstack([acc_x,acc_y,acc_w])
-
+    acc_x,acc_y,acc_w, steering_angle = fullmodel_with_steering_dynamics_model_obj(train_x)
+    acc_output = torch.vstack([acc_y/max_accy,acc_w/max_accw]) # acc_x
+    #acc_output = acc_w
     # evaluate loss function
     loss = loss_fn(acc_output,  train_y)
     loss_vec[i] = loss.item()
@@ -243,14 +467,29 @@ for i in tqdm_obj:
 
 
 # --- print out parameters ---
-[damping,w_natural,fixed_delay]= steering_dynamics_model_obj.transform_parameters_norm_2_real()
-damping, w_natural,fixed_delay =  damping.item(), w_natural.item() ,fixed_delay.item()
+[damping,w_natural,fixed_delay,a_s,b_s,c_s,d_s,e_s,d_t,c_t,b_t]= fullmodel_with_steering_dynamics_model_obj.transform_parameters_norm_2_real()
+damping, w_natural,fixed_delay,a_s,b_s,c_s,d_s,e_s,d_t,c_t,b_t =  damping.item(), w_natural.item() ,fixed_delay.item(),a_s.item(),b_s.item(),c_s.item(),d_s.item(),e_s.item(),\
+                                                                d_t.item(),c_t.item(),b_t.item()
 
 
 print('steering dynamics parameters:')
 print('damping = ', damping)
 print('w_natural = ', w_natural)
 print('fixed_delay = ', fixed_delay)
+
+print('steering curve parameters')
+print('a_s = ', a_s)
+print('b_s = ', b_s)
+print('c_s = ', c_s)
+print('d_s = ', d_s)
+print('e_s = ', e_s)
+
+print('tire model parameters')
+print('d_t = ', d_t)
+print('c_t = ', c_t)
+print('b_t = ', b_t)
+
+
 
 
 # # # --- plot loss function ---
@@ -279,13 +518,13 @@ ax_accw.legend()
 
 
 # plot the steering delay
-k_vec = steering_dynamics_model_obj.produce_past_action_coefficients(torch.Tensor([damping]).cuda(),torch.Tensor([w_natural]).cuda(),torch.Tensor([fixed_delay]).cuda()).cpu().view(-1).numpy()    
+k_vec = fullmodel_with_steering_dynamics_model_obj.produce_past_action_coefficients(torch.Tensor([damping]).cuda(),torch.Tensor([w_natural]).cuda(),torch.Tensor([fixed_delay]).cuda()).cpu().view(-1).numpy()    
 t_vec = np.linspace(0,dt_int_steering*(n_past_steering_refined-1),n_past_steering_refined)
 
 plt.figure()
 plt.plot(t_vec,k_vec,label='k_vec',color='gray')
 plt.plot(df['vicon time'].to_numpy(),df['steering angle'].to_numpy(),label='steering angle',color='purple')
-plt.plot(df['vicon time'].to_numpy(),steering_angle.detach().cpu().view(-1).numpy(),label='steering angle model',color='k')
+ax_steering_angle.plot(df['vicon time'].to_numpy(),steering_angle.detach().cpu().view(-1).numpy(),label='steering angle model',color='k')
 plt.xlabel('Time [s]')
 plt.ylabel('Steering angle')
 plt.legend()
@@ -296,18 +535,47 @@ plt.legend()
 df_raw_data_steering_dynamics = get_data(folder_path)
 df_raw_data_steering_dynamics['steering angle'] = steering_angle.detach().cpu().view(-1).numpy()
 # providing the steering  will make processing data use that instead of recovering it from the raw data
+t_min = 2.8 # 2.8
+t_max = 3.4 #3.4
+df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']>t_min]
+df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']<t_max]
 df_steering_dynamics = process_raw_vicon_data(df_raw_data_steering_dynamics)
 
 
 v_y_wheel_plotting = torch.unsqueeze(torch.linspace(-1,1,100),1).cuda()
-lateral_force_vec = steering_dynamics_model_obj.F_y_wheel_model(v_y_wheel_plotting).detach().cpu().numpy()
-ax_wheels.scatter(df_steering_dynamics['V_y front wheel'],df_steering_dynamics['Fy front wheel'],color='skyblue',label='front wheel data',s=3)
-ax_wheels.scatter(df_steering_dynamics['V_y rear wheel'],df_steering_dynamics['Fy rear wheel'],color='teal',label='rear wheel data',s=3)
+lateral_force_vec = fullmodel_with_steering_dynamics_model_obj.F_y_wheel_model(v_y_wheel_plotting,d_t,c_t,b_t).detach().cpu().numpy()
+ax_wheels.scatter(df_steering_dynamics['V_y front wheel'],df_steering_dynamics['Fy front wheel'],color='skyblue',label='front wheel data',s=6)
+#ax_wheels.scatter(df_steering_dynamics['V_y rear wheel'],df_steering_dynamics['Fy rear wheel'],color='teal',label='rear wheel data',s=3)
 ax_wheels.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
 
 ax_wheels.legend()
 
 
+
+plt.figure()
+steering_input = np.linspace(-1,1,100)
+# model curve
+w_s = 0.5 * (np.tanh(30*(steering_input+c_s))+1)
+steering_angle1_model = b_s * np.tanh(a_s * (steering_input + c_s)) 
+steering_angle2_model = d_s * np.tanh(e_s * (steering_input + c_s)) 
+steering_angle_model = (w_s)*steering_angle1_model+(1-w_s)*steering_angle2_model
+
+# historical data from on board sensors (and different floor)
+a_s_original =  1.6379064321517944
+b_s_original =  0.3301370143890381 
+c_s_original =  0.019644200801849365 
+d_s_original =  0.37879398465156555 
+e_s_original =  1.6578725576400757
+
+w_s_original = 0.5 * (np.tanh(30*(steering_input+c_s_original))+1)
+steering_angle1_original = b_s_original * np.tanh(a_s_original * (steering_input + c_s_original)) 
+steering_angle2_original = d_s_original * np.tanh(e_s_original * (steering_input + c_s_original)) 
+steering_angle_original = (w_s_original)*steering_angle1_original+(1-w_s_original)*steering_angle2_original
+
+plt.plot(steering_input,steering_angle_model,label='steering angle model',color='k')
+plt.plot(steering_input,steering_angle_original,label='steering angle original',color='orange')
+plt.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
+plt.legend()
 
 plt.show()
 
