@@ -73,8 +73,9 @@ max_x_dot = 0.5
 # numerically compute k_val in case you have actuator limitations
 k_vals_numerical = np.zeros((n_past_inputs+1,1))
 
-x_dot_numerical = 0.5
-
+x_dot_numerical = 2  # initial condition is non-zero
+Delta_st_int = 0
+K_I = 100
 
 for i in range(1, n_past_inputs+1):
     # integrate the steering angle
@@ -82,7 +83,7 @@ for i in range(1, n_past_inputs+1):
     
 
     #x_ddot = np.min([w**2 * (forcing_term[i-1] -x_vec[i-1]) - 2*w*z * x_dot,max_x_ddot])  # 
-    x_ddot_numerical = w**2 * (0 -k_vals_numerical[i-1]) - 2*w*z * x_dot_numerical 
+    x_ddot_numerical = w**2 * (0 -k_vals_numerical[i-1]) - 2*w*z * x_dot_numerical + K_I * Delta_st_int
     #x_ddot_numerical = np.min([x_ddot_numerical,max_x_ddot])
     #x_ddot_numerical = np.max([x_ddot_numerical,-max_x_ddot])
 
@@ -91,6 +92,7 @@ for i in range(1, n_past_inputs+1):
     # x_dot_numerical = np.max([x_dot_numerical,-max_x_dot])
 
     k_vals_numerical[i] = k_vals_numerical[i-1] + dt * x_dot_numerical
+    Delta_st_int = 0 - k_vals_numerical[i]
 
 
 

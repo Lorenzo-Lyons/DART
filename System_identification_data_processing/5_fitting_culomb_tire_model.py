@@ -75,8 +75,8 @@ a_stfr, b_stfr] = model_parameters()
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
 

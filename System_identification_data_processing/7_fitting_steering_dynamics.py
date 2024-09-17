@@ -25,12 +25,16 @@ font = {'family' : 'normal',
 
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
+#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'
 
 # Decide how many past steering signals to use. Note that this shold be enough to capture the dynamics of the system. 
 # steering_time_window = 0.04  # [s] # this should be enough to capture the dynamics of the impulse response of the steering dynamics
 # dt_steering = 0.001  # this small enough to limit the numerical error when solving the convolution integral in the steering dynamics model
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+
+
 
 
 # define the number of past steering signals to use
@@ -47,6 +51,10 @@ a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
 a_stfr, b_stfr] = model_parameters()
+
+
+# decide if you want to tweak the steering curve
+tweak_steering_curve = False
 
 
 
@@ -72,7 +80,8 @@ else:
     df = pd.read_csv(file_path)
 
 
-
+# define sampling time
+T = df['vicon time'].diff().mean()  # Calculate the average time step
 
 
 
@@ -123,10 +132,114 @@ ax_steering_angle.plot(df['vicon time'],df['steering angle'],label='steering ang
 ax_steering_angle.plot(df['vicon time'],true_steering_angle_vec,label='true steering angle',color='dodgerblue')
 ax_steering_angle.set_xlabel('Time [s]')
 ax_steering_angle.set_ylabel('Steering angle')
+
+
+
+
+
+
+# using optuna to find a simple steering model using a fixed time delay and a maximum slope
+import optuna
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+
+# Define the objective function for Optuna
+def objective(trial):
+    # Suggest values for parameters 'a' and 'b'
+    max_st_dot = trial.suggest_float('max_st_dot', 0, 10) # /s
+    gain = trial.suggest_float('gain', 0, 1) # /s
+    delay = trial.suggest_float('fixed_delay', 0, 20) # timesteps
+
+
+    # convert to int the value of the fixed timedelay
+    delay_int = int(np.round(delay))
+    # evaluate shifted steering signal
+    steering_time_shifted = df['steering'].shift(delay_int, fill_value=0)
+    
+    # Predict y based on the current values of 'a' and 'b'
+    st = 0
+    st_vec_angle = np.zeros(len(true_steering_angle_vec))
+    # to interpolate the steering signal
+
+    for k in range(1,len(st_vec_angle)):
+        st_dot = (steering_time_shifted[k-1]-st)/T * gain # first order system
+        st_dot = np.min([st_dot,max_st_dot])
+        st_dot = np.max([st_dot,-max_st_dot])
+        st += st_dot * T
+        # convert to steerign angle
+        w_s = 0.5 * (np.tanh(30*(st+c_s))+1)
+        steering_angle1 = b_s * np.tanh(a_s * (st + c_s)) 
+        steering_angle2 = d_s * np.tanh(e_s * (st + c_s)) 
+        steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+
+        st_vec_angle[k] = steering_angle
+    
+    # Calculate the mean squared error (least squares error)
+    mse = mean_squared_error(true_steering_angle_vec, st_vec_angle)
+    
+    return mse
+
+# Create a study and optimize
+study = optuna.create_study(direction="minimize")
+study.optimize(objective, n_trials=100)
+
+# Get the best parameters
+best_max_st_dot = study.best_trial.params['max_st_dot']
+best_fixed_delay = study.best_trial.params['fixed_delay']
+best_gain = study.best_trial.params['gain']
+
+
+# re-run the model to get the plot of the best prediction
+
+# Convert the best fixed_delay to an integer
+best_delay_int = int(np.round(best_fixed_delay))
+
+# Evaluate the shifted steering signal using the best fixed delay
+steering_time_shifted = df['steering'].shift(best_delay_int, fill_value=0).to_numpy()
+
+# Initialize variables for the steering prediction
+st = 0
+st_vec_angle_optuna = np.zeros(df.shape[0])
+
+# Loop through the data to compute the predicted steering angles
+for k in range(1, len(true_steering_angle_vec)):
+    # Calculate the rate of change of steering (steering dot)
+    st_dot = (steering_time_shifted[k-1] - st) / T * best_gain
+    # Apply max_st_dot limits
+    st_dot = np.min([st_dot, best_max_st_dot])
+    st_dot = np.max([st_dot, -best_max_st_dot])
+    
+    # Update the steering value with the time step
+    st += st_dot * T
+    
+    # Compute the steering angle using the two models with weights
+    w_s = 0.5 * (np.tanh(30 * (st + c_s)) + 1)
+    steering_angle1 = b_s * np.tanh(a_s * (st + c_s))
+    steering_angle2 = d_s * np.tanh(e_s * (st + c_s))
+    
+    # Combine the two steering angles using the weight
+    steering_angle = (w_s) * steering_angle1 + (1 - w_s) * steering_angle2
+    
+    # Store the predicted steering angle
+    st_vec_angle_optuna[k] = steering_angle
+
+# Now `st_vec_angle` contains the predicted steering angles with the best parameters
+#print(f"Predicted steering angles: {st_vec_angle_optuna}")
+
+
+
+ax_steering_angle.plot(df['vicon time'].to_numpy(),st_vec_angle_optuna,label='steering angle optuna',color='maroon')
 ax_steering_angle.legend()
 
 
+# print out the best parameters
+print('best_max_st_dot =',best_max_st_dot)
+print('best_fixed_delay =',best_fixed_delay)
+print('best_gain =',best_gain)
 
+
+plt.show()
 
 
 
@@ -217,7 +330,7 @@ def generate_tensor(df, n_past_steering,refinement_factor,key_to_repeat):
 # add filtered throttle
 
 # Filter coefficient in the new sampling frequency
-T = df['vicon time'].diff().mean()  # Calculate the average time step
+
 d_m_100Hz = 0.01/(0.01+(0.1/d_m-0.1)) #convert to new sampling frequency
 
 # Initialize the filtered steering angle list
@@ -256,7 +369,7 @@ ax_wheels = plot_vicon_data(df)
 # fitting tyre models
 # define first guess for parameters
 initial_guess = torch.ones(8) * 0.5 # initialize parameters in the middle of their range constraint
-#initial_guess[2] = 0.1
+initial_guess[2] = 0.1  # low delay initial guess
 
 # define number of training iterations
 train_its = 100
@@ -269,7 +382,7 @@ print('Fitting steering dynamics by looking at the reconstructed steering angle'
 #dt = np.diff(df['vicon time'].to_numpy()).mean()
 
 dt_int_steering =  T / refinement_factor
-steering_dynamics_model_obj = steering_dynamics_model(initial_guess,dt_int_steering)
+steering_dynamics_model_obj = steering_dynamics_model(initial_guess,dt_int_steering,tweak_steering_curve)
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
@@ -318,7 +431,7 @@ damping,w_natural,fixed_delay,a_s,b_s,c_s,d_s,e_s=  damping.item(), w_natural.it
 
 print('steering dynamics parameters from direct steering angle matching:')
 print('damping = ', damping)
-print('w_natural = ', w_natural)
+print('w_natural_Hz = ', w_natural, '   # Hz')
 print('fixed_delay = ', fixed_delay)
 
 print('steering curve parameters')
@@ -535,14 +648,14 @@ plt.legend()
 df_raw_data_steering_dynamics = get_data(folder_path)
 df_raw_data_steering_dynamics['steering angle'] = steering_angle.detach().cpu().view(-1).numpy()
 # providing the steering  will make processing data use that instead of recovering it from the raw data
-t_min = 2.8 # 2.8
-t_max = 3.4 #3.4
-df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']>t_min]
-df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']<t_max]
+# t_min = 2.8 # 2.8
+# t_max = 3.4 #3.4
+# df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']>t_min]
+# df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steering_dynamics['vicon time']<t_max]
 df_steering_dynamics = process_raw_vicon_data(df_raw_data_steering_dynamics)
 
 
-v_y_wheel_plotting = torch.unsqueeze(torch.linspace(-1,1,100),1).cuda()
+v_y_wheel_plotting = torch.unsqueeze(torch.linspace(-1.5,1.5,100),1).cuda()
 lateral_force_vec = fullmodel_with_steering_dynamics_model_obj.F_y_wheel_model(v_y_wheel_plotting,d_t,c_t,b_t).detach().cpu().numpy()
 ax_wheels.scatter(df_steering_dynamics['V_y front wheel'],df_steering_dynamics['Fy front wheel'],color='skyblue',label='front wheel data',s=6)
 #ax_wheels.scatter(df_steering_dynamics['V_y rear wheel'],df_steering_dynamics['Fy rear wheel'],color='teal',label='rear wheel data',s=3)
@@ -576,6 +689,10 @@ plt.plot(steering_input,steering_angle_model,label='steering angle model',color=
 plt.plot(steering_input,steering_angle_original,label='steering angle original',color='orange')
 plt.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
 plt.legend()
+
+
+
+
 
 plt.show()
 

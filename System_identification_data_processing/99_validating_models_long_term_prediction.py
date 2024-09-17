@@ -21,8 +21,10 @@ forward_propagate_indexes = [1,2,3] # 1 =vx, 2=vy, 3=w
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
-folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-
+#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+#folder_path = 'System_identification_data_processing/Data/free_driving_steer_rate_testing_16_sept_2024'
 
 
 
@@ -33,14 +35,15 @@ a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr] = model_parameters()
+a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = model_parameters()
+
 
 # the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
 dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
                  d_t,c_t,b_t,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
-                 a_stfr,b_stfr)
+                 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
 
 
 
@@ -48,7 +51,7 @@ dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
 
 # Starting data processing
 t_min = 0 # 2.8
-t_max = 1000 #3.4
+t_max = 10000 #3.4
 # get the raw data
 df_raw_data = get_data(folder_path)
 df_raw_data = df_raw_data[df_raw_data['vicon time']>t_min]
@@ -56,7 +59,8 @@ df_raw_data = df_raw_data[df_raw_data['vicon time']<t_max]
 
 
 # process raw data
-df = process_raw_vicon_data(df_raw_data)
+steps_shift = 3 # decide to filter more or less the vicon data
+df = process_raw_vicon_data(df_raw_data,steps_shift)
 
 
 
@@ -84,10 +88,13 @@ df['throttle filtered'] = filtered_throttle
 
 
 # -------------------  forard integrate the steering signal  -------------------
-damping =  1.1754544973373413 #1.6560815572738647 #0.880281388759613
-w_natural =  13.14167594909668 #9.646344184875488 * 2 * np.pi #8.305014610290527
-fixed_delay =  6 # will be done by just shifting forward by a number of steps
+damping =  1.186140537261963
+w_natural_Hz =  7.976590633392334    # Hz
+fixed_delay =  3 # will be done by just shifting forward by a number of steps
 
+
+# omega natural in rad/s
+w_natural = w_natural_Hz * 2 * np.pi
 
 
 
@@ -111,34 +118,100 @@ T = df['vicon time'].diff().mean()  # Calculate the average time step
 
 # # #     st_vec_ref[i] = st_vec_ref[i-1] + T * st_dot
 
+# max_s_dot = 5
+# st_vec = np.zeros(df.shape[0])
+# st_dot = 0
+# st = 0
+# refinement_4_integration = 10
+# dt_refined = T/refinement_4_integration
+# # Forward integrate the state
+# for i in range(1, df.shape[0]):
+#     #st = st_vec[i-1]
+#     st_0 = df['steering time shifted'].iloc[i-1]
+#     st_1 = df['steering time shifted'].iloc[i]
+#     # to interpolate the steering signal
 
-st_vec = np.zeros(df.shape[0])
-st_dot = 0
+#     for k in range(refinement_4_integration):
+#         st_ref = df['steering time shifted'].iloc[i-1] #st_0 + (st_1-st_0) * k/refinement_4_integration
+
+#         st_dot = np.min([st_dot,max_s_dot])
+#         st_dot = np.max([st_dot,-max_s_dot])
+
+#         s_ddot = w_natural**2 * (st_ref-st) - 2*w_natural*damping * st_dot
+#         st_dot += s_ddot * dt_refined
+#         st += st_dot * dt_refined
+
+#     #st_dot += s_ddot * T
+#     st_vec[i] = st #st_vec[i-1] + st_dot * T
+
+
+# df['steering integrated'] = st_vec  
+
+# # compute steering angle
+# w_s = 0.5 * (np.tanh(30*(df['steering integrated']+c_s))+1)
+# steering_angle1 = b_s * np.tanh(a_s * (df['steering integrated'] + c_s)) 
+# steering_angle2 = d_s * np.tanh(e_s * (df['steering integrated'] + c_s)) 
+# steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+# df['steering angle integrated'] = steering_angle
+
+
+# Get the best parameters
+best_max_st_dot = 8.373585733476759
+best_fixed_delay = 3.612047386642708
+best_gain = 0.3515165999602925
+
+# re-run the model to get the plot of the best prediction
+
+# Convert the best fixed_delay to an integer
+best_delay_int = int(np.round(best_fixed_delay))
+
+# Evaluate the shifted steering signal using the best fixed delay
+steering_time_shifted = df['steering'].shift(best_delay_int, fill_value=0).to_numpy()
+
+# Initialize variables for the steering prediction
 st = 0
-refinement_4_integration = 10
-dt_refined = T/refinement_4_integration
-# Forward integrate the state
-for i in range(1, df.shape[0]):
-    #st = st_vec[i-1]
-    for k in range(refinement_4_integration):
-        s_ddot = w_natural**2 * (df['steering time shifted'].iloc[i-1]-st) - 2*w_natural*damping * st_dot
-        st_dot += s_ddot * dt_refined
-        st += st_dot * dt_refined
+st_vec_optuna = np.zeros(df.shape[0])
+st_vec_angle_optuna = np.zeros(df.shape[0])
 
-    #st_dot += s_ddot * T
-    st_vec[i] = st #st_vec[i-1] + st_dot * T
+# Loop through the data to compute the predicted steering angles
+for k in range(1, df.shape[0]):
+    # Calculate the rate of change of steering (steering dot)
+    st_dot = (steering_time_shifted[k-1] - st) / T * best_gain
+    # Apply max_st_dot limits
+    st_dot = np.min([st_dot, best_max_st_dot])
+    st_dot = np.max([st_dot, -best_max_st_dot])
+    
+    # Update the steering value with the time step
+    st += st_dot * T
+    
+    # Compute the steering angle using the two models with weights
+    w_s = 0.5 * (np.tanh(30 * (st + c_s)) + 1)
+    steering_angle1 = b_s * np.tanh(a_s * (st + c_s))
+    steering_angle2 = d_s * np.tanh(e_s * (st + c_s))
+    
+    # Combine the two steering angles using the weight
+    steering_angle = (w_s) * steering_angle1 + (1 - w_s) * steering_angle2
+    
+    # Store the predicted steering angle
+    st_vec_angle_optuna[k] = steering_angle
+    st_vec_optuna[k] = st
+
+# Now `st_vec_angle` contains the predicted steering angles with the best parameters
+#print(f"Predicted steering angles: {st_vec_angle_optuna}")
+
+df['steering angle integrated'] = st_vec_angle_optuna
+df['steering integrated'] = st_vec_optuna
 
 
 
 
-df['steering integrated'] = st_vec  
 
-# compute steering angle
-w_s = 0.5 * (np.tanh(30*(df['steering integrated']+c_s))+1)
-steering_angle1 = b_s * np.tanh(a_s * (df['steering integrated'] + c_s)) 
-steering_angle2 = d_s * np.tanh(e_s * (df['steering integrated'] + c_s)) 
-steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
-df['steering angle integrated'] = steering_angle
+
+
+
+
+
+
 
 
 
@@ -174,8 +247,7 @@ plt.legend()
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-ax_wheels = plot_vicon_data(df)
-
+ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df)
 
 # add wheel curve on top of the vicon data
 vy_range = np.linspace(-1,1,100)
@@ -193,6 +265,51 @@ plt.plot(df['vicon time'].to_numpy(),df['ax body no centrifugal'].to_numpy(),lab
 plt.xlabel('Time [s]')
 plt.ylabel('Throttle')
 plt.legend()
+
+
+
+
+# plot total force as predicted by the model
+total_force_model_front = np.zeros(df.shape[0])
+total_force_model_rear = np.zeros(df.shape[0])
+Fy_front_vec = np.zeros(df.shape[0])
+Fy_rear_vec = np.zeros(df.shape[0])
+Fx_vec = np.zeros(df.shape[0])
+
+for i in range(df.shape[0]):
+    vx = df['vx body'].iloc[i]
+    vy = df['vy body'].iloc[i]
+    w = df['w_abs_filtered'].iloc[i]
+    throttle = df['throttle filtered'].iloc[i]
+    steer_angle = df['steering angle integrated'].iloc[i]
+
+    Fx = dynamic_model.motor_force(throttle,vx) + dynamic_model.friction(vx) + dynamic_model.friction_due_to_steering(vx,steer_angle)
+    # wheel forces
+    Vy_wheel_f = np.cos(steer_angle)*(vy + lf*w) - np.sin(steer_angle) * vx
+    Vy_wheel_r = vy - lr*w
+    Fy_front = dynamic_model.lateral_tire_forces(Vy_wheel_f)
+    Fy_rear = dynamic_model.lateral_tire_forces(Vy_wheel_r)
+
+    total_force_model_front[i] =  (Fx**2 + Fy_front**2)**0.5
+    total_force_model_rear[i] =   (Fx**2 + Fy_rear**2)**0.5
+    Fy_front_vec[i] = Fy_front
+    Fy_rear_vec[i] = Fy_rear
+    Fx_vec[i] = Fx
+
+ax_total_force_rear.plot(df['vicon time'].to_numpy(),total_force_model_rear,label='total force model rear',color='k')
+ax_total_force_front.plot(df['vicon time'].to_numpy(),total_force_model_front,label='total force model front',color='k')
+
+
+# plot components
+ax_lat_force.plot(df['vicon time'].to_numpy(),Fy_front_vec,label='Fy front model',color='k')
+ax_lat_force.plot(df['vicon time'].to_numpy(),Fy_rear_vec,label='Fy rear model',color='b')
+ax_lat_force.legend()
+
+ax_long_force.plot(df['vicon time'].to_numpy(),Fx_vec,label='Fx model',color='k')
+ax_long_force.legend()
+
+
+
 
 
 
@@ -319,14 +436,27 @@ df_raw_data_steering_dynamics = df_raw_data_steering_dynamics[df_raw_data_steeri
 
 df_raw_data_steering_dynamics['steering angle'] = df['steering angle integrated']
 # providing the steering  will make processing data use that instead of recovering it from the raw data
-df_steering_dynamics = process_raw_vicon_data(df_raw_data_steering_dynamics)
+df_steering_dynamics = process_raw_vicon_data(df_raw_data_steering_dynamics,steps_shift)
 
 
-v_y_wheel_plotting = torch.unsqueeze(torch.linspace(-1,1,100),1)
+v_y_wheel_plotting = torch.unsqueeze(torch.linspace(-1.5,1.5,100),1)
 lateral_force_vec = dynamic_model.lateral_tire_forces(v_y_wheel_plotting).detach().cpu().numpy()
 ax_wheels.scatter(df_steering_dynamics['V_y front wheel'],df_steering_dynamics['Fy front wheel'],color='skyblue',label='front wheel data',s=6)
-ax_wheels.scatter(df_steering_dynamics['V_y rear wheel'],df_steering_dynamics['Fy rear wheel'],color='teal',label='rear wheel data',s=3)
-ax_wheels.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
+ax_wheels.scatter(df_steering_dynamics['V_y rear wheel'] ,df_steering_dynamics['Fy rear wheel'],color='teal',label='rear wheel data',s=3)
+#ax_wheels.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
+# Create the scatter plot
+sc = ax_wheels.scatter(df_steering_dynamics['V_y front wheel'],
+                       df_steering_dynamics['Fy front wheel'],
+                       c=df_steering_dynamics['vx body'],  # Set color based on 'vx body'
+                       cmap='viridis',  # You can choose any cmap, e.g., 'viridis', 'plasma', etc.
+                       label='front wheel data',
+                       s=3)
+
+# Add a color bar to indicate what the colors represent
+cbar = plt.colorbar(sc, ax=ax_wheels)
+cbar.set_label('Vx Body')
+
+
 
 ax_wheels.legend()
 

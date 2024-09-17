@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,steering_friction_model,model_parameters
+,dyn_model_culomb_tires,steering_friction_model, model_parameters
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -22,6 +22,7 @@ font = {'family' : 'normal',
 #folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
 folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
 
@@ -34,7 +35,7 @@ a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr] = model_parameters()
+a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = model_parameters()
 
 
 
@@ -46,25 +47,59 @@ file_name = 'processed_vicon_data.csv'
 # Check if the CSV file exists in the folder
 file_path = os.path.join(folder_path, file_name)
 
-if not os.path.isfile(file_path):
+
+steps_shift = 10 # decide to filter more or less the vicon data
     # If the file does not exist, process the raw data
     # get the raw data
-    df_raw_data = get_data(folder_path)
+df_raw_data = get_data(folder_path)
 
-    # process the data
-    df = process_raw_vicon_data(df_raw_data)
-
-    df.to_csv(file_path, index=False)
-    print(f"File '{file_path}' saved.")
-else:
-    print(f"File '{file_path}' already exists, loading data.")
-    df = pd.read_csv(file_path)
+# process the data
+df = process_raw_vicon_data(df_raw_data,steps_shift)
 
 
+# if not os.path.isfile(file_path):
+#     # If the file does not exist, process the raw data
+#     # get the raw data
+#     df_raw_data = get_data(folder_path)
 
+#     # process the data
+#     df = process_raw_vicon_data(df_raw_data)
+
+#     df.to_csv(file_path, index=False)
+#     print(f"File '{file_path}' saved.")
+# else:
+#     print(f"File '{file_path}' already exists, loading data.")
+#     df = pd.read_csv(file_path)
+
+
+
+
+
+
+
+# cut off time instances where the vicon missed a detection to avoid corrupted datapoints
+df1 = df[df['vicon time']<100]
+
+df2 = df[df['vicon time']>165]
+df2 = df2[df2['vicon time']<409]
+
+df3 = df[df['vicon time']>417]
+df3 = df3[df3['vicon time']<500]
+
+df4 = df[df['vicon time']>506]
+df4 = df4[df4['vicon time']<600]
+
+df5 = df[df['vicon time']>604]
+df5 = df5[df5['vicon time']<658]
+
+df6 = df[df['vicon time']>661]
+
+df = pd.concat([df1,df2,df3,df4,df5,df6])
+
+# df = df[df['vx body']<2]
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-ax_wheels = plot_vicon_data(df)
+ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df)
 
 
 # NOTE
@@ -87,13 +122,13 @@ plt.legend()
 # --- the actual model will be fitted differently cause the extra term will affect the motor force, while here we are plotting the overall
 # --- missing longitudinal force. (Adding to Fx will also, slightly, affect lateral and yaw dynamics that we do not show here)
 
-a_stfr= []  # give empty correction terms to not use them
+a_stfr=[]  # give empty correction terms to not use them
 b_stfr=[]
 # define model NOTE: this will give you the absolute accelerations measured in the body frame
 dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
-                 a_stfr,b_stfr)
+                 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
 
 columns_to_extract = ['vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering angle']
 input_data = df[columns_to_extract].to_numpy()
@@ -158,11 +193,9 @@ scatter = ax.scatter(
 )
 
 ax.set_xlabel('vx body')
-ax.set_ylabel('steering angle')
+ax.set_ylabel('steering angel [rad]')
 ax.set_zlabel('Force [N]')
-colorbar = fig.colorbar(scatter, label='steering angle time delayed')
-
-
+colorbar = fig.colorbar(scatter, label='w_abs_filtered')
 
 
 
@@ -177,7 +210,7 @@ colorbar = fig.colorbar(scatter, label='steering angle time delayed')
 
 # fitting tyre models
 # define first guess for parameters
-initial_guess = torch.ones(2) * 0.5 # initialize parameters in the middle of their range constraint
+initial_guess = torch.ones(6) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
 train_its = 1000
 learning_rate = 0.003
@@ -189,8 +222,7 @@ print('Fitting extra steering friction model ')
 steering_friction_model_obj = steering_friction_model(initial_guess,m,lr,lf,l_COM,Jz,
                  d_t,c_t,b_t,
                  a_m,b_m,c_m,
-                 a_f,b_f,c_f,d_f,
-                 a_stfr,b_stfr)
+                 a_f,b_f,c_f,d_f)
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
@@ -224,11 +256,18 @@ for i in range(train_its):
 
 
 # --- print out parameters ---
-[a,b] = steering_friction_model_obj.transform_parameters_norm_2_real()
-a,b= a.item(), b.item()
+[a,b,d,e,f,g] = steering_friction_model_obj.transform_parameters_norm_2_real()
+a,b,d,e,f,g= a.item(), b.item(), d.item(), e.item(), f.item(), g.item()
 print('Friction due to steering parameters:')
 print('a_stfr = ', a)
 print('b_stfr = ', b)
+print('d_stfr = ', d)
+print('e_stfr = ', e)
+print('f_stfr = ', f)
+print('g_stfr = ', g)
+
+
+
 
 # # # --- plot loss function ---
 plt.figure()
@@ -241,13 +280,13 @@ plt.legend()
 
 
 # plot fitting results on the model
-ax_accx.plot(df['vicon time'].to_numpy(),output_x.detach().cpu().view(-1).numpy(),label='acc_x model with steering friction (model output)',color='k')
+ax_accx.plot(df['vicon time'].to_numpy(),output_x.detach().cpu().numpy(),label='acc_x model with steering friction (model output)',color='k')
 ax_accx.legend()
 
-ax_accy.plot(df['vicon time'].to_numpy(),output_y.detach().cpu().view(-1).numpy(),label='acc_y model with steering friction (model output)',color='k')
+ax_accy.plot(df['vicon time'].to_numpy(),output_y.detach().cpu().numpy(),label='acc_y model with steering friction (model output)',color='k')
 ax_accy.legend()
 
-ax_accw.plot(df['vicon time'].to_numpy(),output_w.detach().cpu().view(-1).numpy(),label='acc_w model with steering friction (model output)',color='k')
+ax_accw.plot(df['vicon time'].to_numpy(),output_w.detach().cpu().numpy(),label='acc_w model with steering friction (model output)',color='k')
 ax_accw.legend()
 
 plt.show()
