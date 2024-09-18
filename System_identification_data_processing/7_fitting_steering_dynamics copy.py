@@ -50,7 +50,7 @@ a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr] = model_parameters()
+a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = model_parameters()
 
 
 # decide if you want to tweak the steering curve

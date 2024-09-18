@@ -35,7 +35,8 @@ a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = model_parameters()
+a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+max_st_dot,fixed_delay_stdn,k_stdn] = model_parameters()
 
 
 # the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
@@ -58,30 +59,23 @@ df_raw_data = df_raw_data[df_raw_data['vicon time']>t_min]
 df_raw_data = df_raw_data[df_raw_data['vicon time']<t_max]
 
 
-# process raw data
-steps_shift = 3 # decide to filter more or less the vicon data
-df = process_raw_vicon_data(df_raw_data,steps_shift)
-
 
 
 
 
 # add filtered throttle
-T = df['vicon time'].diff().mean()  # Calculate the average time step
+T = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
 # Filter coefficient in the new sampling frequency
 d_m_100Hz = 0.01/(0.01+(0.1/d_m-0.1)) #convert to new sampling frequency
 
 # Initialize the filtered steering angle list
-filtered_throttle = [df['throttle'].iloc[0]]
+filtered_throttle = [df_raw_data['throttle'].iloc[0]]
 # Apply the first-order filter
-for i in range(1, len(df)):
-    filtered_value = d_m_100Hz * df['throttle'].iloc[i] + (1 - d_m_100Hz) * filtered_throttle[-1]
+for i in range(1, len(df_raw_data)):
+    filtered_value = d_m_100Hz * df_raw_data['throttle'].iloc[i] + (1 - d_m_100Hz) * filtered_throttle[-1]
     filtered_throttle.append(filtered_value)
 
-df['throttle filtered'] = filtered_throttle
-
-
-
+df_raw_data['throttle filtered'] = filtered_throttle
 
 
 
@@ -98,61 +92,9 @@ w_natural = w_natural_Hz * 2 * np.pi
 
 
 
-df['steering time shifted'] = df['steering'].shift(fixed_delay, fill_value=0)
+df_raw_data['steering time shifted'] = df_raw_data['steering'].shift(fixed_delay, fill_value=0)
 # NOTE this is a bit of a hack
-T = df['vicon time'].diff().mean()  # Calculate the average time step
-# forard integrate the steering signal
-# st_vec_ref = np.zeros(df.shape[0])
-# st_dot = 0
-
-# # # #saturate the steering rate
-# # # max_s_dot = 18 # steering/sec
-# # # #max_s_ddot = 60 # steering/sec^2
-# # # # Make the steering reference into a ramp (we simulate a maximum steering rate)
-# # # for i in range(1, df.shape[0]):
-
-# # #     # just give a ramp
-# # #     st_dot =(df['steering'].iloc[i-1]-st_vec_ref[i-1]) / T
-# # #     st_dot = np.min([st_dot,max_s_dot])
-# # #     st_dot = np.max([st_dot,-max_s_dot])
-
-# # #     st_vec_ref[i] = st_vec_ref[i-1] + T * st_dot
-
-# max_s_dot = 5
-# st_vec = np.zeros(df.shape[0])
-# st_dot = 0
-# st = 0
-# refinement_4_integration = 10
-# dt_refined = T/refinement_4_integration
-# # Forward integrate the state
-# for i in range(1, df.shape[0]):
-#     #st = st_vec[i-1]
-#     st_0 = df['steering time shifted'].iloc[i-1]
-#     st_1 = df['steering time shifted'].iloc[i]
-#     # to interpolate the steering signal
-
-#     for k in range(refinement_4_integration):
-#         st_ref = df['steering time shifted'].iloc[i-1] #st_0 + (st_1-st_0) * k/refinement_4_integration
-
-#         st_dot = np.min([st_dot,max_s_dot])
-#         st_dot = np.max([st_dot,-max_s_dot])
-
-#         s_ddot = w_natural**2 * (st_ref-st) - 2*w_natural*damping * st_dot
-#         st_dot += s_ddot * dt_refined
-#         st += st_dot * dt_refined
-
-#     #st_dot += s_ddot * T
-#     st_vec[i] = st #st_vec[i-1] + st_dot * T
-
-
-# df['steering integrated'] = st_vec  
-
-# # compute steering angle
-# w_s = 0.5 * (np.tanh(30*(df['steering integrated']+c_s))+1)
-# steering_angle1 = b_s * np.tanh(a_s * (df['steering integrated'] + c_s)) 
-# steering_angle2 = d_s * np.tanh(e_s * (df['steering integrated'] + c_s)) 
-# steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
-# df['steering angle integrated'] = steering_angle
+T = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
 
 
 # Get the best parameters
@@ -166,15 +108,15 @@ best_gain = 0.3515165999602925
 best_delay_int = int(np.round(best_fixed_delay))
 
 # Evaluate the shifted steering signal using the best fixed delay
-steering_time_shifted = df['steering'].shift(best_delay_int, fill_value=0).to_numpy()
+steering_time_shifted = df_raw_data['steering'].shift(best_delay_int, fill_value=0).to_numpy()
 
 # Initialize variables for the steering prediction
 st = 0
-st_vec_optuna = np.zeros(df.shape[0])
-st_vec_angle_optuna = np.zeros(df.shape[0])
+st_vec_optuna = np.zeros(df_raw_data.shape[0])
+st_vec_angle_optuna = np.zeros(df_raw_data.shape[0])
 
 # Loop through the data to compute the predicted steering angles
-for k in range(1, df.shape[0]):
+for k in range(1, df_raw_data.shape[0]):
     # Calculate the rate of change of steering (steering dot)
     st_dot = (steering_time_shifted[k-1] - st) / T * best_gain
     # Apply max_st_dot limits
@@ -199,6 +141,22 @@ for k in range(1, df.shape[0]):
 # Now `st_vec_angle` contains the predicted steering angles with the best parameters
 #print(f"Predicted steering angles: {st_vec_angle_optuna}")
 
+
+# save previous values for plots
+steering_original = df_raw_data['steering'].to_numpy()
+
+# over-write the actual data with the forward integrated data
+df_raw_data['steering angle'] = st_vec_angle_optuna
+df_raw_data['steering'] = st_vec_optuna
+
+
+
+# process raw data
+steps_shift = 3 # decide to filter more or less the vicon data
+df = process_raw_vicon_data(df_raw_data,steps_shift)
+
+
+# over-write the actual data with the forward integrated data
 df['steering angle integrated'] = st_vec_angle_optuna
 df['steering integrated'] = st_vec_optuna
 
@@ -206,40 +164,18 @@ df['steering integrated'] = st_vec_optuna
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # plot integrated steering signal
 plt.figure()
-plt.plot(df['vicon time'].to_numpy(),df['steering'].to_numpy(),label='steering',color='purple')
+plt.plot(df['vicon time'].to_numpy(),steering_original,label='steering original',color='purple')
 plt.plot(df['vicon time'].to_numpy(),df['steering integrated'].to_numpy(),label='steering integrated',color='k')
 plt.xlabel('Time [s]')
 plt.ylabel('steering')
 plt.legend()
 
 
-# plot integrated steering signal
-plt.figure()
-plt.plot(df['vicon time'].to_numpy(),df['steering angle'].to_numpy(),label='steering angle',color='darkgreen')
-plt.plot(df['vicon time'].to_numpy(),df['steering angle integrated'].to_numpy(),label='steering integrated',color='k')
-plt.xlabel('Time [s]')
-plt.ylabel('steering angle')
-plt.legend()
+
+
+
 
 
 
@@ -266,47 +202,6 @@ plt.xlabel('Time [s]')
 plt.ylabel('Throttle')
 plt.legend()
 
-
-
-
-# plot total force as predicted by the model
-total_force_model_front = np.zeros(df.shape[0])
-total_force_model_rear = np.zeros(df.shape[0])
-Fy_front_vec = np.zeros(df.shape[0])
-Fy_rear_vec = np.zeros(df.shape[0])
-Fx_vec = np.zeros(df.shape[0])
-
-for i in range(df.shape[0]):
-    vx = df['vx body'].iloc[i]
-    vy = df['vy body'].iloc[i]
-    w = df['w_abs_filtered'].iloc[i]
-    throttle = df['throttle filtered'].iloc[i]
-    steer_angle = df['steering angle integrated'].iloc[i]
-
-    Fx = dynamic_model.motor_force(throttle,vx) + dynamic_model.friction(vx) + dynamic_model.friction_due_to_steering(vx,steer_angle)
-    # wheel forces
-    Vy_wheel_f = np.cos(steer_angle)*(vy + lf*w) - np.sin(steer_angle) * vx
-    Vy_wheel_r = vy - lr*w
-    Fy_front = dynamic_model.lateral_tire_forces(Vy_wheel_f)
-    Fy_rear = dynamic_model.lateral_tire_forces(Vy_wheel_r)
-
-    total_force_model_front[i] =  (Fx**2 + Fy_front**2)**0.5
-    total_force_model_rear[i] =   (Fx**2 + Fy_rear**2)**0.5
-    Fy_front_vec[i] = Fy_front
-    Fy_rear_vec[i] = Fy_rear
-    Fx_vec[i] = Fx
-
-ax_total_force_rear.plot(df['vicon time'].to_numpy(),total_force_model_rear,label='total force model rear',color='k')
-ax_total_force_front.plot(df['vicon time'].to_numpy(),total_force_model_front,label='total force model front',color='k')
-
-
-# plot components
-ax_lat_force.plot(df['vicon time'].to_numpy(),Fy_front_vec,label='Fy front model',color='k')
-ax_lat_force.plot(df['vicon time'].to_numpy(),Fy_rear_vec,label='Fy rear model',color='b')
-ax_lat_force.legend()
-
-ax_long_force.plot(df['vicon time'].to_numpy(),Fx_vec,label='Fx model',color='k')
-ax_long_force.legend()
 
 
 

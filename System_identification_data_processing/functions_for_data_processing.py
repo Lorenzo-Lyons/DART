@@ -69,14 +69,14 @@ def model_parameters():
 
     # tire model
     #from static estimation
-    # d_t =  -7.428709983825684
-    # c_t =  0.7740796804428101
-    # b_t =  4.992660999298096
+    d_t =  -7.428709983825684
+    c_t =  0.7740796804428101
+    b_t =  4.992660999298096
 
     # from dynamic tests
-    d_t =  -8.77987289428711
-    c_t =  0.723857045173645
-    b_t =  3.2573933601379395
+    # d_t =  -8.77987289428711
+    # c_t =  0.723857045173645
+    # b_t =  3.2573933601379395
 
     #additional friction due to steering angle
     # from freedriving around -- this is better at lower speeds (but might be doing overfitting)
@@ -95,10 +95,16 @@ def model_parameters():
     f_stfr =  3.382528305053711
     g_stfr =  0.8229769468307495
 
+    # steering dynamics
+    max_st_dot = 8.373585733476759
+    fixed_delay_stdn = 3.612047386642708
+    k_stdn = 0.3515165999602925
+
 
     return [theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
-             a_f, b_f, c_f, d_f, a_s, b_s, c_s, d_s, e_s, d_t, c_t, b_t,
-               a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr]
+            a_f, b_f, c_f, d_f, a_s, b_s, c_s, d_s, e_s, d_t, c_t, b_t,
+            a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+            max_st_dot,fixed_delay_stdn,k_stdn]
 
 
 
@@ -248,6 +254,70 @@ def process_raw_data_steering(df):
 
     return df_steering_angle
 
+def throttle_dynamics(df_raw_data,d_m):
+    # add filtered throttle
+    T = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
+    # Filter coefficient in the new sampling frequency
+    d_m_100Hz = 0.01/(0.01+(0.1/d_m-0.1)) #convert to new sampling frequency
+
+    # Initialize the filtered steering angle list
+    filtered_throttle = [df_raw_data['throttle'].iloc[0]]
+    # Apply the first-order filter
+    for i in range(1, len(df_raw_data)):
+        filtered_value = d_m_100Hz * df_raw_data['throttle'].iloc[i] + (1 - d_m_100Hz) * filtered_throttle[-1]
+        filtered_throttle.append(filtered_value)
+
+    df_raw_data['throttle'] = filtered_throttle
+
+    return df_raw_data
+
+
+def steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn):
+
+    # -------------------  forard integrate the steering signal  -------------------
+    # NOTE this is a bit of a hack
+    T = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
+    
+    # re-run the model to get the plot of the best prediction
+
+    # Convert the best fixed_delay to an integer
+    best_delay_int = int(np.round(fixed_delay_stdn))
+
+    # Evaluate the shifted steering signal using the best fixed delay
+    steering_time_shifted = df_raw_data['steering'].shift(best_delay_int, fill_value=0).to_numpy()
+
+    # Initialize variables for the steering prediction
+    st = 0
+    st_vec_optuna = np.zeros(df_raw_data.shape[0])
+    st_vec_angle_optuna = np.zeros(df_raw_data.shape[0])
+
+    # Loop through the data to compute the predicted steering angles
+    for k in range(1, df_raw_data.shape[0]):
+        # Calculate the rate of change of steering (steering dot)
+        st_dot = (steering_time_shifted[k-1] - st) / T * k_stdn
+        # Apply max_st_dot limits
+        st_dot = np.min([st_dot, max_st_dot])
+        st_dot = np.max([st_dot, -max_st_dot])
+        
+        # Update the steering value with the time step
+        st += st_dot * T
+        
+        # Compute the steering angle using the two models with weights
+        w_s = 0.5 * (np.tanh(30 * (st + c_s)) + 1)
+        steering_angle1 = b_s * np.tanh(a_s * (st + c_s))
+        steering_angle2 = d_s * np.tanh(e_s * (st + c_s))
+        
+        # Combine the two steering angles using the weight
+        steering_angle = (w_s) * steering_angle1 + (1 - w_s) * steering_angle2
+        
+        # Store the predicted steering angle
+        st_vec_angle_optuna[k] = steering_angle
+        st_vec_optuna[k] = st
+
+    # over-write the actual data with the forward integrated data
+    df_raw_data['steering angle'] = st_vec_angle_optuna
+    df_raw_data['steering'] = st_vec_optuna
+    return df_raw_data
 
 
 
@@ -292,7 +362,8 @@ def process_raw_vicon_data(df,steps_shift):
     a_f, b_f, c_f, d_f,
     a_s, b_s, c_s, d_s, e_s,
     d_t, c_t, b_t,
-    a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = model_parameters()
+    a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+    max_st_dot,fixed_delay_stdn,k_stdn] = model_parameters()
 
     # resampling the robot data to have the same time as the vicon data
     from scipy.interpolate import interp1d
@@ -560,7 +631,7 @@ def process_raw_vicon_data(df,steps_shift):
 
     # -----     DYNAMICS      ------
     # evaluate forces in body frame starting from the ones in the absolute frame
-    Fx_vec = np.zeros(df.shape[0])
+    Fx_wheel_vec = np.zeros(df.shape[0])
     Fy_r_wheel_vec = np.zeros(df.shape[0])
     Fy_f_wheel_vec = np.zeros(df.shape[0])
 
@@ -587,7 +658,7 @@ def process_raw_vicon_data(df,steps_shift):
 
 
         Fy_r_wheel_vec[i] = Fy_r_wheel
-        Fx_vec[i]   = Fx_i_wheel
+        Fx_wheel_vec[i]   = Fx_i_wheel
         Fy_f_wheel_vec[i] = Fy_f_wheel
 
         # evaluate wheel lateral velocities
@@ -595,7 +666,7 @@ def process_raw_vicon_data(df,steps_shift):
     V_y_r_wheel = df['vy body'].to_numpy() - lr*df['w_abs_filtered'].to_numpy()
 
     # add new columns
-    df['Fx'] = Fx_vec
+    df['Fx wheel'] = Fx_wheel_vec
     df['Fy rear wheel'] = Fy_r_wheel_vec
     df['Fy front wheel'] = Fy_f_wheel_vec
     df['V_y front wheel'] = V_y_f_wheel
@@ -778,37 +849,43 @@ def plot_vicon_data(df):
     #plot wheel force saturation
     # plot acceleration data
     # evaluate total wheel forces abs value
-    Fy_f_wheel_abs = (df['Fy front wheel'].to_numpy()**2 + df['Fx'].to_numpy()**2)**0.5
-    Fy_r_wheel_abs = (df['Fy rear wheel'].to_numpy()**2 + df['Fx'].to_numpy()**2)**0.5
+    Fy_f_wheel_abs = (df['Fy front wheel'].to_numpy()**2 + df['Fx wheel'].to_numpy()**2)**0.5
+    Fy_r_wheel_abs = (df['Fy rear wheel'].to_numpy()**2 + df['Fx wheel'].to_numpy()**2)**0.5
 
     wheel_slippage = np.abs(df['vel encoder'].to_numpy() - df['vx body'].to_numpy())
 
     fig1, ((ax_total_force_front,ax_total_force_rear)) = plt.subplots(2, 1, figsize=(10, 6), constrained_layout=True)
     ax_total_force_front.plot(df['vicon time'].to_numpy(), Fy_f_wheel_abs,label='Total wheel force front',color = 'peru')
     ax_total_force_front.plot(df['vicon time'].to_numpy(), wheel_slippage,label='longitudinal slippage',color = 'gray')
+    ax_total_force_front.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='longitudinal acceleration',color = 'dodgerblue')
+    ax_total_force_front.plot(df['vicon time'].to_numpy(), df['ay body no centrifugal'].to_numpy(),label='lateral acceleration',color = 'orangered')
     ax_total_force_front.set_xlabel('time [s]')
     ax_total_force_front.set_title('Front total wheel force')
     ax_total_force_front.legend()
 
     ax_total_force_rear.plot(df['vicon time'].to_numpy(), Fy_r_wheel_abs,label='Total wheel force rear',color = 'darkred')
     ax_total_force_rear.plot(df['vicon time'].to_numpy(), wheel_slippage,label='longitudinal slippage',color = 'gray')
+    ax_total_force_rear.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='longitudinal acceleration',color = 'dodgerblue')
+    ax_total_force_rear.plot(df['vicon time'].to_numpy(), df['ay body no centrifugal'].to_numpy(),label='lateral acceleration',color = 'orangered')
     ax_total_force_rear.set_xlabel('time [s]')
-    ax_total_force_rear.set_title('Front total wheel force')
+    ax_total_force_rear.set_title('Rear total wheel force')
     ax_total_force_rear.legend()
 
     # plotting forces
     fig1, ((ax_lat_force,ax_long_force)) = plt.subplots(2, 1, figsize=(10, 6), constrained_layout=True)
-    ax_lat_force.plot(df['vicon time'].to_numpy(), df['Fy front wheel'].to_numpy(),label='Fy model front',color = 'peru')
-    ax_lat_force.plot(df['vicon time'].to_numpy(), df['Fy rear wheel'].to_numpy(),label='Fy model rear',color = 'darkred')
+    ax_lat_force.plot(df['vicon time'].to_numpy(), df['Fy front wheel'].to_numpy(),label='Fy front measured',color = 'peru')
+    ax_lat_force.plot(df['vicon time'].to_numpy(), df['Fy rear wheel'].to_numpy(),label='Fy rear measured',color = 'darkred')
     ax_lat_force.plot(df['vicon time'].to_numpy(), wheel_slippage,label='longitudinal slippage',color = 'gray')
+    ax_lat_force.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='longitudinal acceleration',color = 'dodgerblue')
+    ax_lat_force.plot(df['vicon time'].to_numpy(), df['ay body no centrifugal'].to_numpy(),label='lateral acceleration',color = 'orangered')
     ax_lat_force.set_xlabel('time [s]')
-    ax_lat_force.set_title('Front total wheel force')
+    ax_lat_force.set_title('Lateral wheel forces')
     ax_lat_force.legend()
 
-    ax_long_force.plot(df['vicon time'].to_numpy(), df['Fx'].to_numpy(),label='longitudinal forces',color = 'dodgerblue')
+    ax_long_force.plot(df['vicon time'].to_numpy(), df['Fx wheel'].to_numpy(),label='longitudinal forces',color = 'dodgerblue')
     ax_long_force.plot(df['vicon time'].to_numpy(), wheel_slippage,label='longitudinal slippage',color = 'gray')
     ax_long_force.set_xlabel('time [s]')
-    ax_long_force.set_title('longitudinal wheel force')
+    ax_long_force.set_title('Longitudinal wheel force')
     ax_long_force.legend()
 
 
@@ -1901,7 +1978,7 @@ class dyn_model_culomb_tires():
         throttle = state_action[3]
         steer_angle = state_action[4]
 
-        Fx = self.motor_force(throttle,vx) + self.friction(vx) + self.friction_due_to_steering(vx,steer_angle)
+        Fx_wheels = self.motor_force(throttle,vx) + self.friction(vx) + self.friction_due_to_steering(vx,steer_angle)
 
         # evaluate lateral tire forces
         Vy_wheel_f = np.cos(steer_angle)*(vy + self.lf*w) - np.sin(steer_angle) * vx
@@ -1915,7 +1992,7 @@ class dyn_model_culomb_tires():
         F_cent_y = - self.m * w * vx  # only y component of F is needed
 
 
-        b = np.array(  [Fx/2,
+        b = np.array(  [Fx_wheels/2,
                         Fy_wheel_f,
                         Fy_wheel_r,
                         F_cent_y])
