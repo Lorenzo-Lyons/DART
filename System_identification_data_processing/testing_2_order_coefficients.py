@@ -3,9 +3,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-dt = 0.001
+dt = 0.0005
 sim_time = 10 # seconds
-transient_time = 0.5 # you need the input response to go to zero within this time otherwise you subtract energy from the signal
+transient_time = 4 # you need the input response to go to zero within this time otherwise you subtract energy from the signal
 
 t = np.arange(0,sim_time,dt)
 
@@ -14,8 +14,8 @@ forcing_term = np.ones(len(t))
 
 
 
-z = 1.5369760990142822 # 0.880281388759613
-w_Hz = 11.37063980102539 #6.946717739105225 # Hz
+z = 1 #1.5369760990142822 # 0.880281388759613
+w_Hz = 1 # 11.37063980102539 #6.946717739105225 # Hz
 w = w_Hz * 2 * np.pi
 
 
@@ -30,16 +30,18 @@ def produce_past_action_coefficients(z,w):
     # Generate the k coefficients for past actions
     #[d,c,b,z,w] = transform_parameters_norm_2_real()
     k_vec = np.zeros((n_past_inputs+1,1))
+    k_vec_dev = np.zeros((n_past_inputs+1,1))
     for i in range(n_past_inputs+1):
-        f = impulse_response(i*dt,z,w)
+        f,dev_f = impulse_response(i*dt,z,w)
         k_vec[i]=f * dt 
-    return k_vec  
+        k_vec_dev[i]=dev_f * dt
+    return k_vec , k_vec_dev
 
 def impulse_response(t,z,w):
     #second order impulse response
     #[d,c,b,z,w] = transform_parameters_norm_2_real()
     w = w * 2 * np.pi
-    z = z
+    
 
     if z >1:
         a = np.sqrt(z**2-1)
@@ -47,15 +49,16 @@ def impulse_response(t,z,w):
         
     elif z == 1:
         f = w**2 * t * np.exp(-w*t)
+        dev_f = w**2 * (np.exp(-w*t) - w*t*np.exp(-w*t))
 
     elif z < 1:
         w_d = w * np.sqrt(1-z**2)
         f = w/(np.sqrt(1-z**2))*np.exp(-z*w*t)*np.sin(w_d*t)
-    return f
+    return f, dev_f
 
 
 
-k_vals = produce_past_action_coefficients(z,w_Hz) 
+k_vals, k_vec_dev = produce_past_action_coefficients(z,w_Hz) 
 
 
 
@@ -64,6 +67,8 @@ k_vals = produce_past_action_coefficients(z,w_Hz)
 # second order system initial conditions
 x_vec = np.zeros(len(t))
 x_vec_coefficients = np.zeros(len(t))
+x_dot_vec = np.zeros(len(t))
+x_dot_vec_coefficients = np.zeros(len(t))
 x_vec_coefficients_numerical = np.zeros(len(t))
 x_dot = 0
 
@@ -109,7 +114,7 @@ for i in range(1, len(t)):
     #x_ddot = np.max([x_ddot,-max_x_ddot])
 
     #x_ddot = w**2 * (forcing_term[i-1] -x_vec[i-1]) - 2*w*z * x_dot 
-
+    x_dot_vec[i] = x_dot
     x_dot += x_ddot * dt
     #x_dot = np.min([x_dot,max_x_dot])
 
@@ -117,6 +122,10 @@ for i in range(1, len(t)):
 
     # using coefficients instead
     x_vec_coefficients[i] = past_actions_mat[i,:] @ k_vals
+    # using coefficients for derivative
+    x_dot_vec_coefficients[i] = past_actions_mat[i,:] @ k_vec_dev
+
+
     x_vec_coefficients_numerical[i] = past_actions_mat[i,:] @ k_vals_numerical
 
 
@@ -130,9 +139,16 @@ plt.plot(t,forcing_term,label='forcing term',color='orangered')
 plt.plot(t[:n_past_inputs+1],k_vals,label='k values (impulse response)',color='gray')
 plt.plot(t[:n_past_inputs+1],k_vals_numerical,label='k values numerical(impulse response actuator sat)',color='blue')
 plt.plot(t,x_vec_coefficients,label='x with coefficients',color='black')
-plt.plot(t,x_vec_coefficients_numerical/np.max(x_vec_coefficients_numerical),label='x with coefficients numerical',color='green')
+#plt.plot(t,x_vec_coefficients_numerical/np.max(x_vec_coefficients_numerical),label='x with coefficients numerical',color='green')
 plt.legend()
 plt.xlabel('time [s]')
 plt.ylabel('x')
+
+plt.figure()
+plt.title('x_dot')
+plt.plot(t,x_dot_vec,label='x_dot true',color='dodgerblue')
+plt.plot(t,x_dot_vec_coefficients,label='x_dot coefficients',color='k')
+
+
 plt.show()
 

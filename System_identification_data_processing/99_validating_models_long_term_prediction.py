@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,culomb_pacejka_tire_model,model_parameters
+,dyn_model_culomb_tires,produce_long_term_predictions,full_dynamic_model,model_parameters
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -36,12 +36,14 @@ a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
-max_st_dot,fixed_delay_stdn,k_stdn] = model_parameters()
+max_st_dot,fixed_delay_stdn,k_stdn,
+w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
+
 
 
 # the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
-dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
-                 d_t,c_t,b_t,
+dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
                  a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)

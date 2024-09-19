@@ -100,11 +100,24 @@ def model_parameters():
     fixed_delay_stdn = 3.612047386642708
     k_stdn = 0.3515165999602925
 
+    # pitch dynamics
+    w_natural_Hz_pitch= 6.818084716796875
+    k_f_pitch= -0.09772157669067383
+    k_r_pitch= 0.006062272470444441
+    # roll dynamics
+    w_natural_Hz_roll= 6.894109725952148
+    k_f_roll= 0.3930072784423828
+    k_r_roll= -0.30368924140930176
+
 
     return [theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
-            a_f, b_f, c_f, d_f, a_s, b_s, c_s, d_s, e_s, d_t, c_t, b_t,
+            a_f, b_f, c_f, d_f,
+            a_s, b_s, c_s, d_s, e_s,
+            d_t, c_t, b_t,
             a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
-            max_st_dot,fixed_delay_stdn,k_stdn]
+            max_st_dot,fixed_delay_stdn,k_stdn,
+            w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+            w_natural_Hz_roll,k_f_roll,k_r_roll]
 
 
 
@@ -489,40 +502,38 @@ def process_raw_vicon_data(df,steps_shift):
     # --- convert velocity and acceleration into body frame ---
     vx_body_vec = np.zeros(df.shape[0])
     vy_body_vec = np.zeros(df.shape[0])
-    ax_body_vec = np.zeros(df.shape[0])
-    ay_body_vec = np.zeros(df.shape[0])
     ax_body_vec_nocent = np.zeros(df.shape[0])
     ay_body_vec_nocent = np.zeros(df.shape[0])
 
     for i in range(df.shape[0]):
         rot_angle =  - df['unwrapped yaw'].iloc[i] # from global to body you need to rotate by -theta!
-        #thi = spl_theta(time_vec_vicon[i]) #evaluate theta from spline
-        w_i = df['w_abs_filtered'].iloc[i]
 
         R     = np.array([[ np.cos(rot_angle), -np.sin(rot_angle)],
                           [ np.sin(rot_angle),  np.cos(rot_angle)]])
         
-        R_dev = np.array([[-np.sin(rot_angle), -np.cos(rot_angle)],
-                          [ np.cos(rot_angle), -np.sin(rot_angle)]])
 
         vxvy = np.expand_dims(np.array(df[['vx_abs_filtered','vy_abs_filtered']].iloc[i]),1)
         axay = np.expand_dims(np.array(df[['ax_abs_filtered_more','ay_abs_filtered_more']].iloc[i]),1)
 
         vxvy_body = R @ vxvy
-        axay_body = R @ axay + R_dev * w_i @ vxvy
         axay_nocent = R @ axay
 
         vx_body_vec[i],vy_body_vec[i] = vxvy_body[0], vxvy_body[1]
-        ax_body_vec[i],ay_body_vec[i] = axay_body[0], axay_body[1]
         ax_body_vec_nocent[i],ay_body_vec_nocent[i] = axay_nocent[0], axay_nocent[1]
 
     df['vx body'] = vx_body_vec
     df['vy body'] = vy_body_vec
-    df['ax body'] = ax_body_vec
-    df['ay body'] = ay_body_vec
 
     df['ax body no centrifugal'] = ax_body_vec_nocent
     df['ay body no centrifugal'] = ay_body_vec_nocent
+
+    # add acceleration in own body frame
+    accx_cent = + df['vy body'].to_numpy() * df['w_abs_filtered'].to_numpy() 
+    accy_cent = - df['vx body'].to_numpy() * df['w_abs_filtered'].to_numpy()
+
+    # add centrifugal forces to df
+    df['ax body'] = accx_cent + df['ax body no centrifugal'].to_numpy()
+    df['ay body'] = accy_cent + df['ay body no centrifugal'].to_numpy()
 
 
     # Evaluate steering angle and slip angles as they can be useful to tweak the parameters relative to the measuring system
@@ -682,6 +693,56 @@ def unwrap_hm(x):  # this function is used to unwrap the angles
         return np.unwrap(x)
     else:
         raise ValueError("Invalid input type. Expected 'float', 'int', or 'numpy.ndarray'.")
+
+
+
+# def generate_tensor_past_actions(df, n_past_actions,refinement_factor,key_to_repeat):
+#     # due to numerical errors in evauating the convolution integral we need a finer resolution for the time step
+#     df_past_action = pd.DataFrame()
+#     df_past_action[key_to_repeat] = df[key_to_repeat]
+    
+#     # Add delayed steering signals based on user input
+#     for i in range(0, n_past_actions):
+#         df_past_action[key_to_repeat + f' prev{i}'] = df[key_to_repeat].shift(i, fill_value=0)
+#     # doing a zero order hold on the steering signal to get  a finer resolution
+#     df_past_action_refined = pd.DataFrame()
+#     for i in range(0, (n_past_actions)):
+#         for k in range(refinement_factor):
+#             df_past_action_refined[key_to_repeat + f' prev{i*refinement_factor+k}'] = df_past_action[key_to_repeat + f' prev{i}']
+
+
+#     # Select columns for generating tensor
+
+#     selected_columns_df = [key_to_repeat + f' prev{i}' for i in range(0, (n_past_actions)*refinement_factor)]
+    
+#     # Convert the selected columns into a tensor and send to GPU (if available)
+#     train_x = torch.tensor(df_past_action_refined[selected_columns_df].to_numpy()).cuda()
+
+#     return train_x
+
+def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_repeat):
+    # Initialize a list to store the refined past action values
+    refined_past_actions = []
+    
+    # Iterate over the past actions and create the refined past actions directly
+    for i in range(0, n_past_actions):
+        # Shift the values for each past action step
+        past_action = df[key_to_repeat].shift(i, fill_value=0)
+        
+        # Refine the action values by zero-order hold and append them to the refined list
+        for k in range(refinement_factor):
+            refined_past_actions.append(past_action)
+
+    # Convert the refined past actions list into a numpy array (or tensor)
+    refined_past_actions_matrix = np.stack(refined_past_actions, axis=1)
+    
+    # Convert the matrix into a tensor and move it to the GPU (if available)
+    train_x = torch.tensor(refined_past_actions_matrix).cuda()
+
+    return train_x
+
+
+
 
 def plot_vicon_data(df):
 
@@ -873,11 +934,13 @@ def plot_vicon_data(df):
 
     # plotting forces
     fig1, ((ax_lat_force,ax_long_force)) = plt.subplots(2, 1, figsize=(10, 6), constrained_layout=True)
+    accx_cent = + df['vy body'].to_numpy() * df['w_abs_filtered'].to_numpy() 
+    accy_cent = - df['vx body'].to_numpy() * df['w_abs_filtered'].to_numpy() 
     ax_lat_force.plot(df['vicon time'].to_numpy(), df['Fy front wheel'].to_numpy(),label='Fy front measured',color = 'peru')
     ax_lat_force.plot(df['vicon time'].to_numpy(), df['Fy rear wheel'].to_numpy(),label='Fy rear measured',color = 'darkred')
     ax_lat_force.plot(df['vicon time'].to_numpy(), wheel_slippage,label='longitudinal slippage',color = 'gray')
-    ax_lat_force.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='longitudinal acceleration',color = 'dodgerblue')
-    ax_lat_force.plot(df['vicon time'].to_numpy(), df['ay body no centrifugal'].to_numpy(),label='lateral acceleration',color = 'orangered')
+    ax_lat_force.plot(df['vicon time'].to_numpy(), accx_cent + df['ax body no centrifugal'].to_numpy(),label='longitudinal acceleration (with cent))',color = 'dodgerblue')
+    ax_lat_force.plot(df['vicon time'].to_numpy(), accy_cent + df['ay body no centrifugal'].to_numpy(),label='lateral acceleration (with cent)',color = 'orangered')
     ax_lat_force.set_xlabel('time [s]')
     ax_lat_force.set_title('Lateral wheel forces')
     ax_lat_force.legend()
@@ -1355,7 +1418,123 @@ class steering_dynamics_model(torch.nn.Sequential):
 
 
 
+class pitch_and_roll_dynamics_model(torch.nn.Sequential):
+    def __init__(self,param_vals,dt,n_past_actions):
+        super(pitch_and_roll_dynamics_model, self).__init__()
 
+        # NOTE:
+        # if the chosen dynamics are longer than the amount of samples you have, you can in the end subtract energy from the signal,
+        # so if you see that the settling point of the new steering command is lower than what you expect, you can increase the number of past actions
+        # or give the freedom to change also the steering curve
+
+        self.dt = dt
+        self.n_past_actions = n_past_actions
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        # pitch_dynamics
+        self.register_parameter(name='w_natural_Hz_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='k_f_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
+        self.register_parameter(name='k_r_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
+        # roll dynamics
+        self.register_parameter(name='w_natural_Hz_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[3]]).cuda()))
+        self.register_parameter(name='k_f_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[4]]).cuda()))
+        self.register_parameter(name='k_r_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[5]]).cuda()))
+
+        
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+        #damping = self.minmax_scale_hm(0.01,0.99,constraint_weights(self.damping)) # this needs to be either in (0,1), 1 or (1,inf]
+
+        w_natural_Hz_pitch = self.minmax_scale_hm(5,15,constraint_weights(self.w_natural_Hz_pitch))
+        k_scale = 1
+        k_f_pitch = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_f_pitch))
+        k_r_pitch = self.minmax_scale_hm(0,k_scale,constraint_weights(self.k_r_pitch))
+
+        w_natural_Hz_roll = self.minmax_scale_hm(5,15,constraint_weights(self.w_natural_Hz_roll))
+        k_f_roll = self.minmax_scale_hm(0,+k_scale,constraint_weights(self.k_f_roll))
+        k_r_roll = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_r_roll))
+
+
+        return [w_natural_Hz_pitch,k_f_pitch,k_r_pitch,w_natural_Hz_roll,k_f_roll,k_r_roll]
+
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+
+    def produce_past_action_coefficients(self,w_natural_Hz,length):
+        # Generate the k coefficients for past actions
+        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
+        k_vec = torch.zeros((length,1)).cuda()
+        k_dev_vec = torch.zeros((length,1)).cuda()
+        for i in range(length):
+            k_vec[i], k_dev_vec[i] = self.impulse_response(i*self.dt,w_natural_Hz)
+        # the dt is really important to get the amplitude right
+        k_vec = k_vec * self.dt
+        k_dev_vec = k_dev_vec * self.dt
+        return k_vec.double() ,  k_dev_vec.double()   
+
+
+    def impulse_response(self,t,w_natural_Hz):
+        #second order impulse response
+        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
+        w = w_natural_Hz * 2 *np.pi # convert to rad/s
+
+        f = w**2 * t * torch.exp(-w*t)
+        f_dev = w**2 * (torch.exp(-w*t)-w*t*torch.exp(-w*t)) 
+        return f,f_dev
+
+
+
+
+    def forward(self, train_x):  # this is the model that will be fitted
+        F_y_model_front = torch.unsqueeze(train_x[:,0],1)
+        F_y_model_rear = torch.unsqueeze(train_x[:,1],1)
+        past_acc_longitudinal = train_x[:,2:self.n_past_actions+2]
+        past_acc_lateral = train_x[:,self.n_past_actions+2:]
+ 
+        [w_natural_Hz_pitch,k_f_pitch,k_r_pitch,w_natural_Hz_roll,k_f_roll,k_r_roll] = self.transform_parameters_norm_2_real()
+
+
+        #produce past action coefficients
+        k_vec_pitch,k_dev_vec_pitch = self.produce_past_action_coefficients(w_natural_Hz_pitch,self.n_past_actions)
+        k_vec_roll,k_dev_vec_roll = self.produce_past_action_coefficients(w_natural_Hz_roll,self.n_past_actions)
+
+        # convert to rad/s
+        w_natural_pitch = w_natural_Hz_pitch * 2 *np.pi
+        w_natural_roll = w_natural_Hz_roll * 2 *np.pi
+
+        # pitch dynamics
+        c_pitch = 2 * w_natural_pitch 
+        k_pitch = w_natural_pitch**2
+        F_z_tilde_pitch = past_acc_longitudinal @ k_vec_pitch + c_pitch/k_pitch * past_acc_longitudinal @ k_dev_vec_pitch # this is the non-scaled response (we don't know the magnitude of the input)
+
+        # roll dynamics
+        c_roll = 2 * w_natural_roll 
+        k_roll = w_natural_roll**2
+        F_z_tilde_roll = past_acc_lateral @ k_vec_roll #+ c_roll/k_roll * past_acc_lateral @ k_dev_vec_roll # this is the non-scaled response (we don't know the magnitude of the input)
+
+
+        # correction term pitch
+        alpha_z_front_pitch = F_z_tilde_pitch * k_f_pitch
+        alpha_z_rear_pitch = F_z_tilde_pitch * k_r_pitch
+
+        # correction term roll
+        alpha_z_front_roll = F_z_tilde_roll * k_f_roll
+        alpha_z_rear_roll = F_z_tilde_roll * k_r_roll
+
+
+        F_y_front = F_y_model_front + alpha_z_front_pitch * F_y_model_front + alpha_z_front_roll #* F_y_model_front
+        F_y_rear  = F_y_model_rear  + alpha_z_rear_pitch * F_y_model_rear   + alpha_z_rear_roll #* F_y_model_rear
+
+
+        return F_y_front, F_y_rear, past_acc_longitudinal @ k_vec_pitch, past_acc_lateral @ k_vec_roll
 
 
 
@@ -1900,7 +2079,97 @@ def produce_long_term_predictions(input_data, model,prediction_window,jumps,forw
 
     return long_term_preds
 
+def produce_long_term_predictions_full_model(input_data, model,prediction_window,jumps,forward_propagate_indexes):
+    # plotting long term predictions on data
+    # each prediction window starts from a data point and then the quantities are propagated according to the provided model,
+    # so they are not tied to the Vx Vy W data in any way. Though the throttle and steering inputs are taken from the data of course.
 
+    # --- plot fitting results ---
+    # input_data = ['vicon time', 'vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
+
+    #prepare tuple containing the long term predictions
+    long_term_preds = ()
+    
+
+
+    # iterate through each prediction window
+    print('------------------------------')
+    print('producing long term predictions')
+    from tqdm import tqdm
+    tqdm_obj = tqdm(range(0,input_data.shape[0],jumps), desc="long term preds", unit="pred")
+
+    for i in tqdm_obj:
+        
+
+        #reset couner
+        k = 0
+        elpsed_time_long_term_pred = 0
+
+        # set up initial positions
+        long_term_pred = np.expand_dims(input_data[i, :],0)
+
+
+        # iterate through time indexes of each prediction window
+        while elpsed_time_long_term_pred < prediction_window and k + i + 1 < len(input_data):
+            #store time values
+            #long_term_pred[k+1,0] = input_data[k+i, 0] 
+            dt = input_data[i + k + 1, 0] - input_data[i + k, 0]
+            elpsed_time_long_term_pred = elpsed_time_long_term_pred + dt
+
+            #produce propagated state
+            state_action_k = long_term_pred[k,[1,2,3,4,5]]
+            
+            # run it through the model
+            accelrations = model.forward(state_action_k) # absolute accelerations in the current vehicle frame of reference
+            
+            # evaluate new state
+            new_state_new_frame = long_term_pred[k,[1,2,3]] + accelrations * dt
+
+
+
+            # chose quantities to forward propagate
+            if 1 in forward_propagate_indexes:
+                new_vx = new_state_new_frame[0]
+            else:
+                new_vx = input_data[i+k+1, 1]
+
+            if 2 in forward_propagate_indexes:
+                new_vy = new_state_new_frame[1]
+            else:
+                new_vy = input_data[i+k+1, 2]
+
+            if 3 in forward_propagate_indexes:
+                new_w = new_state_new_frame[2]
+            else:
+                new_w = input_data[i+k+1, 3] 
+
+            new_state_new_frame = np.array([new_vx,new_vy,new_w])
+
+            # forward propagate x y yaw state
+            rot_angle = long_term_pred[k,8]
+            R = np.array([
+                [np.cos(rot_angle), -np.sin(rot_angle), 0],
+                [np.sin(rot_angle), np.cos(rot_angle), 0],
+                [0, 0, 1]
+            ])
+
+            # absolute velocities
+            abs_vxvyw = R @ np.array([long_term_pred[k,1],long_term_pred[k,2],long_term_pred[k,3]])
+
+
+            # propagate x y yaw according to the previous state
+            new_xyyaw = np.array([long_term_pred[k,6],long_term_pred[k,7],long_term_pred[k,8]]) + abs_vxvyw * dt
+
+            # put everything together
+            new_row = np.array([input_data[i + k + 1, 0],*new_state_new_frame,input_data[k+i,4],input_data[k+i,5],*new_xyyaw])
+            long_term_pred = np.vstack([long_term_pred, new_row])
+
+            # update k
+            k = k + 1
+
+        long_term_preds += (long_term_pred,)  
+
+    return long_term_preds
 
 
 class dyn_model_culomb_tires():
@@ -1908,6 +2177,7 @@ class dyn_model_culomb_tires():
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
                  a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr):
+
 
         self.m = m
         self.l_COM = l_COM
@@ -1942,6 +2212,9 @@ class dyn_model_culomb_tires():
 
 
 
+
+
+
     def motor_force(self,th,v):
         w = 0.5 * (np.tanh(100*(th+self.c_m))+1)
         Fm =  (self.a_m - v * self.b_m) * w * (th+self.c_m)
@@ -1971,12 +2244,13 @@ class dyn_model_culomb_tires():
     
     def forward(self, state_action):
         #returns vx_dot,vy_dot,w_dot in the vehicle body frame
-        #state_action = [vx,vy,w,throttle,steer]
+        #state_action = [vx,vy,w,throttle,steer,pitch,pitch_dot,roll,roll_dot]
         vx = state_action[0]
         vy = state_action[1]
         w = state_action[2]
         throttle = state_action[3]
         steer_angle = state_action[4]
+
 
         Fx_wheels = self.motor_force(throttle,vx) + self.friction(vx) + self.friction_due_to_steering(vx,steer_angle)
 
@@ -2011,6 +2285,239 @@ class dyn_model_culomb_tires():
                          (Fy+F_cent_y)/self.m,
                           M/self.Jz])
     
+
+
+
+
+
+
+
+class full_dynamic_model():
+    def __init__(self, lr, l_COM, Jz, lf, m,
+            a_m, b_m, c_m, d_m,
+            a_f, b_f, c_f, d_f,
+            a_s, b_s, c_s, d_s, e_s,
+            d_t, c_t, b_t,
+            a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+            max_st_dot,fixed_delay_stdn,k_stdn,
+            w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+            w_natural_Hz_roll,k_f_roll,k_r_roll
+            ):
+
+
+        self.m = m
+        self.l_COM = l_COM
+        self.lr = lr
+        self.lf = lf
+        self.Jz = Jz
+
+        # Tire model
+        self.d_t = d_t
+        self.c_t = c_t
+        self.b_t = b_t
+
+        # Motor curve
+        self.a_m =  a_m
+        self.b_m =  b_m
+        self.c_m =  c_m
+
+        #Friction curve
+        self.a_f =  a_f
+        self.b_f =  b_f
+        self.c_f =  c_f
+        self.d_f =  d_f
+
+        # steering curve
+        self.a_s = a_s
+        self.b_s = b_s
+        self.c_s = c_s
+        self.d_s = d_s
+        self.e_s = e_s
+
+        # extra friction due to steering
+        self.a_stfr = a_stfr
+        self.b_stfr = b_stfr
+        self.d_stfr = d_stfr
+        self.e_stfr = e_stfr
+        self.f_stfr = f_stfr
+        self.g_stfr = g_stfr
+
+        # steering dymamics parameters
+        self.max_st_dot = max_st_dot
+        self.fixed_delay_stdn = fixed_delay_stdn
+        self.k_stdn = k_stdn
+
+        #pitch dynamics parameters:
+        self.w_natural_Hz_pitch = w_natural_Hz_pitch
+        self.k_f_pitch = k_f_pitch
+        self.k_r_pitch = k_r_pitch
+
+        #roll dynamics parameters:
+        self.w_natural_Hz_roll = w_natural_Hz_roll
+        self.k_f_roll = k_f_roll
+        self.k_r_roll = k_r_roll
+
+
+
+
+
+    def motor_force(self,th,v):
+        w = 0.5 * (np.tanh(100*(th+self.c_m))+1)
+        Fm =  (self.a_m - v * self.b_m) * w * (th+self.c_m)
+        return Fm
+
+    def friction(self,v):
+        Ff = - ( self.a_f * np.tanh(self.b_f  * v) + self.c_f * v + self.d_f * v**2 )
+        return Ff
+    
+    def lateral_tire_forces(self,vy_wheel):
+        Fy_wheel = self.d_tire * np.sin(self.c_tire * np.arctan(self.b_tire * vy_wheel)) 
+        return Fy_wheel
+    
+    def friction_due_to_steering(self,vx,steer_angle):
+        w_friction_term = 0.5 * (np.tanh(30*(steer_angle))+1)
+        friction_term_1 =  self.a_stfr * np.tanh(self.b_stfr * steer_angle**2) #b * (0.5 + 0.5 * torch.tanh(a * steer_angle)) # positve steering angle
+        friction_term_2 =  self.e_stfr * np.tanh(self.d_stfr * steer_angle**2) #d * (0.5 + 0.5 * torch.tanh(e * steer_angle))
+        friction_term = (w_friction_term)*friction_term_1+(1-w_friction_term)*friction_term_2 
+
+        vx_term = (1 + self.f_stfr * np.exp(-self.g_stfr * vx**2)) * vx
+
+        return  - friction_term * vx_term
+
+    def critically_damped_2nd_order_dynamics(self,x,x_dot,forcing_term,w_Hz):
+        z = 1 # critically damped system
+        w_natural = w_Hz * 2 * np.pi # convert to rad/s
+
+        x_dot_dot = forcing_term - w_natural ** 2 * x - 2* w_natural * z * x_dot
+        return x_dot_dot, x_dot
+    
+    def correct_F_y_roll_pitch(self,Fy_wheel_f,Fy_wheel_r,pitch,pitch_dot,roll):
+        # apply correction terms due to roll and pitch dynamics
+        # convert to rad/s
+        w_natural_pitch = self.w_natural_Hz_pitch * 2 *np.pi
+
+        # pitch dynamics
+        c_pitch = 2 * w_natural_pitch 
+        k_pitch = w_natural_pitch**2
+        F_z_tilde_pitch = pitch + c_pitch/k_pitch * pitch_dot # this is the non-scaled response (we don't know the magnitude of the input)
+
+        # correction term pitch
+        alpha_z_front_pitch = F_z_tilde_pitch * self.k_f_pitch
+        alpha_z_rear_pitch = F_z_tilde_pitch * self.k_r_pitch
+
+        # roll dynamics
+        F_z_tilde_roll = roll
+
+        # correction term roll
+        alpha_z_front_roll = F_z_tilde_roll * self.k_f_roll
+        alpha_z_rear_roll = F_z_tilde_roll * self.k_r_roll
+
+        Fy_wheel_f_corrected = Fy_wheel_f + alpha_z_front_pitch * Fy_wheel_f + alpha_z_front_roll 
+        Fy_wheel_r_corrected  = Fy_wheel_r  + alpha_z_rear_pitch * Fy_wheel_r   + alpha_z_rear_roll 
+
+        return Fy_wheel_f_corrected,Fy_wheel_r_corrected
+    
+    def forward(self, state_action):
+        #returns vx_dot,vy_dot,w_dot in the vehicle body frame
+        #state_action = [vx,vy,w,throttle_comand,steer_command,throttle,steering,pitch,pitch_dot,roll,roll_dot]
+
+        #states
+        vx = state_action[0]
+        vy = state_action[1]
+        w = state_action[2]
+        # extra states need for subsystem dynamics
+        throttle = state_action[3]
+        steering = state_action[4]
+        pitch_dot = state_action[5]
+        pitch = state_action[6]
+        roll_dot = state_action[7]
+        roll = state_action[8]
+        # inputs
+        throttle_command = state_action[9]
+        steering_command = state_action[10]
+
+
+        # forwards integrate steering and throttle commands
+        throttle_time_constant = 0.1 * self.d_m / (1 + self.d_m) # converting from discrete time to continuous time
+        throttle_dot = (throttle_command - throttle) / throttle_time_constant
+
+        # integrate steering
+        st_dot = (steering_command - steering) / 0.01 * self.k_stdn
+        # Apply max_st_dot limits
+        st_dot = np.min([st_dot, self.max_st_dot])
+        st_dot = np.max([st_dot, -self.max_st_dot])
+        
+
+        # evaluate steering angle
+        w_s = 0.5 * (np.tanh(30*(steering))+1)
+        steering_angle1 = self.b_s * np.tanh(self.a_s * (steering + self.c_s))
+        steering_angle2 = self.d_s * np.tanh(self.e_s * (steering + self.c_s))
+        steer_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+
+        # Evaluate core dynamic model of the vehicle
+        Fx_wheels = self.motor_force(throttle,vx) + self.friction(vx) + self.friction_due_to_steering(vx,steer_angle)
+
+
+        # evaluate lateral tire forces
+        Vy_wheel_f = np.cos(steer_angle)*(vy + self.lf*w) - np.sin(steer_angle) * vx
+        Vy_wheel_r = vy - self.lr*w
+
+        Fy_wheel_f_base = self.lateral_tire_forces(Vy_wheel_f)
+        Fy_wheel_r_base = self.lateral_tire_forces(Vy_wheel_r)
+
+        # apply correction terms due to roll and pitch dynamics
+        Fy_wheel_f,Fy_wheel_r = self.correct_F_y_roll_pitch(Fy_wheel_f_base,Fy_wheel_r_base,pitch,pitch_dot,roll)
+
+        #centrifugal force
+        F_cent_x = + self.m * w * vy  # only y component of F is needed
+        F_cent_y = - self.m * w * vx  # only y component of F is needed
+
+        # solve rigidbody dynamics
+        b = np.array(  [Fx_wheels/2,
+                        Fy_wheel_f,
+                        Fy_wheel_r,
+                        F_cent_y])
+        
+        A = np.array([  [1+np.cos(steer_angle),-np.sin(steer_angle),0,0],
+                        [+np.sin(steer_angle),+np.cos(steer_angle),1,0],
+                        [+np.sin(steer_angle)*self.lf  ,np.cos(steer_angle)*self.lf  ,-self.lr,-self.l_COM]])
+        
+        body_forces = A @ b
+
+        Fx = body_forces[0]
+        Fy = body_forces[1]
+        M  = body_forces[2]
+
+        # evaluate accelerations in body frame
+        acc_x = (Fx+F_cent_x)/self.m
+        acc_y = (Fy+F_cent_y)/self.m
+        acc_yaw = M/self.Jz
+
+        # evaluate pitch dynamics
+        pitch_dot_dot, pitch_dot = self.critically_damped_2nd_order_dynamics(pitch,pitch_dot,acc_x,self.w_natural_Hz_pitch)
+
+        #evaluate roll dynamics
+        roll_dot_dot, roll_dot = self.critically_damped_2nd_order_dynamics(roll,roll_dot,acc_y,self.w_natural_Hz_roll)
+
+        return np.array([acc_x,
+                         acc_y,
+                         acc_yaw,
+                         throttle_dot,
+                         st_dot,
+                         pitch_dot_dot,
+                         pitch_dot,
+                         roll_dot_dot,
+                         roll_dot])
+
+
+
+
+
+
+
+
+
+
 
 
 
