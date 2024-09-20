@@ -3,9 +3,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-dt = 0.0005
+dt = 0.001
 sim_time = 10 # seconds
-transient_time = 4 # you need the input response to go to zero within this time otherwise you subtract energy from the signal
+transient_time = 2 # you need the input response to go to zero within this time otherwise you subtract energy from the signal
 
 t = np.arange(0,sim_time,dt)
 
@@ -15,7 +15,7 @@ forcing_term = np.ones(len(t))
 
 
 z = 1 #1.5369760990142822 # 0.880281388759613
-w_Hz = 1 # 11.37063980102539 #6.946717739105225 # Hz
+w_Hz = 0.75 #6.818084716796875 # 11.37063980102539 #6.946717739105225 # Hz
 w = w_Hz * 2 * np.pi
 
 

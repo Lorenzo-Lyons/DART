@@ -60,12 +60,15 @@ font = {'family' : 'normal',
 # e_s =  1.6578725576400757
 # # ------------------------------------------------------
 # load model parameters
-[theta_correction, lr, l_COM, Jz, lf, m,
-a_m, b_m, c_m, d_m,
+
+[theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr] = model_parameters()
+a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+max_st_dot,fixed_delay_stdn,k_stdn,
+w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 
 
@@ -75,8 +78,8 @@ a_stfr, b_stfr] = model_parameters()
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
 
@@ -114,7 +117,8 @@ if not os.path.isfile(file_path):
     df_raw_data = get_data(folder_path)
 
     # process the data
-    df = process_raw_vicon_data(df_raw_data)
+    steps_shift = 10 # decide to filter more or less the vicon data
+    df = process_raw_vicon_data(df_raw_data,steps_shift)
 
     df.to_csv(file_path, index=False)
     print(f"File '{file_path}' saved.")
@@ -135,11 +139,17 @@ if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_
     df.reset_index(drop=True, inplace=True)
 
 
+
+
+
+
+
+
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-ax_wheels = plot_vicon_data(df)
+ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
 
 
 

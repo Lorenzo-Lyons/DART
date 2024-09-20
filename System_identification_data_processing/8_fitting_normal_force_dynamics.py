@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-    ,model_parameters,pitch_and_roll_dynamics_model,throttle_dynamics,steering_dynamics,dyn_model_culomb_tires,generate_tensor_past_actions
+    ,model_parameters,pitch_and_roll_dynamics_model,throttle_dynamics,steering_dynamics,dyn_model_culomb_tires,generate_tensor_past_actions,full_dynamic_model
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -19,6 +19,20 @@ font = {'family' : 'normal',
 
 
 
+
+
+
+
+
+
+# ---------- NOTE ------------ #
+# this is the EXCESS longitudinal and lateral acceleration effect compared to the static case (because of course the roll dpends on the whole lateral acc i.e. with centrifugal)
+# but this is already accounted for in the wheel curve from the static tests
+
+
+
+
+
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
@@ -27,8 +41,8 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 
 
 # define the number of past steering signals to use
-n_past_acc_x = 50 
-refinement_factor = 5 # refine for stable integration purpouses
+n_past_acc_x = 200 
+refinement_factor = 10 # refine for stable integration purpouses
 
 
 # load model parameters
@@ -38,7 +52,9 @@ a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
-max_st_dot,fixed_delay_stdn,k_stdn] = model_parameters()
+max_st_dot,fixed_delay_stdn,k_stdn,
+w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
 
 
 # # Starting data processing
@@ -56,10 +72,13 @@ if not os.path.isfile(file_path):
     df_raw_data = get_data(folder_path)
 
     # replace throttle with time integrated throttle
-    df_raw_data = throttle_dynamics(df_raw_data,d_m)
+    filtered_throttle = throttle_dynamics(df_raw_data,d_m)
+    df_raw_data['throttle'] = filtered_throttle
 
     # replace steering and steering angle with the time integrated version
-    df_raw_data = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
+    st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
+    df_raw_data['steering angle'] = st_vec_angle_optuna
+    df_raw_data['steering'] = st_vec_optuna
 
     # process data
     steps_shift = 3 # decide to filter more or less the vicon data
@@ -83,9 +102,6 @@ ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
 ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df)
-
-
-
 
 
 
@@ -194,17 +210,17 @@ ax2.legend()
 # fitting tyre models
 # define first guess for parameters
 initial_guess = torch.ones(6) * 0.5 # initialize parameters in the middle of their range constraint
-#initial_guess[0] = 0.5 # w_natural_Hz_pitch
-initial_guess[1] = 0.5 # k_f_pitch
-initial_guess[2] = 0.001 # k_r_pitch
-#initial_guess[3] = 0.5 # w_natural_Hz_roll
-initial_guess[4] = 0.001 # k_f_roll
-initial_guess[5] = 0.5 # k_r_roll
+# #initial_guess[0] = 0.5 # w_natural_Hz_pitch
+initial_guess[1] = 0.99 # k_f_pitch
+# initial_guess[2] = 0.001 # k_r_pitch
+# #initial_guess[3] = 0.5 # w_natural_Hz_roll
+#initial_guess[4] = 0.001 # k_f_roll
+#initial_guess[5] = 0.2 # k_r_roll
 
 
 # define number of training iterations
-train_its = 400
-learning_rate = 0.002
+train_its =  80 # 400 #
+learning_rate = 0.01 # 0.002 #
 
 print('')
 print('Fitting roll and pitch dynamics')
@@ -281,13 +297,14 @@ plt.legend()
 # --- print out parameters ---
 [w_natural_Hz_pitch,k_f_pitch,k_r_pitch,w_natural_Hz_roll,k_f_roll,k_r_roll]= pitch_and_roll_dynamics_model_obj.transform_parameters_norm_2_real()
 w_natural_Hz_pitch,k_f_pitch,k_r_pitch,w_natural_Hz_roll,k_f_roll,k_r_roll=  w_natural_Hz_pitch.item(),k_f_pitch.item(),k_r_pitch.item(),w_natural_Hz_roll.item(),k_f_roll.item(),k_r_roll.item()
-
-print('pitch dynamics parameters:')
+print('')
+print('')
+print('# pitch dynamics parameters:')
 print(f'w_natural_Hz_pitch = {w_natural_Hz_pitch}')
 print(f'k_f_pitch = {k_f_pitch}')
 print(f'k_r_pitch = {k_r_pitch}')
 
-print('roll dynamics parameters:')
+print('# roll dynamics parameters:')
 print(f'w_natural_Hz_roll = {w_natural_Hz_roll}')
 print(f'k_f_roll = {k_f_roll}')
 print(f'k_r_roll = {k_r_roll}')
@@ -342,5 +359,76 @@ ax_lat_force_rear.set_title('Rear lateral forces')
 ax_lat_force_rear.set_xlabel('time [s]')
 ax_lat_force_rear.set_title('Lateral wheel forces')
 ax_lat_force_rear.legend()
+
+
+
+
+
+
+
+# integrate the roll and pitch as you would in an MPC controller
+
+# integrate pitch and roll dynamics
+pitch_vec = np.zeros(df.shape[0])
+roll_vec = np.zeros(df.shape[0])
+pitch_dot_vec = np.zeros(df.shape[0])
+roll_dot_vec = np.zeros(df.shape[0])
+
+full_dynamic_model_obj = full_dynamic_model(lr, l_COM, Jz, lf, m,
+            a_m, b_m, c_m, d_m,
+            a_f, b_f, c_f, d_f,
+            a_s, b_s, c_s, d_s, e_s,
+            d_t, c_t, b_t,
+            a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+            max_st_dot,fixed_delay_stdn,k_stdn,
+            w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+            w_natural_Hz_roll,k_f_roll,k_r_roll)
+
+
+for i in range(1,df.shape[0]):
+    dt = df['vicon time'].iloc[i] - df['vicon time'].iloc[i-1]
+    # evaluate pitch dynamics
+    pitch_dot_dot = full_dynamic_model_obj.critically_damped_2nd_order_dynamics(pitch_dot_vec[i-1],pitch_vec[i-1],df['ax body'].iloc[i-1],w_natural_Hz_pitch)
+    
+    # evaluate roll dynamics
+    roll_dot_dot = full_dynamic_model_obj.critically_damped_2nd_order_dynamics(roll_dot_vec[i-1],roll_vec[i-1],df['ay body'].iloc[i-1],w_natural_Hz_roll)
+    
+    pitch_dot_vec[i] = pitch_dot_vec[i-1] + pitch_dot_dot*dt
+    roll_dot_vec[i] = roll_dot_vec[i-1] + roll_dot_dot*dt
+
+    pitch_vec[i] = pitch_vec[i-1] + pitch_dot_vec[i-1]*dt
+    roll_vec[i] = roll_vec[i-1] + roll_dot_vec[i-1]*dt
+
+# add columns to the data
+df['pitch dot'] = pitch_dot_vec
+df['pitch'] = pitch_vec
+
+df['roll dot'] = roll_dot_vec
+df['roll'] = roll_vec
+
+
+
+
+fig1, ((ax_pitch,ax_roll)) = plt.subplots(2, 1, figsize=(10, 6), constrained_layout=True)
+
+# plot pitch and pitch dot against ax body
+ax_pitch.plot(df['vicon time'].to_numpy(),df['pitch'].to_numpy(),color='dodgerblue',label='pitch (from integrating acc x)',linewidth=4,linestyle='-')
+ax_pitch.plot(df['vicon time'].to_numpy(),pitch_unscaled.detach().cpu().view(-1).numpy(),label='pitch unscaled (from model)',color='k')
+ax_pitch.set_xlabel('Time [s]')
+ax_pitch.set_ylabel('Pitch [rad]')
+ax_pitch.legend()
+ax_pitch.set_title('Pitch')
+
+
+# plot roll and roll dot against ay body
+ax_roll.plot(df['vicon time'].to_numpy(),df['roll'].to_numpy(),color='orangered',label='roll (from integrating acc y)',linewidth=4,linestyle='-')
+ax_roll.plot(df['vicon time'].to_numpy(),roll_unscaled.detach().cpu().view(-1).numpy(),label='roll unscaled (from model)',color='k')
+ax_roll.set_xlabel('Time [s]')
+ax_roll.set_ylabel('Roll [rad]')
+ax_roll.legend()
+ax_roll.set_title('Roll')
+
+
+
 
 plt.show()
