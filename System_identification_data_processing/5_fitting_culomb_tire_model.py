@@ -76,9 +76,9 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
@@ -103,6 +103,7 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only
 
 
 # --- Starting data processing  ------------------------------------------------
+
 
 #robot2vicon_delay = 5 # samples delay
 
@@ -129,9 +130,14 @@ else:
 
 
 
+
+
+
+
+
 if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03':
     # cut the data in two parts cause something is wrong in the middle (probably a temporary lag in the network)
-    df1=df[df['vicon time']<150] 
+    df1=df[df['vicon time']<60]  # 150
     df2=df[df['vicon time']>185.5] 
     # Concatenate vertically
     df = pd.concat([df1, df2], axis=0)
@@ -151,6 +157,8 @@ ax0,ax1,ax2 = plot_raw_data(df)
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
 ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
 
+
+plt.show()
 
 
 # --------------- fitting tire model---------------

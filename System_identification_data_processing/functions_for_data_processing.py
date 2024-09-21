@@ -12,9 +12,8 @@ from scipy.signal import savgol_filter
 def model_parameters():
     # collect fitted model parameters here so that they can be easily accessed
 
-
-    theta_correction = +0.5/180*np.pi # error between vehicle axis and vicon system reference axis
-    lr = 0.135 # reference point location taken by the vicon system measured from the rear wheel
+    theta_correction =  0.00768628716468811 # error between vehicle axis and vicon system reference axis
+    lr =  0.11651395261287689                  # reference point location taken by the vicon system measured from the rear wheel
     COM_positon = 0.09375 #centre of mass position measured from the rear wheel
 
     # car parameters
@@ -24,7 +23,7 @@ def model_parameters():
 
     # Automatically adjust following parameters according to tweaked values
     l_COM = lr - COM_positon #distance of the reference point from the centre of mass)
-    Jz = Jz_0 + m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
+    Jz = Jz_0 #+ m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
     lf = l-lr
 
     # motor model  (from fitting both friction and motor model at the same time) 
@@ -409,6 +408,9 @@ def process_raw_vicon_data(df,steps_shift):
     df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
 
 
+    # 
+
+
 
     # -----     KINEMATICS      ------
     df['unwrapped yaw'] = unwrap_hm(df['vicon yaw'].to_numpy()) + theta_correction
@@ -547,65 +549,6 @@ def process_raw_vicon_data(df,steps_shift):
         steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
         df['steering angle'] = steering_angle
 
-    # --- filter the steering angle directly ---
-    # Initialize the filtered steering angle list
-    # filtered_steering_angle = [df['steering angle'].iloc[0]]
-    # # Apply the first-order filter
-    # for i in range(1, len(df)):
-    #     filtered_value = alpha_steer_filter * df['steering angle'].iloc[i] + (1 - alpha_steer_filter) * filtered_steering_angle[-1]
-    #     filtered_steering_angle.append(filtered_value)
-
-    # # Add the filtered values to the DataFrame
-    # df['steering angle time delayed'] = filtered_steering_angle
-
-
-    # evaluate time delayed and filtered version of the steering
-    #steering_delayed = df['steering'].shift(periods=steering_delay)
-    #steering_delayed[:steering_delay] = 0 # account for the last valuse
-
-
-    # modelling the steering as a first order system
-    # filtered_steering = np.zeros(len(df['steering'].to_numpy()))
-    # filtered_steering[0] = df['steering'].to_numpy()[0] # assign first value
-    # # Apply the first-order filter
-    # for i in range(1, len(df['steering'].to_numpy())):
-    #     filtered_value = alpha_steer_filter * df['steering'].iloc[i] + (1 - alpha_steer_filter) * filtered_steering[i-1]
-    #     filtered_steering[i] = filtered_value
-
-    # # modelling the steering as a second order system
-    # filtered_steering = np.zeros(len(df['steering'].to_numpy()))
-    # filtered_steering[0] = df['steering'].to_numpy()[0] # assign first value
-    # steering_dot = 0
-    # c_st = 4 * 2*np.pi # (1 Hz converted into radians)
-    # k_st = 1.5 * c_st**2 / 4 # enforce a critically damped system
-
-
-    # # Apply the first-order filter
-    # for i in range(1, len(df['steering'].to_numpy())):
-    #     dt = df['vicon time'].to_numpy()[i] - df['vicon time'].to_numpy()[i-1]
-    #     # integrate the steering angle
-    #     steering_ddot = k_st * (df['steering'].iloc[i-1]-filtered_steering[i-1]) - c_st * steering_dot
-    #     steering_dot += steering_ddot * dt
-    #     filtered_steering[i] = filtered_steering[i-1] + dt * steering_dot
-
-
-    # # Add the filtered values to the DataFrame
-    # df['steering time delayed'] = filtered_steering
-
-
-
-
-
-    # # evaluated filtered steering angle by converting the filtered steering input to steering angle
-    # w = 0.5 * (np.tanh(30*(df['steering time delayed']+c))+1)
-    # steering_angle1 = b * np.tanh(a * (df['steering time delayed'] + c)) 
-    # steering_angle2 = d * np.tanh(e * (df['steering time delayed'] + c)) 
-    # steering_angle = (w)*steering_angle1+(1-w)*steering_angle2
-    # df['steering angle time delayed'] = steering_angle
-
-
-
-
 
     # rear slip angle
     Vy_wheel_r = df['vy body'].to_numpy() - lr * df['w_abs_filtered'].to_numpy() # lateral velocity of the rear wheel
@@ -656,7 +599,8 @@ def process_raw_vicon_data(df,steps_shift):
         # ax body no centrifugal are just the forces rotated by the yaw angle
         b = np.array([df['ax body no centrifugal'].iloc[i]*m,
                     df['ay body no centrifugal'].iloc[i]*m,
-                    (df['aw_abs_filtered_more'].iloc[i])*Jz+F_cent*l_COM])
+                    (df['aw_abs_filtered_more'].iloc[i])*Jz]) # +F_cent*l_COM
+        
         # use the raw steering angle
         #steer_angle = df['steering angle time delayed'].iloc[i]
         steer_angle = df['steering angle'].iloc[i]
@@ -666,9 +610,8 @@ def process_raw_vicon_data(df,steps_shift):
         
         [Fx_i_wheel, Fy_f_wheel, Fy_r_wheel] = np.linalg.solve(A, b)
 
-
-        Fy_r_wheel_vec[i] = Fy_r_wheel
         Fx_wheel_vec[i]   = Fx_i_wheel
+        Fy_r_wheel_vec[i] = Fy_r_wheel
         Fy_f_wheel_vec[i] = Fy_f_wheel
 
         # evaluate wheel lateral velocities
@@ -1224,6 +1167,56 @@ class motor_and_friction_model(torch.nn.Sequential):
         Fx_f = - ( a_f * torch.tanh(b_f  * v) + c_f * v + d_f * v**2 )
         return Fx_f
     
+
+
+
+
+
+
+
+class vicon_parameters_model(torch.nn.Sequential):
+    def __init__(self,initial_guess):
+        super(vicon_parameters_model, self).__init__()
+        self.register_parameter(name='theta_correction', param=torch.nn.Parameter(torch.Tensor(initial_guess[0])))
+        self.register_parameter(name='lr', param=torch.nn.Parameter(torch.Tensor(initial_guess[1])))
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+
+        theta_correction = self.minmax_scale_hm(-0.35,+0.35,constraint_weights(self.theta_correction)) # degrees
+        lr = self.minmax_scale_hm(0,0.175,constraint_weights(self.lr))
+
+        return [theta_correction,lr]
+    
+        
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+
+    def forward(self, train_x):
+        v_x_abs = torch.unsqueeze(train_x[:,0],1)
+        v_y_abs = torch.unsqueeze(train_x[:,1],1)
+        theta = torch.unsqueeze(train_x[:,2],1)
+
+        [theta_correction,lr] = self.transform_parameters_norm_2_real()
+
+        # rot angle
+        rot_angle = - (theta+theta_correction)
+
+        Vx_body = v_x_abs * torch.cos(rot_angle) - v_y_abs * torch.sin(rot_angle)   
+        Vy_body = v_x_abs * torch.sin(rot_angle) + v_y_abs * torch.cos(rot_angle)
+
+
+        return Vx_body,Vy_body/lr
+    
+
+
+
+
 
 
 
@@ -1917,7 +1910,7 @@ class steering_friction_model(torch.nn.Sequential):
         Fy_body = F_cent_y + Fx/2*(torch.sin(steer_angle)) + Fy_wheel_f * (torch.cos(steer_angle)) + Fy_wheel_r
 
         M       = Fx/2 * (+torch.sin(steer_angle)*self.lf) + Fy_wheel_f * (torch.cos(steer_angle)*self.lf)+\
-                  Fy_wheel_r * (-self.lr) + F_cent_y * (-self.l_COM)
+                  Fy_wheel_r * (-self.lr) #+ F_cent_y * (-self.l_COM)
         
         # had to rewrite this in torch to make it work
         # B = torch.Tensor([Fx/2,
