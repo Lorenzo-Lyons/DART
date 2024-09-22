@@ -27,7 +27,7 @@ font = {'family' : 'normal',
 # 8 = roll dot
 # 9 = roll
 
-forward_propagate_indexes = [1,2,3,5,6,7,8,9] 
+forward_propagate_indexes = [1,2,3,4,5,6,7,8,9]  
 #forward_propagate_indexes = [1,2,3] 
 
 # select data folder NOTE: this assumes that the current directory is DART
@@ -334,7 +334,18 @@ for i in range(0,len(long_term_predictions)):
     ax_roll.plot(pred[:,0],pred[:,9],color='k',alpha=0.2)
 
     # tire forces
-    ax_wheels.scatter(pred[:,1],pred[:,2],color='k',alpha=0.2)
+    
+    v_y_wheel_front = np.cos(pred[:,4])*(pred[:,2] + lf*pred[:,3]) - np.sin(pred[:,4]) * pred[:,1]
+    v_y_wheel_rear = pred[:,2] - pred[:,3]*lf
+    # pass through the tire model
+    lateral_force_front = dynamic_model.lateral_tire_forces(v_y_wheel_front)
+    lateral_force_rear = dynamic_model.lateral_tire_forces(v_y_wheel_rear)
+
+    # pass through the correction terms
+    Fy_wheel_f_corrected,Fy_wheel_r_corrected = dynamic_model.correct_F_y_roll_pitch(lateral_force_front,lateral_force_rear,pred[:,5],pred[:,6],pred[:,7],pred[:,8])
+
+    ax_wheels.scatter(v_y_wheel_front,Fy_wheel_f_corrected,color='peru',alpha=0.2)
+    ax_wheels.scatter(v_y_wheel_rear,Fy_wheel_r_corrected,color='darkred',alpha=0.2)
 
 
 

@@ -76,9 +76,9 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
-folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
@@ -107,25 +107,32 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 
 #robot2vicon_delay = 5 # samples delay
 
-# check if there is a processed vicon data file already
-file_name = 'processed_vicon_data.csv'
-# Check if the CSV file exists in the folder
-file_path = os.path.join(folder_path, file_name)
 
-if not os.path.isfile(file_path):
-    # If the file does not exist, process the raw data
-    # get the raw data
-    df_raw_data = get_data(folder_path)
+df_raw_data = get_data(folder_path)
 
-    # process the data
-    steps_shift = 10 # decide to filter more or less the vicon data
-    df = process_raw_vicon_data(df_raw_data,steps_shift)
+# process the data
+steps_shift = 10 # decide to filter more or less the vicon data
+df = process_raw_vicon_data(df_raw_data,steps_shift)
 
-    df.to_csv(file_path, index=False)
-    print(f"File '{file_path}' saved.")
-else:
-    print(f"File '{file_path}' already exists, loading data.")
-    df = pd.read_csv(file_path)
+# # check if there is a processed vicon data file already
+# file_name = 'processed_vicon_data.csv'
+# # Check if the CSV file exists in the folder
+# file_path = os.path.join(folder_path, file_name)
+
+# if not os.path.isfile(file_path):
+#     # If the file does not exist, process the raw data
+#     # get the raw data
+#     df_raw_data = get_data(folder_path)
+
+#     # process the data
+#     steps_shift = 10 # decide to filter more or less the vicon data
+#     df = process_raw_vicon_data(df_raw_data,steps_shift)
+
+#     #df.to_csv(file_path, index=False)
+#     print(f"File '{file_path}' saved.")
+# else:
+#     print(f"File '{file_path}' already exists, loading data.")
+#     df = pd.read_csv(file_path)
 
 
 
@@ -137,7 +144,7 @@ else:
 
 if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03':
     # cut the data in two parts cause something is wrong in the middle (probably a temporary lag in the network)
-    df1=df[df['vicon time']<60]  # 150
+    df1=df[df['vicon time']<110]  #  60 150
     df2=df[df['vicon time']>185.5] 
     # Concatenate vertically
     df = pd.concat([df1, df2], axis=0)
@@ -158,8 +165,6 @@ ax0,ax1,ax2 = plot_raw_data(df)
 ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
 
 
-plt.show()
-
 
 # --------------- fitting tire model---------------
 # fitting tyre models
@@ -167,7 +172,7 @@ plt.show()
 initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
 train_its = 1000
-learning_rate = 0.003
+learning_rate = 0.0001
 
 print('')
 print('Fitting pacejka-like culomb friction tire model ')

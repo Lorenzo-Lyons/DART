@@ -45,39 +45,48 @@ refinement_factor = 5 #int(np.ceil(T/dt_steering))
 
 
 # load model parameters
-[theta_correction, lr, l_COM, Jz, lf, m,
-a_m, b_m, c_m, d_m,
+[theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = model_parameters()
+a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+max_st_dot,fixed_delay_stdn,k_stdn,
+w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
 
 
 # decide if you want to tweak the steering curve
-tweak_steering_curve = False
+tweak_steering_curve = True
 
 
 
-# Starting data processing
-# check if there is a processed vicon data file already
-file_name = 'processed_vicon_data.csv'
-# Check if the CSV file exists in the folder
-file_path = os.path.join(folder_path, file_name)
+df_raw_data = get_data(folder_path)
 
-if not os.path.isfile(file_path):
-    # If the file does not exist, process the raw data
-    # get the raw data
-    df_raw_data = get_data(folder_path)
+# process the data
+steps_shift = 3 # decide to filter more or less the vicon data
+df = process_raw_vicon_data(df_raw_data,steps_shift)
 
-    # process the data
-    
-    df = process_raw_vicon_data(df_raw_data)
 
-    df.to_csv(file_path, index=False)
-    print(f"File '{file_path}' saved.")
-else:
-    print(f"File '{file_path}' already exists, loading data.")
-    df = pd.read_csv(file_path)
+# # Starting data processing
+# # check if there is a processed vicon data file already
+# file_name = 'processed_vicon_data.csv'
+# # Check if the CSV file exists in the folder
+# file_path = os.path.join(folder_path, file_name)
+
+# if not os.path.isfile(file_path):
+#     # If the file does not exist, process the raw data
+#     # get the raw data
+#     df_raw_data = get_data(folder_path)
+
+#     # process the data
+#     steps_shift = 3 # decide to filter more or less the vicon data
+#     df = process_raw_vicon_data(df_raw_data,steps_shift)
+
+#     df.to_csv(file_path, index=False)
+#     print(f"File '{file_path}' saved.")
+# else:
+#     print(f"File '{file_path}' already exists, loading data.")
+#     df = pd.read_csv(file_path)
 
 
 # define sampling time
@@ -109,7 +118,7 @@ for i in range(0,df.shape[0]):
     # get the current data
     Vx = df['vx body'].iloc[i]
     if Vx > 0.1:
-        Fx = df['Fx'].iloc[i]
+        Fx = df['Fx wheel'].iloc[i]
         Fy = df['Fy front wheel'].iloc[i]
         
         Vy = df['vy body'].iloc[i] + lf*df['w_abs_filtered'].iloc[i]
@@ -234,9 +243,9 @@ ax_steering_angle.legend()
 
 
 # print out the best parameters
-print('best_max_st_dot =',best_max_st_dot)
-print('best_fixed_delay =',best_fixed_delay)
-print('best_gain =',best_gain)
+print('max_st_dot =',best_max_st_dot)
+print('fixed_delay_stdn =',best_fixed_delay)
+print('k_stdn =',best_gain)
 
 
 plt.show()

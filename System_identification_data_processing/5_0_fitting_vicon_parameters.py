@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,model_parameters,\
+from functions_for_data_processing import get_data, plot_raw_data, process_vicon_data_kinematics,plot_vicon_data,model_parameters,\
 vicon_parameters_model
 from matplotlib import pyplot as plt
 import torch
@@ -62,14 +62,14 @@ font = {'family' : 'normal',
 # # ------------------------------------------------------
 # load model parameters
 
-[theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
-a_f, b_f, c_f, d_f,
-a_s, b_s, c_s, d_s, e_s,
-d_t, c_t, b_t,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
-max_st_dot,fixed_delay_stdn,k_stdn,
-w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
-w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
+# [theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
+# a_f, b_f, c_f, d_f,
+# a_s, b_s, c_s, d_s, e_s,
+# d_t, c_t, b_t,
+# a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+# max_st_dot,fixed_delay_stdn,k_stdn,
+# w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+# w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 
 
@@ -79,7 +79,7 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 # here you need data with straight line driving and some curves
 folder_path = 'System_identification_data_processing/Data/00_calibrating_vicon_parameters'
 
-theta_correction = 0 # set it to zero cause you don't have it yet
+
 
 
 
@@ -89,7 +89,9 @@ df_raw_data = get_data(folder_path)
 
 # process the data
 steps_shift = 3 # decide to filter more or less the vicon data
-df = process_raw_vicon_data(df_raw_data,steps_shift)
+l_COM = 0 # set it to zero cause you don't have it yet (this will use the real vicon reference point instead of the COM)
+theta_correction = 0 # set it to zero cause you don't have it yet
+df = process_vicon_data_kinematics(df_raw_data,steps_shift,l_COM,theta_correction)
 
 
 # chose only low velocity data because we assume there is no slip
@@ -124,7 +126,7 @@ df = df[df['vel encoder'] < 0.7]
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
+#ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
 
 
 

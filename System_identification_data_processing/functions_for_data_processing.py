@@ -12,9 +12,9 @@ from scipy.signal import savgol_filter
 def model_parameters():
     # collect fitted model parameters here so that they can be easily accessed
 
-    theta_correction =  0.00768628716468811 # error between vehicle axis and vicon system reference axis
-    lr =  0.11651395261287689                  # reference point location taken by the vicon system measured from the rear wheel
-    COM_positon = 0.09375 #centre of mass position measured from the rear wheel
+    theta_correction = 0.00768628716468811 # error between vehicle axis and vicon system reference axis
+    lr_reference =  0.11651395261287689    # reference point location taken by the vicon system measured from the rear wheel
+    COM_positon = 0.084 #0.09375 #centre of mass position measured from the rear wheel
 
     # car parameters
     l = 0.175 # length of the car
@@ -22,7 +22,8 @@ def model_parameters():
     Jz_0 = 0.006513 # Moment of inertia of uniform rectangle of shape 0.18 x 0.12
 
     # Automatically adjust following parameters according to tweaked values
-    l_COM = lr - COM_positon #distance of the reference point from the centre of mass)
+    l_COM = lr_reference - COM_positon #distance of the reference point from the centre of mass)
+    lr = l - COM_positon
     Jz = Jz_0 #+ m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
     lf = l-lr
 
@@ -39,18 +40,18 @@ def model_parameters():
     d_f =  -0.11705359816551208
 
     # steering angle curve -- historical data
-    # a_s =  1.6379064321517944
-    # b_s =  0.3301370143890381 
-    # c_s =  0.019644200801849365 
-    # d_s =  0.37879398465156555 
-    # e_s =  1.6578725576400757
+    a_s =  1.6379064321517944
+    b_s =  0.3301370143890381 
+    c_s =  0.019644200801849365 
+    d_s =  0.37879398465156555 
+    e_s =  1.6578725576400757
 
     # re-fitted using full body dynamics on different steering ramps
-    a_s =  1.3514715433120728 
-    b_s =  0.38700857758522034
-    c_s =  -0.011784619651734829
-    d_s =  0.5027604699134827
-    e_s =  1.0005109310150146 
+    # a_s =  1.3514715433120728 
+    # b_s =  0.38700857758522034
+    # c_s =  -0.011784619651734829
+    # d_s =  0.5027604699134827
+    # e_s =  1.0005109310150146 
 
     # from driving around at low speeds
     # a_s =  1.1603543758392334
@@ -68,9 +69,14 @@ def model_parameters():
 
     # tire model
     #from static estimation
-    d_t =  -7.428709983825684
-    c_t =  0.7740796804428101
-    b_t =  4.992660999298096
+    # d_t =  -7.428709983825684
+    # c_t =  0.7740796804428101
+    # b_t =  4.992660999298096
+
+    # new COM dynamics tampering
+    d_t =  -5.937855243682861
+    c_t =  1.0505027770996094
+    b_t =  5.5737690925598145
 
     # from dynamic tests
     # d_t =  -8.77987289428711
@@ -87,26 +93,40 @@ def model_parameters():
     # g_stfr =  0.44458678364753723
 
     # from ramps -- this is better at higher speeds (still ok at low speeds)
-    a_stfr =  3.128483772277832
-    b_stfr =  3.1232824325561523
-    d_stfr =  3.0345656871795654
-    e_stfr =  2.7376160621643066
-    f_stfr =  3.382528305053711
-    g_stfr =  0.8229769468307495
+    # a_stfr =  3.128483772277832
+    # b_stfr =  3.1232824325561523
+    # d_stfr =  3.0345656871795654
+    # e_stfr =  2.7376160621643066
+    # f_stfr =  3.382528305053711
+    # g_stfr =  0.8229769468307495
+
+    # new COM handeling
+    a_stfr =  3.217414617538452
+    b_stfr =  2.8982224464416504
+    d_stfr =  2.3917558193206787
+    e_stfr =  2.4093570709228516
+    f_stfr =  5.322118759155273
+    g_stfr =  1.2816298007965088
 
     # steering dynamics
-    max_st_dot = 8.373585733476759
-    fixed_delay_stdn = 3.612047386642708
-    k_stdn = 0.3515165999602925
+    # max_st_dot = 8.373585733476759
+    # fixed_delay_stdn = 3.612047386642708
+    # k_stdn = 0.3515165999602925
+
+    # new COM stuff
+    max_st_dot = 7.239116078966507
+    fixed_delay_stdn = 5.472198382722194
+    k_stdn = 0.1993144983467695
+
 
     # pitch dynamics parameters:
-    w_natural_Hz_pitch = 1.771551489830017
-    k_f_pitch = -0.1192975640296936
-    k_r_pitch = 0.5
+    w_natural_Hz_pitch = 2.0380144119262695
+    k_f_pitch = -0.11680269241333008
+    k_r_pitch = -0.5
     # roll dynamics parameters:
-    w_natural_Hz_roll = 3.537369966506958
-    k_f_roll = -0.12490212917327881
-    k_r_roll = -0.34808164834976196
+    w_natural_Hz_roll = 5.10979700088501
+    k_f_roll = -0.04334288835525513
+    k_r_roll = -0.5
 
 
     return [theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
@@ -364,17 +384,7 @@ def plot_raw_data(df):
 
 
 
-
-def process_raw_vicon_data(df,steps_shift):
-    [theta_correction, lr, l_COM, Jz, lf, m,
-    a_m, b_m, c_m, d_m,
-    a_f, b_f, c_f, d_f,
-    a_s, b_s, c_s, d_s, e_s,
-    d_t, c_t, b_t,
-    a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
-    max_st_dot,fixed_delay_stdn,k_stdn,
-    w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
-    w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
+def process_vicon_data_kinematics(df,steps_shift,l_COM,theta_correction):
 
     # resampling the robot data to have the same time as the vicon data
     from scipy.interpolate import interp1d
@@ -408,8 +418,10 @@ def process_raw_vicon_data(df,steps_shift):
     df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
 
 
-    # 
-
+    #  ---  relocating reference point to the centre of mass  ---
+    df['vicon x'] = df['vicon x'] - l_COM*np.cos(df['vicon yaw'])
+    df['vicon y'] = df['vicon y'] - l_COM*np.sin(df['vicon yaw'])
+    # -----------------------------------------------------------
 
 
     # -----     KINEMATICS      ------
@@ -535,6 +547,24 @@ def process_raw_vicon_data(df,steps_shift):
     # add centrifugal forces to df
     df['ax body'] = accx_cent + df['ax body no centrifugal'].to_numpy()
     df['ay body'] = accy_cent + df['ay body no centrifugal'].to_numpy()
+    return df
+
+
+
+def process_raw_vicon_data(df,steps_shift):
+    [theta_correction, lr, l_COM, Jz, lf, m,
+    a_m, b_m, c_m, d_m,
+    a_f, b_f, c_f, d_f,
+    a_s, b_s, c_s, d_s, e_s,
+    d_t, c_t, b_t,
+    a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+    max_st_dot,fixed_delay_stdn,k_stdn,
+    w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+    w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
+
+
+    # process kinematics from vicon data
+    df = process_vicon_data_kinematics(df,steps_shift,l_COM,theta_correction)
 
 
     # Evaluate steering angle and slip angles as they can be useful to tweak the parameters relative to the measuring system
@@ -1443,10 +1473,10 @@ class pitch_and_roll_dynamics_model(torch.nn.Sequential):
         constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
         #damping = self.minmax_scale_hm(0.01,0.99,constraint_weights(self.damping)) # this needs to be either in (0,1), 1 or (1,inf]
 
-        w_natural_Hz_pitch = self.minmax_scale_hm(0.75,2,constraint_weights(self.w_natural_Hz_pitch))
+        w_natural_Hz_pitch = self.minmax_scale_hm(0.75,7,constraint_weights(self.w_natural_Hz_pitch))
         k_scale = 1
         k_f_pitch = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_f_pitch))
-        k_r_pitch = self.minmax_scale_hm(0,k_scale,constraint_weights(self.k_r_pitch))
+        k_r_pitch = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_r_pitch))
 
         w_natural_Hz_roll = self.minmax_scale_hm(0.75,7,constraint_weights(self.w_natural_Hz_roll))
         k_f_roll = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_f_roll))
@@ -1466,11 +1496,11 @@ class pitch_and_roll_dynamics_model(torch.nn.Sequential):
         k_vec = torch.zeros((length,1)).cuda()
         k_dev_vec = torch.zeros((length,1)).cuda()
         for i in range(length):
-            k_vec[i] = self.impulse_response(i*self.dt,w_natural_Hz) # , k_dev_vec[i]
+            k_vec[i], k_dev_vec[i] = self.impulse_response(i*self.dt,w_natural_Hz) # 
         # the dt is really important to get the amplitude right
         k_vec = k_vec * self.dt
-        #k_dev_vec = k_dev_vec * self.dt
-        return k_vec.double() #,  k_dev_vec.double()   
+        k_dev_vec = k_dev_vec * self.dt
+        return k_vec.double() ,  k_dev_vec.double()   
 
 
     def impulse_response(self,t,w_natural_Hz):
@@ -1479,8 +1509,8 @@ class pitch_and_roll_dynamics_model(torch.nn.Sequential):
         w = w_natural_Hz * 2 *np.pi # convert to rad/s
 
         f = w**2 * t * torch.exp(-w*t)
-        #f_dev = w**2 * (torch.exp(-w*t)-w*t*torch.exp(-w*t)) 
-        return f #,f_dev
+        f_dev = w**2 * (torch.exp(-w*t)-w*t*torch.exp(-w*t)) 
+        return f ,f_dev
 
 
 
@@ -1495,22 +1525,22 @@ class pitch_and_roll_dynamics_model(torch.nn.Sequential):
 
 
         #produce past action coefficients
-        k_vec_pitch = self.produce_past_action_coefficients(w_natural_Hz_pitch,self.n_past_actions) # ,k_dev_vec_pitch
-        k_vec_roll = self.produce_past_action_coefficients(w_natural_Hz_roll,self.n_past_actions) # ,k_dev_vec_roll
+        k_vec_pitch,k_dev_vec_pitch = self.produce_past_action_coefficients(w_natural_Hz_pitch,self.n_past_actions) # 
+        k_vec_roll,k_dev_vec_roll = self.produce_past_action_coefficients(w_natural_Hz_roll,self.n_past_actions) 
 
         # convert to rad/s
         w_natural_pitch = w_natural_Hz_pitch * 2 *np.pi
         w_natural_roll = w_natural_Hz_roll * 2 *np.pi
 
         # pitch dynamics
-        # c_pitch = 2 * w_natural_pitch 
-        # k_pitch = w_natural_pitch**2
-        F_z_tilde_pitch = past_acc_longitudinal @ k_vec_pitch #+ c_pitch/k_pitch * past_acc_longitudinal @ k_dev_vec_pitch # this is the non-scaled response (we don't know the magnitude of the input)
+        c_pitch = 2 * w_natural_pitch 
+        k_pitch = w_natural_pitch**2
+        F_z_tilde_pitch = past_acc_longitudinal @ k_vec_pitch + c_pitch/k_pitch * past_acc_longitudinal @ k_dev_vec_pitch # this is the non-scaled response (we don't know the magnitude of the input)
 
         # roll dynamics
-        # c_roll = 2 * w_natural_roll 
-        # k_roll = w_natural_roll**2
-        F_z_tilde_roll = past_acc_lateral @ k_vec_roll #+ c_roll/k_roll * past_acc_lateral @ k_dev_vec_roll # this is the non-scaled response (we don't know the magnitude of the input)
+        c_roll = 2 * w_natural_roll 
+        k_roll = w_natural_roll**2
+        F_z_tilde_roll = past_acc_lateral @ k_vec_roll + c_roll/k_roll * past_acc_lateral @ k_dev_vec_roll # this is the non-scaled response (we don't know the magnitude of the input)
 
 
         # correction term pitch
@@ -1523,7 +1553,7 @@ class pitch_and_roll_dynamics_model(torch.nn.Sequential):
 
 
         F_y_front = F_y_model_front + alpha_z_front_pitch * F_y_model_front + alpha_z_front_roll #* F_y_model_front
-        F_y_rear  = F_y_model_rear  + alpha_z_rear_roll  # + alpha_z_rear_pitch * F_y_model_rear
+        F_y_rear  = F_y_model_rear  #+ alpha_z_rear_roll  + alpha_z_rear_pitch * F_y_model_rear
 
 
         return F_y_front, F_y_rear, past_acc_longitudinal @ k_vec_pitch, past_acc_lateral @ k_vec_roll
@@ -2303,29 +2333,33 @@ class full_dynamic_model():
         x_dot_dot = w_natural ** 2 * (forcing_term - x) - 2* w_natural * z * x_dot
         return x_dot_dot
     
-    def correct_F_y_roll_pitch(self,Fy_wheel_f,Fy_wheel_r,pitch,pitch_dot,roll):
+    def correct_F_y_roll_pitch(self,Fy_wheel_f,Fy_wheel_r,pitch,pitch_dot,roll,roll_dot):
         # apply correction terms due to roll and pitch dynamics
         # convert to rad/s
         w_natural_pitch = self.w_natural_Hz_pitch * 2 *np.pi
 
         # pitch dynamics
-        #c_pitch = 2 * w_natural_pitch 
-        #k_pitch = w_natural_pitch**2
-        F_z_tilde_pitch = pitch #+ c_pitch/k_pitch * pitch_dot # this is the non-scaled response (we don't know the magnitude of the input)
+        c_pitch = 2 * w_natural_pitch 
+        k_pitch = w_natural_pitch**2
+        F_z_tilde_pitch = pitch + c_pitch/k_pitch * pitch_dot # this is the non-scaled response (we don't know the magnitude of the input)
 
         # correction term pitch
         alpha_z_front_pitch = F_z_tilde_pitch * self.k_f_pitch
         alpha_z_rear_pitch = F_z_tilde_pitch * self.k_r_pitch
 
         # roll dynamics
-        F_z_tilde_roll = roll
+        w_natural_roll = self.w_natural_Hz_roll * 2 *np.pi
+        c_roll = 2 * w_natural_roll
+        k_roll = w_natural_roll**2
+
+        F_z_tilde_roll = roll + c_roll/k_roll * roll_dot # this is the non-scaled response (we don't know the magnitude of the input)
 
         # correction term roll
         alpha_z_front_roll = F_z_tilde_roll * self.k_f_roll
         alpha_z_rear_roll = F_z_tilde_roll * self.k_r_roll
 
         Fy_wheel_f_corrected = Fy_wheel_f + alpha_z_front_pitch * Fy_wheel_f + alpha_z_front_roll 
-        Fy_wheel_r_corrected  = Fy_wheel_r + alpha_z_rear_roll #  + alpha_z_rear_pitch * Fy_wheel_r
+        Fy_wheel_r_corrected  = Fy_wheel_r + alpha_z_rear_roll   + alpha_z_rear_pitch * Fy_wheel_r
 
         return Fy_wheel_f_corrected,Fy_wheel_r_corrected
     
@@ -2378,7 +2412,11 @@ class full_dynamic_model():
         Fy_wheel_r_base = self.lateral_tire_forces(Vy_wheel_r)
 
         # apply correction terms due to roll and pitch dynamics
-        Fy_wheel_f,Fy_wheel_r = self.correct_F_y_roll_pitch(Fy_wheel_f_base,Fy_wheel_r_base,pitch,pitch_dot,roll)
+        # Fy_wheel_f = Fy_wheel_f_base
+        # Fy_wheel_r = Fy_wheel_r_base
+        Fy_wheel_f,Fy_wheel_r = self.correct_F_y_roll_pitch(Fy_wheel_f_base,Fy_wheel_r_base,pitch,pitch_dot,roll,roll_dot)
+        # overrite back wheel force
+        Fy_wheel_r = Fy_wheel_r_base
 
         #centrifugal force
         F_cent_x = + self.m * w * vy  # only y component of F is needed

@@ -210,17 +210,17 @@ ax2.legend()
 # fitting tyre models
 # define first guess for parameters
 initial_guess = torch.ones(6) * 0.5 # initialize parameters in the middle of their range constraint
-# #initial_guess[0] = 0.5 # w_natural_Hz_pitch
-initial_guess[1] = 0.99 # k_f_pitch
+#initial_guess[0] = 0.01 # w_natural_Hz_pitch
+#initial_guess[1] = 0.99 # k_f_pitch
 # initial_guess[2] = 0.001 # k_r_pitch
-# #initial_guess[3] = 0.5 # w_natural_Hz_roll
+#initial_guess[3] = 0.9 # w_natural_Hz_roll
 #initial_guess[4] = 0.001 # k_f_roll
 #initial_guess[5] = 0.2 # k_r_roll
 
 
 # define number of training iterations
-train_its =  80 # 400 #
-learning_rate = 0.01 # 0.002 #
+train_its =  160 # 400 #
+learning_rate = 0.005 # 0.002 #
 
 print('')
 print('Fitting roll and pitch dynamics')
