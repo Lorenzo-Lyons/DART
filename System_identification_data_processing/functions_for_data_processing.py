@@ -53,54 +53,14 @@ def model_parameters():
     # d_s =  0.5027604699134827
     # e_s =  1.0005109310150146 
 
-    # from driving around at low speeds
-    # a_s =  1.1603543758392334
-    # b_s =  0.44360196590423584
-    # c_s =  -0.012683100998401642
-    # d_s =  0.5171060562133789
-    # e_s =  1.116100788116455
-
-    # driving around at high speeds
-    # a_s =  1.4024051427841187
-    # b_s =  0.5336496829986572
-    # c_s =  0.00797327607870102
-    # d_s =  0.5774149298667908
-    # e_s =  1.253533124923706
 
     # tire model
-    #from static estimation
-    # d_t =  -7.428709983825684
-    # c_t =  0.7740796804428101
-    # b_t =  4.992660999298096
-
-    # new COM dynamics tampering
     d_t =  -5.937855243682861
     c_t =  1.0505027770996094
     b_t =  5.5737690925598145
 
-    # from dynamic tests
-    # d_t =  -8.77987289428711
-    # c_t =  0.723857045173645
-    # b_t =  3.2573933601379395
 
     #additional friction due to steering angle
-    # from freedriving around -- this is better at lower speeds (but might be doing overfitting)
-    # a_stfr =  2.1196024417877197
-    # b_stfr =  1.970221757888794
-    # d_stfr =  1.798175573348999
-    # e_stfr =  1.9435317516326904
-    # f_stfr =  5.908149719238281
-    # g_stfr =  0.44458678364753723
-
-    # from ramps -- this is better at higher speeds (still ok at low speeds)
-    # a_stfr =  3.128483772277832
-    # b_stfr =  3.1232824325561523
-    # d_stfr =  3.0345656871795654
-    # e_stfr =  2.7376160621643066
-    # f_stfr =  3.382528305053711
-    # g_stfr =  0.8229769468307495
-
-    # new COM handeling
     a_stfr =  3.217414617538452
     b_stfr =  2.8982224464416504
     d_stfr =  2.3917558193206787
@@ -109,14 +69,10 @@ def model_parameters():
     g_stfr =  1.2816298007965088
 
     # steering dynamics
-    # max_st_dot = 8.373585733476759
-    # fixed_delay_stdn = 3.612047386642708
-    # k_stdn = 0.3515165999602925
 
-    # new COM stuff
-    max_st_dot = 7.239116078966507
-    fixed_delay_stdn = 5.472198382722194
-    k_stdn = 0.1993144983467695
+    max_st_dot = 9.395668777594302
+    fixed_delay_stdn = 5.904623074022001
+    k_stdn = 0.24112116182648466
 
 
     # pitch dynamics parameters:
@@ -980,6 +936,17 @@ class torch_model_functions():
         Vy_wheel_r = vy - lr*w
         return Vy_wheel_f,Vy_wheel_r
     
+    def F_friction_due_to_steering(self,steer_angle,vx,a,b,d,e,f,g):        # evaluate forward force
+        w_friction_term = 0.5 * (torch.tanh(30*(steer_angle))+1)
+        friction_term_1 =  a * torch.tanh(b * steer_angle**2) #b * (0.5 + 0.5 * torch.tanh(a * steer_angle)) # positve steering angle
+        friction_term_2 =  e * torch.tanh(d * steer_angle**2)#d * (0.5 + 0.5 * torch.tanh(e * steer_angle))
+        friction_term = (w_friction_term)*friction_term_1+(1-w_friction_term)*friction_term_2 
+
+        # vx proportionality
+        vx_term = (1 + f * torch.exp(-g * vx**2)) * vx
+
+        return - vx_term * friction_term 
+    
     def solve_rigid_body_dynamics(self,vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,lf,lr,m,Jz):
 
         #centrifugal force
@@ -1311,7 +1278,7 @@ class culomb_pacejka_tire_model(torch.nn.Sequential,torch_model_functions):
 
 
 
-class steering_dynamics_model(torch.nn.Sequential):
+class steering_dynamics_model(torch.nn.Sequential,torch_model_functions):
     def __init__(self,param_vals,dt,tweak_steering_curve):
         super(steering_dynamics_model, self).__init__()
 
@@ -1444,16 +1411,20 @@ class steering_dynamics_model(torch.nn.Sequential):
         k_vec = self.produce_past_action_coefficients(damping,w_natural,fixed_delay,length).double()
 
         steering_integrated = train_x @ k_vec
+
+
         if self.tweak_steering_curve:
-            w_s = 0.5 * (torch.tanh(30*(steering_integrated+c_s))+1)
-            steering_angle1 = b_s * torch.tanh(a_s * (steering_integrated + c_s)) 
-            steering_angle2 = d_s * torch.tanh(e_s * (steering_integrated + c_s)) 
-            steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+            # w_s = 0.5 * (torch.tanh(30*(steering_integrated+c_s))+1)
+            # steering_angle1 = b_s * torch.tanh(a_s * (steering_integrated + c_s)) 
+            # steering_angle2 = d_s * torch.tanh(e_s * (steering_integrated + c_s)) 
+            # steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+            steering_angle = self.steering_2_steering_angle(steering_integrated,a_s,b_s,c_s,d_s,e_s)
         else:
-            w_s = 0.5 * (torch.tanh(30*(steering_integrated+self.c_s_original))+1)
-            steering_angle1 = self.b_s_original * torch.tanh(self.a_s_original * (steering_integrated + self.c_s_original)) 
-            steering_angle2 = self.d_s_original * torch.tanh(self.e_s_original * (steering_integrated + self.c_s_original)) 
-            steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+            # w_s = 0.5 * (torch.tanh(30*(steering_integrated+self.c_s_original))+1)
+            # steering_angle1 = self.b_s_original * torch.tanh(self.a_s_original * (steering_integrated + self.c_s_original)) 
+            # steering_angle2 = self.d_s_original * torch.tanh(self.e_s_original * (steering_integrated + self.c_s_original)) 
+            # steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+            steering_angle = self.steering_2_steering_angle(steering_integrated,self.a_s_original,self.b_s_original,self.c_s_original,self.d_s_original,self.e_s_original)
 
         return steering_angle
     
@@ -1579,6 +1550,222 @@ class pitch_and_roll_dynamics_model(torch.nn.Sequential):
 
 
         return F_y_front, F_y_rear, past_acc_longitudinal @ k_vec_pitch, past_acc_lateral @ k_vec_roll
+
+
+class full_model_with_pitch_and_roll_dynamics(torch.nn.Sequential,torch_model_functions):
+    def __init__(self,param_vals,dt,n_past_actions,lr,lf):
+        super(full_model_with_pitch_and_roll_dynamics, self).__init__()
+
+        # NOTE:
+        # if the chosen dynamics are longer than the amount of samples you have, you can in the end subtract energy from the signal,
+        # so if you see that the settling point of the new steering command is lower than what you expect, you can increase the number of past actions
+        # or give the freedom to change also the steering curve
+
+        self.dt = dt
+        self.n_past_actions = n_past_actions
+        self.lr = lr
+        self.lf = lf
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        # pitch_dynamics
+        self.register_parameter(name='w_natural_Hz_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='k_f_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[1]]).cuda()))
+        self.register_parameter(name='k_r_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[2]]).cuda()))
+        # roll dynamics
+        self.register_parameter(name='w_natural_Hz_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[3]]).cuda()))
+        self.register_parameter(name='k_f_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[4]]).cuda()))
+        self.register_parameter(name='k_r_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[5]]).cuda()))
+
+
+        # load model paremeters
+        [theta_correction, lr, l_COM, Jz, lf, m,
+        a_m, b_m, c_m, d_m,
+        a_f, b_f, c_f, d_f,
+        a_s, b_s, c_s, d_s, e_s,
+        d_t, c_t, b_t,
+        a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+        max_st_dot,fixed_delay_stdn,k_stdn,
+        w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+        w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
+
+        self.m = m
+        self.l_COM = l_COM
+        self.lr = lr
+        self.lf = lf
+        self.Jz = Jz
+
+        # Tire model
+        self.d_t = d_t
+        self.c_t = c_t
+        self.b_t = b_t
+
+        # Motor curve
+        self.a_m =  a_m
+        self.b_m =  b_m
+        self.c_m =  c_m
+
+        #Friction curve
+        self.a_f =  a_f
+        self.b_f =  b_f
+        self.c_f =  c_f
+        self.d_f =  d_f
+
+        # extra friction due to steering
+        self.a_stfr = a_stfr
+        self.b_stfr = b_stfr
+        self.d_stfr = d_stfr
+        self.e_stfr = e_stfr
+        self.f_stfr = f_stfr
+        self.g_stfr = g_stfr
+
+
+
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+        #damping = self.minmax_scale_hm(0.01,0.99,constraint_weights(self.damping)) # this needs to be either in (0,1), 1 or (1,inf]
+
+        w_natural_Hz_pitch = self.minmax_scale_hm(0.75,7,constraint_weights(self.w_natural_Hz_pitch))
+        k_scale = 0.2
+        k_f_pitch = self.minmax_scale_hm(-k_scale,k_scale,constraint_weights(self.k_f_pitch))
+        k_r_pitch = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_r_pitch))
+
+        w_natural_Hz_roll = self.minmax_scale_hm(0.75,7,constraint_weights(self.w_natural_Hz_roll))
+        k_f_roll = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_f_roll))
+        k_r_roll = self.minmax_scale_hm(-k_scale,0,constraint_weights(self.k_r_roll))
+
+
+        return [w_natural_Hz_pitch,k_f_pitch,k_r_pitch,w_natural_Hz_roll,k_f_roll,k_r_roll]
+
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+
+    def produce_past_action_coefficients(self,w_natural_Hz,length):
+        # Generate the k coefficients for past actions
+        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
+        k_vec = torch.zeros((length,1)).cuda()
+        k_dev_vec = torch.zeros((length,1)).cuda()
+        for i in range(length):
+            k_vec[i], k_dev_vec[i] = self.impulse_response(i*self.dt,w_natural_Hz) # 
+        # the dt is really important to get the amplitude right
+        k_vec = k_vec * self.dt
+        k_dev_vec = k_dev_vec * self.dt
+        return k_vec.double() ,  k_dev_vec.double()   
+
+
+    def impulse_response(self,t,w_natural_Hz):
+        #second order impulse response
+        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
+        w = w_natural_Hz * 2 *np.pi # convert to rad/s
+
+        f = w**2 * t * torch.exp(-w*t)
+        f_dev = w**2 * (torch.exp(-w*t)-w*t*torch.exp(-w*t)) 
+        return f ,f_dev
+
+
+
+
+    def forward(self, train_x):  # this is the model that will be fitted
+        # training_x = [vx vy w, steering values]
+        vx = torch.unsqueeze(train_x[:,0],1)
+        vy = torch.unsqueeze(train_x[:,1],1) 
+        w = torch.unsqueeze(train_x[:,2],1)
+        throttle = torch.unsqueeze(train_x[:,3],1)
+        steering_angle = torch.unsqueeze(train_x[:,4],1)
+
+        # past accelerations
+        past_acc_longitudinal = train_x[:,5:self.n_past_actions+5]
+        past_acc_lateral = train_x[:,self.n_past_actions+5:]
+ 
+        [w_natural_Hz_pitch,k_f_pitch,k_r_pitch,w_natural_Hz_roll,k_f_roll,k_r_roll] = self.transform_parameters_norm_2_real()
+
+
+        #produce past action coefficients
+        k_vec_pitch,k_dev_vec_pitch = self.produce_past_action_coefficients(w_natural_Hz_pitch,self.n_past_actions) # 
+        k_vec_roll,k_dev_vec_roll = self.produce_past_action_coefficients(w_natural_Hz_roll,self.n_past_actions) 
+
+        # convert to rad/s
+        w_natural_pitch = w_natural_Hz_pitch * 2 *np.pi
+        w_natural_roll = w_natural_Hz_roll * 2 *np.pi
+
+        # pitch dynamics
+        c_pitch = 2 * w_natural_pitch 
+        k_pitch = w_natural_pitch**2
+        F_z_tilde_pitch = past_acc_longitudinal @ k_vec_pitch + c_pitch/k_pitch * past_acc_longitudinal @ k_dev_vec_pitch # this is the non-scaled response (we don't know the magnitude of the input)
+
+        # roll dynamics
+        c_roll = 2 * w_natural_roll 
+        k_roll = w_natural_roll**2
+        F_z_tilde_roll = past_acc_lateral @ k_vec_roll + c_roll/k_roll * past_acc_lateral @ k_dev_vec_roll # this is the non-scaled response (we don't know the magnitude of the input)
+
+
+        # correction term pitch
+        alpha_z_front_pitch = F_z_tilde_pitch * k_f_pitch * (self.lr)/(self.lr+self.lf)   # lf and lr should be scaled by the other length (lr lf are switched)
+        alpha_z_rear_pitch = F_z_tilde_pitch * -k_f_pitch * (self.lf)/(self.lr+self.lf) # k_r_pitch
+
+        # correction term roll
+        alpha_z_front_roll = F_z_tilde_roll * k_f_roll
+        alpha_z_rear_roll = F_z_tilde_roll * k_f_roll #k_r_roll
+
+
+        # evaluate longitudinal forces
+        Fx = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m) \
+             + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
+             + self.F_friction_due_to_steering(steering_angle,vx,self.a_stfr,self.b_stfr,self.d_stfr,self.e_stfr,self.f_stfr,self.g_stfr) 
+        
+        Fx_front = Fx/2
+        Fx_rear = Fx/2
+
+        # evaluate lateral tire forces
+        Vy_wheel_f,Vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steering_angle,self.lf,self.lr)
+
+        Fy_wheel_f = self.lateral_tire_force(Vy_wheel_f,self.d_t,self.c_t,self.b_t)
+        Fy_wheel_r = self.lateral_tire_force(Vy_wheel_r,self.d_t,self.c_t,self.b_t)
+
+        # CORRECT TIRE FORCES WITH ROLL PITCH MODIFIERS
+        # front tire forces
+        Fx_front = Fx_front * (1+alpha_z_front_pitch) 
+        F_y_front = Fy_wheel_f * (1+alpha_z_front_pitch) 
+        # rear tire forces
+        Fx_rear = Fx_rear * (1+alpha_z_rear_pitch)
+        F_y_rear  = Fy_wheel_r * (1+alpha_z_rear_pitch) 
+
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,F_y_front,F_y_rear,self.lf,self.lr,self.m,self.Jz)
+
+
+        return acc_x,acc_y,acc_w, past_acc_longitudinal @ k_vec_pitch, past_acc_lateral @ k_vec_roll
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1926,7 +2113,7 @@ class steering_friction_model(torch.nn.Sequential,torch_model_functions):
     #     return Fy_wheel
     
     def forward(self, train_x):  # this is the model that will be fitted
-        [a,b,d,e,f,g] = self.transform_parameters_norm_2_real()
+        
         #returns vx_dot,vy_dot,w_dot in the vehicle body frame
         # train_x = [ 'vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering angle'
         vx = torch.unsqueeze(train_x[:,0],1)
@@ -1935,19 +2122,23 @@ class steering_friction_model(torch.nn.Sequential,torch_model_functions):
         throttle = torch.unsqueeze(train_x[:,3],1) 
         steer_angle = torch.unsqueeze(train_x[:,4],1) 
 
-        # evaluate forward force
-        w_friction_term = 0.5 * (torch.tanh(30*(steer_angle))+1)
-        friction_term_1 =  a * torch.tanh(b * steer_angle**2) #b * (0.5 + 0.5 * torch.tanh(a * steer_angle)) # positve steering angle
-        friction_term_2 =  e * torch.tanh(d * steer_angle**2)#d * (0.5 + 0.5 * torch.tanh(e * steer_angle))
-        friction_term = (w_friction_term)*friction_term_1+(1-w_friction_term)*friction_term_2 
+        [a,b,d,e,f,g] = self.transform_parameters_norm_2_real()
 
-        # vx proportionality
-        vx_term = (1 + f * torch.exp(-g * vx**2)) * vx
-        
+        # # evaluate forward force
+        # w_friction_term = 0.5 * (torch.tanh(30*(steer_angle))+1)
+        # friction_term_1 =  a * torch.tanh(b * steer_angle**2) #b * (0.5 + 0.5 * torch.tanh(a * steer_angle)) # positve steering angle
+        # friction_term_2 =  e * torch.tanh(d * steer_angle**2)#d * (0.5 + 0.5 * torch.tanh(e * steer_angle))
+        # friction_term = (w_friction_term)*friction_term_1+(1-w_friction_term)*friction_term_2 
+
+        # # vx proportionality
+        # vx_term = (1 + f * torch.exp(-g * vx**2)) * vx
+
+        F_friction_due_to_steering_val = self.F_friction_due_to_steering(steer_angle,vx,a,b,d,e,f,g)
+
         # evaluate longitudinal forces
         Fx = self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m) \
              + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
-             - vx_term * friction_term # + vx_term * friction_term #
+             + F_friction_due_to_steering_val # + vx_term * friction_term #
         
         Fx_front = Fx/2
         Fx_rear = Fx/2
