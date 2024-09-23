@@ -970,6 +970,32 @@ class torch_model_functions():
         w_m = 0.5 * (torch.tanh(100*(throttle_filtered+c_m))+1)
         Fx =  (a_m - b_m * v) * w_m * (throttle_filtered+c_m)
         return Fx
+    
+    def lateral_tire_force(self,vy_tire,d_t,c_t,b_t):
+        F_y = d_t * torch.sin(c_t * torch.arctan(b_t * vy_tire )) 
+        return F_y
+    
+    def evalaute_wheel_lateral_velocities(self,vx,vy,w,steer_angle,lf,lr):
+        Vy_wheel_f = torch.cos(steer_angle)*(vy + lf*w) - torch.sin(steer_angle) * vx
+        Vy_wheel_r = vy - lr*w
+        return Vy_wheel_f,Vy_wheel_r
+    
+    def solve_rigid_body_dynamics(self,vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,lf,lr,m,Jz):
+
+        #centrifugal force
+        F_cent_x = + m * w * vy  # x component of F 
+        F_cent_y = - m * w * vx  # only y component of F is needed
+
+        # evaluate body forces
+        Fx_body = F_cent_x + Fx_front*(torch.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-torch.sin(steer_angle))
+
+        Fy_body = F_cent_y + Fx_front*(torch.sin(steer_angle)) + Fy_wheel_f * (torch.cos(steer_angle)) + Fy_wheel_r
+
+        M       = Fx_front * (+torch.sin(steer_angle)*lf) + Fy_wheel_f * (torch.cos(steer_angle)*lf)+\
+                  Fy_wheel_r * (-lr) #+ F_cent_y * (-self.l_COM)
+        
+
+        return Fx_body/m,Fy_body/m , M/Jz
 
 
 
@@ -1245,7 +1271,7 @@ class vicon_parameters_model(torch.nn.Sequential):
 
 
 
-class culomb_pacejka_tire_model(torch.nn.Sequential):
+class culomb_pacejka_tire_model(torch.nn.Sequential,torch_model_functions):
     def __init__(self,param_vals):
         super(culomb_pacejka_tire_model, self).__init__()
         # define mass of the robot
@@ -1276,9 +1302,9 @@ class culomb_pacejka_tire_model(torch.nn.Sequential):
         return min + normalized_value * (max-min)
     
     def forward(self, train_x):  # this is the model that will be fitted
-        [d,c,b] = self.transform_parameters_norm_2_real()
+        [d_t,c_t,b_t] = self.transform_parameters_norm_2_real()
         # evalaute lateral tire force
-        F_y = d * torch.sin(c * torch.arctan(b * train_x )) 
+        F_y = self.lateral_tire_force(train_x,d_t,c_t,b_t)
         return F_y
 
 
@@ -1827,8 +1853,8 @@ class pacejka_tire_model(torch.nn.Sequential):
 
 
 
-class steering_friction_model(torch.nn.Sequential):
-    def __init__(self,param_vals,m,lr,lf,l_COM,Jz,d_tire,c_tire,b_tire,
+class steering_friction_model(torch.nn.Sequential,torch_model_functions):
+    def __init__(self,param_vals,m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f):
         
@@ -1849,9 +1875,9 @@ class steering_friction_model(torch.nn.Sequential):
         self.Jz = Jz
 
         # Tire model
-        self.d_tire = d_tire
-        self.c_tire = c_tire
-        self.b_tire = b_tire
+        self.d_t = d_t
+        self.c_t = c_t
+        self.b_t = b_t
 
         # Motor curve
         self.a_m =  a_m
@@ -1886,18 +1912,18 @@ class steering_friction_model(torch.nn.Sequential):
     # normalized value should be between 0 and 1
         return min + normalized_value * (max-min)
 
-    def motor_force(self,th,v):
-        w = 0.5 * (torch.tanh(100*(th+self.c_m))+1)
-        Fm =  (self.a_m - v * self.b_m) * w * (th+self.c_m)
-        return Fm
+    # def motor_force(self,th,v):
+    #     w = 0.5 * (torch.tanh(100*(th+self.c_m))+1)
+    #     Fm =  (self.a_m - v * self.b_m) * w * (th+self.c_m)
+    #     return Fm
 
-    def friction(self,v):
-        Ff = - ( self.a_f * torch.tanh(self.b_f  * v) + self.c_f * v + self.d_f * v**2 )
-        return Ff
+    # def friction(self,v):
+    #     Ff = - ( self.a_f * torch.tanh(self.b_f  * v) + self.c_f * v + self.d_f * v**2 )
+    #     return Ff
     
-    def lateral_tire_forces(self,vy_wheel):
-        Fy_wheel = self.d_tire * torch.sin(self.c_tire * torch.arctan(self.b_tire * vy_wheel)) 
-        return Fy_wheel
+    # def lateral_tire_forces(self,vy_wheel):
+    #     Fy_wheel = self.d_tire * torch.sin(self.c_tire * torch.arctan(self.b_tire * vy_wheel)) 
+    #     return Fy_wheel
     
     def forward(self, train_x):  # this is the model that will be fitted
         [a,b,d,e,f,g] = self.transform_parameters_norm_2_real()
@@ -1909,7 +1935,7 @@ class steering_friction_model(torch.nn.Sequential):
         throttle = torch.unsqueeze(train_x[:,3],1) 
         steer_angle = torch.unsqueeze(train_x[:,4],1) 
 
-        #evaluate forward force
+        # evaluate forward force
         w_friction_term = 0.5 * (torch.tanh(30*(steer_angle))+1)
         friction_term_1 =  a * torch.tanh(b * steer_angle**2) #b * (0.5 + 0.5 * torch.tanh(a * steer_angle)) # positve steering angle
         friction_term_2 =  e * torch.tanh(d * steer_angle**2)#d * (0.5 + 0.5 * torch.tanh(e * steer_angle))
@@ -1917,46 +1943,26 @@ class steering_friction_model(torch.nn.Sequential):
 
         # vx proportionality
         vx_term = (1 + f * torch.exp(-g * vx**2)) * vx
-
-        Fx = self.motor_force(throttle,vx) + self.friction(vx) - vx_term * friction_term # + vx_term * friction_term #
-
+        
+        # evaluate longitudinal forces
+        Fx = self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m) \
+             + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
+             - vx_term * friction_term # + vx_term * friction_term #
+        
+        Fx_front = Fx/2
+        Fx_rear = Fx/2
 
         # evaluate lateral tire forces
-        Vy_wheel_f = torch.cos(steer_angle)*(vy + self.lf*w) - torch.sin(steer_angle) * vx
-        Vy_wheel_r = vy - self.lr*w
+        Vy_wheel_f,Vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steer_angle,self.lf,self.lr)
 
-        Fy_wheel_f = self.lateral_tire_forces(Vy_wheel_f)
-        Fy_wheel_r = self.lateral_tire_forces(Vy_wheel_r)
 
-        #centrifugal force
-        F_cent_x = + self.m * w * vy  # x component of F 
-        F_cent_y = - self.m * w * vx  # only y component of F is needed
+        Fy_wheel_f = self.lateral_tire_force(Vy_wheel_f,self.d_t,self.c_t,self.b_t)
+        Fy_wheel_r = self.lateral_tire_force(Vy_wheel_r,self.d_t,self.c_t,self.b_t)
 
-        # evaluate body forces
-        Fx_body = F_cent_x + Fx/2*(1+torch.cos(steer_angle)) + Fy_wheel_f * (-torch.sin(steer_angle))
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,self.lf,self.lr,self.m,self.Jz)
 
-        Fy_body = F_cent_y + Fx/2*(torch.sin(steer_angle)) + Fy_wheel_f * (torch.cos(steer_angle)) + Fy_wheel_r
 
-        M       = Fx/2 * (+torch.sin(steer_angle)*self.lf) + Fy_wheel_f * (torch.cos(steer_angle)*self.lf)+\
-                  Fy_wheel_r * (-self.lr) #+ F_cent_y * (-self.l_COM)
-        
-        # had to rewrite this in torch to make it work
-        # B = torch.Tensor([Fx/2,
-        #                 Fy_wheel_f,
-        #                 Fy_wheel_r,
-        #                 F_cent_y])
-        
-        # A = torch.Tensor([[1+torch.cos(steer_angle),-torch.sin(steer_angle),0,0],
-        #                   [+torch.sin(steer_angle),+torch.cos(steer_angle),1,0],
-        #                   [+torch.sin(steer_angle)*self.lf  ,torch.cos(steer_angle)*self.lf  ,-self.lr,-self.l_COM]])
-        
-        # body_forces = A @ B
-
-        # Fx_body = body_forces[0] + F_cent_x
-        # Fy_body = body_forces[1] + F_cent_y
-        # M = body_forces[2]
-
-        return Fx_body/self.m,Fy_body/self.m , M/self.Jz
+        return acc_x,acc_y,acc_w #Fx_body/self.m,Fy_body/self.m , M/self.Jz
 
 
 
