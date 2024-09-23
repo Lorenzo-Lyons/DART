@@ -336,7 +336,7 @@ ax4.legend()
 # plot friction curve
 df_friction = df[df['throttle']==0]
 v_range = np.linspace(0,df_friction['vel encoder'].max(),100)
-friction_force = motor_and_friction_model_obj.friction_equation(torch.unsqueeze(torch.tensor(v_range).cuda(),1)).detach().cpu().numpy()
+friction_force = motor_and_friction_model_obj.rolling_friction(torch.unsqueeze(torch.tensor(v_range).cuda(),1),a_f,b_f,c_f,d_f).detach().cpu().numpy()
 fig, ax_friction = plt.subplots()
 ax_friction.scatter(df_friction['vel encoder'],df_friction['force'],label='data',color='dodgerblue')
 ax_friction.plot(v_range,friction_force,label='friction curve model',color='orangered')
@@ -375,10 +375,10 @@ input_points = np.column_stack(
 )
 
 input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
-Total_force_grid = motor_and_friction_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy() +\
-             motor_and_friction_model_obj.friction_equation(input_grid[:,1]).detach().cpu().view(100, 100).numpy()
+Total_force_grid = motor_and_friction_model_obj.motor_force(input_grid[:,0],input_grid[:,1],a_m,b_m,c_m).detach().cpu().view(100, 100).numpy() +\
+             motor_and_friction_model_obj.rolling_friction(input_grid[:,1],a_f,b_f,c_f,d_f).detach().cpu().view(100, 100).numpy()
 
-Motor_force_grid = motor_and_friction_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy()
+Motor_force_grid = motor_and_friction_model_obj.motor_force(input_grid[:,0],input_grid[:,1],a_m,b_m,c_m).detach().cpu().view(100, 100).numpy()
 
 # Plot the surface
 ax.plot_surface(throttle_grid, velocity_grid, Total_force_grid, cmap='viridis', alpha=1)

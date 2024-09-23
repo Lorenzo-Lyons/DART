@@ -202,22 +202,22 @@ for i in range(train_its):
     optimizer_object.step() # this updates parameters automatically according to the optimizer you chose
 
 # --- print out parameters ---
-[a,b,c,d] = motor_curve_model_obj.transform_parameters_norm_2_real()
-a, b, c, d = a.item(), b.item(), c.item(), d.item()
-print('a = ', a)
-print('b = ', b)
-print('c = ', c)
-print('d = ', d)
+[a_m,b_m,c_m,d_m] = motor_curve_model_obj.transform_parameters_norm_2_real()
+a_m, b_m, c_m, d_m = a_m.item(), b_m.item(), c_m.item(), d_m.item()
+print('a_m = ', a_m)
+print('b_m = ', b_m)
+print('c_m = ', c_m)
+print('d_m = ', d_m)
 
 
 
 # evalauting filter coefficient
-k0 = d
-k1 = d * (1-d)
-k2 = d * (1-d)**2
-k3 = d * (1-d)**3 
-k4 = d * (1-d)**4 
-k5 = d * (1-d)**5 
+k0 = d_m
+k1 = d_m * (1-d_m)
+k2 = d_m * (1-d_m)**2
+k3 = d_m * (1-d_m)**3 
+k4 = d_m * (1-d_m)**4 
+k5 = d_m * (1-d_m)**5 
 
 
 k_vec = np.array([k0,k1,k2,k3,k4,k5])
@@ -309,7 +309,7 @@ ax4.legend()
 
 
 # add to the fitting results plot, the value of force using the filtered throttle
-output_filtered_throttle = motor_curve_model_obj.motor_equation(torch.Tensor(throttle_filtered).cuda(),train_x[:,1]).detach().cpu().view(-1).numpy()
+output_filtered_throttle = motor_curve_model_obj.motor_force(torch.Tensor(throttle_filtered).cuda(),train_x[:,1],a_m,b_m,c_m).detach().cpu().view(-1).numpy()
 ax3.step(df['elapsed time sensors'].to_numpy(),output_filtered_throttle,where='post',color='red',linewidth=2,label="estimated motor force filtered throttle")
 ax3.plot(df['elapsed time sensors'].to_numpy(),output_filtered_throttle,color='red',linewidth=2,marker='.',markersize=10,linestyle='none')
 ax3.legend()
@@ -345,7 +345,7 @@ input_points = np.column_stack(
 )
 
 input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
-Force_grid = motor_curve_model_obj.motor_equation(input_grid[:,0],input_grid[:,1]).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
+Force_grid = motor_curve_model_obj.motor_force(input_grid[:,0],input_grid[:,1],a_m,b_m,c_m).detach().cpu().view(100, 100).numpy()  # Replace with your surface data
 
 # Plot the surface
 ax.plot_surface(throttle_grid, velocity_grid, Force_grid, cmap='viridis', alpha=1)
@@ -356,7 +356,7 @@ ax.set_zlabel('Motor force')
 
 # plotting the obtained motor curve as a level plot
 max_throttle = df['throttle'].max()
-throttle_levels = np.linspace(-c,max_throttle,5).tolist()  # 0.4 set throttle
+throttle_levels = np.linspace(-c_m,max_throttle,5).tolist()  # 0.4 set throttle
 
 fig = plt.figure(figsize=(10, 6))
 fig.subplots_adjust(top=0.985, bottom=0.11, left=0.07, right=1.0, hspace=0.2, wspace=0.2)

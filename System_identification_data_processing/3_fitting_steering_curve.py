@@ -102,13 +102,13 @@ plt.xlabel('iterations')
 plt.ylabel('loss')
 
 # --- print out parameters ---
-[a,b,c,d,e] = steering_curve_model_obj.transform_parameters_norm_2_real()
-a, b, c,d,e = a.item(), b.item(), c.item(), d.item(),e.item()
-print('a = ', a)
-print('b = ', b)
-print('c = ', c)
-print('d = ', d)
-print('e = ', e)
+[a_s,b_s,c_s,d_s,e_s] = steering_curve_model_obj.transform_parameters_norm_2_real()
+a_s, b_s, c_s,d_s,e_s = a_s.item(), b_s.item(), c_s.item(), d_s.item(),e_s.item()
+print('a_s = ', a_s)
+print('b_s = ', b_s)
+print('c_s = ', c_s)
+print('d_s = ', d_s)
+print('e_s = ', e_s)
 
 # plot curve over the fitting data
 input_vec = np.linspace(-1,1,100)

@@ -61,34 +61,69 @@ w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
 
 # Starting data processing
 # check if there is a processed vicon data file already
-file_name = 'processed_vicon_data.csv'
-# Check if the CSV file exists in the folder
-file_path = os.path.join(folder_path, file_name)
+# file_name = 'processed_vicon_data.csv'
+# # Check if the CSV file exists in the folder
+# file_path = os.path.join(folder_path, file_name)
 
-if not os.path.isfile(file_path):
-    # If the file does not exist, process the raw data
+# if not os.path.isfile(file_path):
+#     # If the file does not exist, process the raw data
 
-    # get the raw data
-    df_raw_data = get_data(folder_path)
+#     # get the raw data
+#     df_raw_data = get_data(folder_path)
 
-    # replace throttle with time integrated throttle
-    filtered_throttle = throttle_dynamics(df_raw_data,d_m)
-    df_raw_data['throttle'] = filtered_throttle
+#     # replace throttle with time integrated throttle
+#     filtered_throttle = throttle_dynamics(df_raw_data,d_m)
+#     df_raw_data['throttle'] = filtered_throttle
 
-    # replace steering and steering angle with the time integrated version
-    st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
-    df_raw_data['steering angle'] = st_vec_angle_optuna
-    df_raw_data['steering'] = st_vec_optuna
+#     # replace steering and steering angle with the time integrated version
+#     st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
+#     df_raw_data['steering angle'] = st_vec_angle_optuna
+#     df_raw_data['steering'] = st_vec_optuna
 
-    # process data
-    steps_shift = 3 # decide to filter more or less the vicon data
-    df = process_raw_vicon_data(df_raw_data,steps_shift)
+#     # process data
+#     steps_shift = 3 # decide to filter more or less the vicon data
+#     df = process_raw_vicon_data(df_raw_data,steps_shift)
 
-    df.to_csv(file_path, index=False)
-    print(f"File '{file_path}' saved.")
-else:
-    print(f"File '{file_path}' already exists, loading data.")
-    df = pd.read_csv(file_path)
+#     df.to_csv(file_path, index=False)
+#     print(f"File '{file_path}' saved.")
+# else:
+#     print(f"File '{file_path}' already exists, loading data.")
+#     df = pd.read_csv(file_path)
+
+
+
+
+
+
+
+
+
+# get the raw data
+df_raw_data = get_data(folder_path)
+
+# replace throttle with time integrated throttle
+filtered_throttle = throttle_dynamics(df_raw_data,d_m)
+df_raw_data['throttle'] = filtered_throttle
+
+# replace steering and steering angle with the time integrated version
+# st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
+# df_raw_data['steering angle'] = st_vec_angle_optuna
+# df_raw_data['steering'] = st_vec_optuna
+
+# process data
+steps_shift = 3 # decide to filter more or less the vicon data
+df = process_raw_vicon_data(df_raw_data,steps_shift)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -199,12 +234,6 @@ ax2.legend()
 
 
 
-
-
-
-
-
-
 # --------------- fitting model---------------
 
 # fitting tyre models
@@ -250,7 +279,7 @@ train_y = torch.Tensor(df[columns_to_extract].to_numpy()).cuda().double()
 
 #instantiate the model
 dt_int_steering =  np.diff(df['vicon time'].to_numpy()).mean() / refinement_factor
-pitch_and_roll_dynamics_model_obj = pitch_and_roll_dynamics_model(initial_guess,dt_int_steering,n_past_actions*refinement_factor)
+pitch_and_roll_dynamics_model_obj = pitch_and_roll_dynamics_model(initial_guess,dt_int_steering,n_past_actions*refinement_factor,lr,lf)
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
