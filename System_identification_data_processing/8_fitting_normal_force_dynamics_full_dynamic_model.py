@@ -60,21 +60,44 @@ w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
 # # Starting data processing
 
 
-# get the raw data
-df_raw_data = get_data(folder_path)
 
-# replace throttle with time integrated throttle
-filtered_throttle = throttle_dynamics(df_raw_data,d_m)
-df_raw_data['throttle'] = filtered_throttle
 
-# replace steering and steering angle with the time integrated version
-st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
-df_raw_data['steering angle'] = st_vec_angle_optuna
-df_raw_data['steering'] = st_vec_optuna
 
-# process data
-steps_shift = 3 # decide to filter more or less the vicon data
-df = process_raw_vicon_data(df_raw_data,steps_shift)
+
+# Starting data processing
+# check if there is a processed vicon data file already
+file_name = 'processed_vicon_data.csv'
+# Check if the CSV file exists in the folder
+file_path = os.path.join(folder_path, file_name)
+
+if not os.path.isfile(file_path):
+    # If the file does not exist, process the raw data
+    # get the raw data
+    df_raw_data = get_data(folder_path)
+
+    # replace throttle with time integrated throttle
+    filtered_throttle = throttle_dynamics(df_raw_data,d_m)
+    df_raw_data['throttle'] = filtered_throttle
+
+    # replace steering and steering angle with the time integrated version
+    st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
+    df_raw_data['steering angle'] = st_vec_angle_optuna
+    df_raw_data['steering'] = st_vec_optuna
+
+    # process data
+    steps_shift = 3 # decide to filter more or less the vicon data
+    df = process_raw_vicon_data(df_raw_data,steps_shift)
+
+    df.to_csv(file_path, index=False)
+    print(f"File '{file_path}' saved.")
+else:
+    print(f"File '{file_path}' already exists, loading data.")
+    df = pd.read_csv(file_path)
+
+
+
+
+
 
 
 
@@ -177,11 +200,48 @@ ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = 
 
 
 
+# columns to use as model inputs
+selected_columns_df = ['vx body', 'vy body', 'w_abs_filtered','throttle','steering angle'] 
 
 
 
+# plot results
+fig1, ((ax_acc_x,ax_acc_y,ax_acc_w)) = plt.subplots(3, 1, figsize=(10, 6), constrained_layout=True)
 
 
+ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax body',color='dodgerblue')
+ax_acc_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay body',color='orangered')
+ax_acc_w.plot(df['vicon time'].to_numpy(),df['aw_abs_filtered_more'].to_numpy(),label='aw_abs_filtered_more',color='darkgreen')
+
+# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
+dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
+                 a_m,b_m,c_m,
+                 a_f,b_f,c_f,d_f,
+                 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
+
+
+
+state_action_matrix = df[selected_columns_df].to_numpy()
+acc_x_model = np.zeros(df.shape[0])
+acc_y_model = np.zeros(df.shape[0])
+acc_w_model = np.zeros(df.shape[0])
+
+for i in range(df.shape[0]):
+    acc = dynamic_model.forward(state_action_matrix[i,:])
+    acc_x_model[i] = acc[0]
+    acc_y_model[i] = acc[1]
+    acc_w_model[i] = acc[2]
+
+# plot the non augmented model accelerations
+ax_acc_x.plot(df['vicon time'].to_numpy(),acc_x_model,label='ax body simpler model',color='teal')
+ax_acc_y.plot(df['vicon time'].to_numpy(),acc_y_model,label='ay body simpler model',color='teal')
+ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w_model,label='aw_abs_filtered_more simpler model',color='teal')
+ax_acc_x.legend()
+ax_acc_y.legend()
+ax_acc_w.legend()
+
+
+plt.show()
 
 
 
@@ -211,7 +271,6 @@ print('Fitting roll and pitch dynamics')
 # generate data in tensor form for torch
 # -- X data --
 # model inputs
-selected_columns_df = ['vx body', 'vy body', 'w_abs_filtered','throttle','steering angle'] 
 train_x_model_inputs = torch.tensor(df[selected_columns_df].to_numpy()).cuda()
 
 # past longitudinal accelerations
@@ -290,21 +349,19 @@ print(f'k_r_roll = {k_r_roll}')
 
 
 
-# plot results
-fig1, ((ax_acc_x,ax_acc_y,ax_acc_w)) = plt.subplots(3, 1, figsize=(10, 6), constrained_layout=True)
+
 
 # plot longitudinal accleeartion
-ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax body',color='dodgerblue')
+
 ax_acc_x.plot(df['vicon time'].to_numpy(),acc_x.detach().cpu().view(-1).numpy(),label='ax body model fitted',color='k')
 ax_acc_x.legend()
 
 # plot lateral accleeartion
-ax_acc_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay body',color='orangered')
+
 ax_acc_y.plot(df['vicon time'].to_numpy(),acc_y.detach().cpu().view(-1).numpy(),label='ay body model fitted',color='k')
 ax_acc_y.legend()
 
 # plot yaw rate
-ax_acc_w.plot(df['vicon time'].to_numpy(),df['aw_abs_filtered_more'].to_numpy(),label='aw_abs_filtered_more',color='darkgreen')
 ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w.detach().cpu().view(-1).numpy(),label='aw model fitted',color='k')
 ax_acc_w.legend()
 
@@ -314,32 +371,7 @@ ax_acc_w.legend()
 # compare against the predicted values from the non augmented dynamic model
 # load model parameters
 
-# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
-dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,d_t,c_t,b_t,
-                 a_m,b_m,c_m,
-                 a_f,b_f,c_f,d_f,
-                 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
 
-
-
-state_action_matrix = df[selected_columns_df].to_numpy()
-acc_x_model = np.zeros(df.shape[0])
-acc_y_model = np.zeros(df.shape[0])
-acc_w_model = np.zeros(df.shape[0])
-
-for i in range(df.shape[0]):
-    acc = dynamic_model.forward(state_action_matrix[i,:])
-    acc_x_model[i] = acc[0]
-    acc_y_model[i] = acc[1]
-    acc_w_model[i] = acc[2]
-
-# plot the non augmented model accelerations
-ax_acc_x.plot(df['vicon time'].to_numpy(),acc_x_model,label='ax body simpler model',color='teal')
-ax_acc_y.plot(df['vicon time'].to_numpy(),acc_y_model,label='ay body simpler model',color='teal')
-ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w_model,label='aw_abs_filtered_more simpler model',color='teal')
-ax_acc_x.legend()
-ax_acc_y.legend()
-ax_acc_w.legend()
 
 plt.show()
 

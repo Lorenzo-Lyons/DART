@@ -579,7 +579,7 @@ def process_raw_vicon_data(df,steps_shift):
     # evaluate lateral forces from lateral and yaw dynamics
     for i in range(0,df.shape[0]):
         # evaluate the centrifugal force 
-        F_cent = - m * df['w_abs_filtered'].iloc[i] * (df['vx body'].iloc[i]**2+df['vy body'].iloc[i]**2)**0.5
+        #F_cent = - m * df['w_abs_filtered'].iloc[i] * (df['vx body'].iloc[i]**2+df['vy body'].iloc[i]**2)**0.5
 
         # ax body no centrifugal are just the forces rotated by the yaw angle
         b = np.array([df['ax body no centrifugal'].iloc[i]*m,
@@ -589,6 +589,8 @@ def process_raw_vicon_data(df,steps_shift):
         # use the raw steering angle
         #steer_angle = df['steering angle time delayed'].iloc[i]
         steer_angle = df['steering angle'].iloc[i]
+
+        
         A = np.array([[+np.cos(steer_angle) + 1,-np.sin(steer_angle),0],
                     [+np.sin(steer_angle),np.cos(steer_angle),1],
                     [lf * np.sin(steer_angle)             ,lf * np.cos(steer_angle)          ,-lr]])
@@ -786,12 +788,25 @@ def plot_vicon_data(df):
     ax2.set_ylabel('Vx')
 
     # plot Wheel velocity vs force data
-    fig1, ((ax_wheels)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
+    fig1, ((ax_wheels,ax_wheel_r)) = plt.subplots(1, 2, figsize=(10, 6), constrained_layout=True)
     ax_wheels.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',color='peru',s=3) #df['steering angle time delayed'].diff().to_numpy()
+    scatter_front = ax_wheels.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',c=df['ax body'].to_numpy(),cmap='plasma',s=3)
     #scatter = ax_wheels.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',s=3,c=df['vicon time'].to_numpy(),  # color coded by 'steering angle time delayed'
     #cmap='viridis')
-    ax_wheels.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
+    cbar1 = fig1.colorbar(scatter_front, ax=ax_wheels)
+    cbar1.set_label('ax body')  # Label the colorbar
+    #ax_wheels.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
+    scatter_rear = ax_wheel_r.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=df['ax body'].to_numpy(),cmap='plasma',s=3)
+    #cbar2 = fig1.colorbar(scatter_rear, ax=ax_wheels)
+    #cbar2.set_label('ax body')  # Label the colorbar
     ax_wheels.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
+    ax_wheel_r.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x
+
+    ax_wheel_r.set_xlabel('V_y wheel')
+    ax_wheel_r.set_ylabel('Fy')
+    ax_wheel_r.legend()
+
+
     ax_wheels.set_xlabel('V_y wheel')
     ax_wheels.set_ylabel('Fy')
     ax_wheels.legend()
