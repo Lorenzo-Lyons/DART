@@ -388,9 +388,9 @@ def process_vicon_data_kinematics(df,steps_shift,l_COM,theta_correction):
     # --- evaluate first time derivative ---
 
     # simple finite differences method for comparison
-    df['vx_abs_raw'] = [*np.divide(np.diff(df['vicon x'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0] # add a zero for dimensionality issues
-    df['vy_abs_raw'] = [*np.divide(np.diff(df['vicon y'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
-    df['w_abs_raw'] =  [*np.divide(np.diff(df['unwrapped yaw'].to_numpy()),np.diff(df['vicon time'].to_numpy())) ,0]
+    # df['vx_abs_raw'] = [*np.divide(np.diff(df['vicon x'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0] # add a zero for dimensionality issues
+    # df['vy_abs_raw'] = [*np.divide(np.diff(df['vicon y'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
+    # df['w_abs_raw'] =  [*np.divide(np.diff(df['unwrapped yaw'].to_numpy()),np.diff(df['vicon time'].to_numpy())) ,0]
     # Calculate the derivatives using values 5 indices apart
 
     shifted_time0 = df['vicon time'].shift(+steps_shift)
@@ -420,16 +420,16 @@ def process_vicon_data_kinematics(df,steps_shift,l_COM,theta_correction):
 
 
 
-    window_size = 10
-    poly_order = 1
+    # window_size = 10
+    # poly_order = 1
 
 
     # --- evalaute second time derivative ---
 
     # simple finite differences method for comparison
-    df['ax_abs_raw'] = [*np.divide(np.diff(df['vx_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0] # add a zero for dimensionality issues
-    df['ay_abs_raw'] = [*np.divide(np.diff(df['vy_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
-    df['aw_abs_raw'] =  [*np.divide(np.diff(df['w_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
+    # df['ax_abs_raw'] = [*np.divide(np.diff(df['vx_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0] # add a zero for dimensionality issues
+    # df['ay_abs_raw'] = [*np.divide(np.diff(df['vy_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
+    # df['aw_abs_raw'] =  [*np.divide(np.diff(df['w_abs_raw'].to_numpy()),  np.diff(df['vicon time'].to_numpy())) ,0]
     
     # Shifted values for steps_shift indices ahead
     shifted_vx0 = df['vx_abs_filtered'].shift(+steps_shift)
@@ -459,13 +459,13 @@ def process_vicon_data_kinematics(df,steps_shift,l_COM,theta_correction):
 
 
     # filtering from filtered velocity
-    spl_vx = CubicSpline(time_vec_vicon, df['vx_abs_filtered'].to_numpy())
-    spl_vy = CubicSpline(time_vec_vicon, df['vy_abs_filtered'].to_numpy())
-    spl_w = CubicSpline(time_vec_vicon, df['w_abs_filtered'].to_numpy())
+    # spl_vx = CubicSpline(time_vec_vicon, df['vx_abs_filtered'].to_numpy())
+    # spl_vy = CubicSpline(time_vec_vicon, df['vy_abs_filtered'].to_numpy())
+    # spl_w = CubicSpline(time_vec_vicon, df['w_abs_filtered'].to_numpy())
 
-    df['ax_abs_filtered'] =savgol_filter(spl_vx(time_vec_vicon,1), window_size, poly_order)
-    df['ay_abs_filtered'] =savgol_filter(spl_vy(time_vec_vicon,1), window_size, poly_order)
-    df['aw_abs_filtered'] =savgol_filter(spl_w(time_vec_vicon,1), window_size, poly_order)
+    # df['ax_abs_filtered'] =savgol_filter(spl_vx(time_vec_vicon,1), window_size, poly_order)
+    # df['ay_abs_filtered'] =savgol_filter(spl_vy(time_vec_vicon,1), window_size, poly_order)
+    # df['aw_abs_filtered'] =savgol_filter(spl_w(time_vec_vicon,1), window_size, poly_order)
 
 
     # --- convert velocity and acceleration into body frame ---
@@ -589,9 +589,12 @@ def process_raw_vicon_data(df,steps_shift):
         # use the raw steering angle
         #steer_angle = df['steering angle time delayed'].iloc[i]
         steer_angle = df['steering angle'].iloc[i]
-
         
-        A = np.array([[+np.cos(steer_angle) + 1,-np.sin(steer_angle),0],
+        # accounting for static load partitioning
+        c_front = lr/(lf+lr)
+        c_rear = lf/(lf+lr)
+
+        A = np.array([[+c_front * np.cos(steer_angle) + c_rear *1,-np.sin(steer_angle),0],
                     [+np.sin(steer_angle),np.cos(steer_angle),1],
                     [lf * np.sin(steer_angle)             ,lf * np.cos(steer_angle)          ,-lr]])
         
@@ -681,37 +684,37 @@ def plot_vicon_data(df):
 
     fig1, ((ax1, ax2, ax3),(ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(10, 6), constrained_layout=True)
     ax1.set_title('velocity x')
-    ax1.plot(plotting_time_vec, df['vx_abs_raw'].to_numpy(), label="vicon abs vx raw", color='k')
+    #ax1.plot(plotting_time_vec, df['vx_abs_raw'].to_numpy(), label="vicon abs vx raw", color='k')
     ax1.plot(plotting_time_vec, df['vx_abs_filtered'].to_numpy(), label="vicon abs vx filtered", color='dodgerblue')
     ax1.legend()
 
     ax4.set_title('acceleration x')
     #ax4.plot(plotting_time_vec, df['ax_abs_raw'].to_numpy(), label="vicon abs ax raw", color='k')
-    ax4.plot(plotting_time_vec, df['ax_abs_filtered'].to_numpy(), label="vicon abs ax filtered", color='k')
+    #ax4.plot(plotting_time_vec, df['ax_abs_filtered'].to_numpy(), label="vicon abs ax filtered", color='k')
     ax4.plot(plotting_time_vec, df['ax_abs_filtered_more'].to_numpy(), label="vicon abs ax filtered more", color='dodgerblue')
     ax4.legend()
 
 
     ax2.set_title('velocity y')
-    ax2.plot(plotting_time_vec, df['vy_abs_raw'].to_numpy(), label="vicon abs vy raw", color='k')
+    #ax2.plot(plotting_time_vec, df['vy_abs_raw'].to_numpy(), label="vicon abs vy raw", color='k')
     ax2.plot(plotting_time_vec, df['vy_abs_filtered'].to_numpy(), label="vicon abs vy filtered", color='orangered')
     ax2.legend()
 
     ax5.set_title('acceleration y')
     #ax5.plot(plotting_time_vec, df['ay_abs_raw'].to_numpy(), label="vicon abs ay raw", color='k')
-    ax5.plot(plotting_time_vec, df['ay_abs_filtered'].to_numpy(), label="vicon abs ay filtered", color='k')
+    #ax5.plot(plotting_time_vec, df['ay_abs_filtered'].to_numpy(), label="vicon abs ay filtered", color='k')
     ax5.plot(plotting_time_vec, df['ay_abs_filtered_more'].to_numpy(), label="vicon abs ay filtered more", color='orangered')
     ax5.legend()
 
 
     ax3.set_title('velocity yaw')
-    ax3.plot(plotting_time_vec, df['w_abs_raw'].to_numpy(), label="vicon w raw", color='k')
+    #ax3.plot(plotting_time_vec, df['w_abs_raw'].to_numpy(), label="vicon w raw", color='k')
     ax3.plot(plotting_time_vec, df['w_abs_filtered'].to_numpy(), label="vicon w filtered", color='slateblue')
     ax3.legend()
 
     ax6.set_title('acceleration yaw')
     #ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
-    ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
+    #ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
     ax6.plot(plotting_time_vec, df['aw_abs_filtered_more'].to_numpy(), label="vicon aw filtered more", color='slateblue')
     ax6.legend()
 
@@ -820,7 +823,7 @@ def plot_vicon_data(df):
     ax1.set_title('time steps')
 
     # plot acceleration data
-    fig1, ((ax1,ax2,ax3)) = plt.subplots(1, 3, figsize=(10, 6), constrained_layout=True)
+    fig1, ((ax1, ax2, ax3),(ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(10, 6), constrained_layout=True)
     ax1.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='acc x absolute measured in body frame',color = 'dodgerblue')
     ax1.set_xlabel('time [s]')
     ax1.set_title('X_ddot @ R(yaw)')
@@ -835,6 +838,25 @@ def plot_vicon_data(df):
     ax3.set_xlabel('time [s]')
     ax3.set_title('Acc w')
     ax3.legend()
+
+    # plot accelerations in the body frame
+    ax4.plot(df['vicon time'].to_numpy(), df['ax body'].to_numpy(),label='acc x in body frame',color = 'dodgerblue')
+    ax4.set_xlabel('time [s]')
+    ax4.set_title('X_ddot @ R(yaw) + cent')
+    ax4.legend()
+
+    ax5.plot(df['vicon time'].to_numpy(), df['ay body'].to_numpy(),label='acc y in body frame',color = 'orangered')
+    ax5.set_xlabel('time [s]')
+    ax5.set_title('Y_ddot @ R(yaw) + cent')
+    ax5.legend()
+
+    ax6.plot(df['vicon time'].to_numpy(), df['aw_abs_filtered_more'].to_numpy(),label='acc w',color = 'slateblue')
+    ax6.set_xlabel('time [s]')
+    ax6.set_title('Acc w')
+    ax6.legend()
+
+
+
 
     # plot x-y trajectory
     plt.figure()
@@ -963,21 +985,22 @@ class torch_model_functions():
         return - vx_term * friction_term 
     
     def solve_rigid_body_dynamics(self,vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,lf,lr,m,Jz):
-
         #centrifugal force
-        F_cent_x = + m * w * vy  # x component of F 
-        F_cent_y = - m * w * vx  # only y component of F is needed
-
+        a_cent_x = + w * vy  # x component of ac_centripetal
+        a_cent_y = - w * vx  # y component of ac_centripetal
+        # F_cent_x +
+        # F_cent_y +
         # evaluate body forces
-        Fx_body = F_cent_x + Fx_front*(torch.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-torch.sin(steer_angle))
+        Fx_body =  Fx_front*(torch.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-torch.sin(steer_angle))
 
-        Fy_body = F_cent_y + Fx_front*(torch.sin(steer_angle)) + Fy_wheel_f * (torch.cos(steer_angle)) + Fy_wheel_r
+        Fy_body =  Fx_front*(torch.sin(steer_angle)) + Fy_wheel_f * (torch.cos(steer_angle)) + Fy_wheel_r
 
         M       = Fx_front * (+torch.sin(steer_angle)*lf) + Fy_wheel_f * (torch.cos(steer_angle)*lf)+\
                   Fy_wheel_r * (-lr) #+ F_cent_y * (-self.l_COM)
         
-
-        return Fx_body/m,Fy_body/m , M/Jz
+        #  + a_cent_x
+        # + a_cent_y
+        return Fx_body/m+ a_cent_x,Fy_body/m + a_cent_y, M/Jz
 
 
 
@@ -1288,6 +1311,120 @@ class culomb_pacejka_tire_model(torch.nn.Sequential,torch_model_functions):
         # evalaute lateral tire force
         F_y = self.lateral_tire_force(train_x,d_t,c_t,b_t)
         return F_y
+
+
+
+
+
+class culomb_pacejka_tire_model_full_dynamics(torch.nn.Sequential,torch_model_functions):
+    def __init__(self,param_vals):
+        super(culomb_pacejka_tire_model_full_dynamics, self).__init__()
+        # define mass of the robot
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        self.register_parameter(name='Jz', param=torch.nn.Parameter(torch.Tensor([0.006513]).cuda())) # 0.006513
+        self.register_parameter(name='lr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+
+
+        self.register_parameter(name='d_t', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='c_t', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='b_t', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        
+        self.register_parameter(name='a_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='b_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='d_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='e_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='f_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='g_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+
+        [theta_correction, lr, l_COM, Jz, lf, m,
+        a_m, b_m, c_m, d_m,
+        a_f, b_f, c_f, d_f,
+        a_s, b_s, c_s, d_s, e_s,
+        d_t, c_t, b_t,
+        a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+        max_st_dot,fixed_delay_stdn,k_stdn,
+        w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+        w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
+
+        self.m = m
+        #self.lr = lr
+        #self.lf = lf
+        #self.Jz = Jz
+
+        # Motor curve
+        self.a_m =  a_m
+        self.b_m =  b_m
+        self.c_m =  c_m
+
+        #Friction curve
+        self.a_f =  a_f
+        self.b_f =  b_f
+        self.c_f =  c_f
+        self.d_f =  d_f
+
+
+
+    def transform_parameters_norm_2_real(self):
+        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
+        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
+        # so every parameter is effectively constrained to be within a certain range.
+        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
+
+        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+
+        #friction curve F= -  a * tanh(b  * v) - v * c
+        #friction curve F= -  a * tanh(b  * v) - v * c
+        Jz = self.minmax_scale_hm(0,0.01,constraint_weights(self.Jz)) #  20 * 0.006513
+        lr = self.minmax_scale_hm(0,0.175,constraint_weights(self.lr)) # 0.175
+        d_t = self.minmax_scale_hm(-1,-20,constraint_weights(self.d_t))
+        c_t = self.minmax_scale_hm(0.5,1.5,constraint_weights(self.c_t))
+        b_t = self.minmax_scale_hm(0.01,10,constraint_weights(self.b_t))
+        a_stfr = self.minmax_scale_hm(0,5,constraint_weights(self.a_stfr))
+        b_stfr = self.minmax_scale_hm(0,5,constraint_weights(self.b_stfr))
+        d_stfr = self.minmax_scale_hm(0,7,constraint_weights(self.d_stfr))
+        e_stfr = self.minmax_scale_hm(0,5,constraint_weights(self.e_stfr))
+        f_stfr = self.minmax_scale_hm(0.01,20,constraint_weights(self.f_stfr))
+        g_stfr = self.minmax_scale_hm(0.01,20,constraint_weights(self.g_stfr))
+        return [Jz,lr,d_t,c_t,b_t,a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr]
+        
+    def minmax_scale_hm(self,min,max,normalized_value):
+    # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
+    
+    def forward(self, train_x):  # this is the model that will be fitted
+        vx = torch.unsqueeze(train_x[:,0],1)
+        vy = torch.unsqueeze(train_x[:,1],1) 
+        w = torch.unsqueeze(train_x[:,2],1)
+        throttle = torch.unsqueeze(train_x[:,3],1)
+        steering_angle = torch.unsqueeze(train_x[:,4],1)
+
+        # extract fitting parameters
+        [Jz,lr,d_t,c_t,b_t,a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr] = self.transform_parameters_norm_2_real()
+        lf = 0.175 - lr
+
+        # evaluate longitudinal forces
+        Fx = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m) \
+             + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
+             + self.F_friction_due_to_steering(steering_angle,vx,a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr) 
+        
+        # partition longitudinal forces to front and rear tires according to static weight distribution
+        Fx_front = Fx/2 * lr/(lr+lf)
+        Fx_rear = Fx/2 * lf/(lr+lf)
+
+        # evaluate lateral tire forces
+        Vy_wheel_f,Vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steering_angle,lf,lr)
+
+        # accounting for static load partitioning
+        Fy_wheel_f = self.lateral_tire_force(Vy_wheel_f,d_t,c_t,b_t) * lr/(lr+lf)
+        Fy_wheel_r = self.lateral_tire_force(Vy_wheel_r,d_t,c_t,b_t) *  lf/(lr+lf)
+
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,lf,lr,self.m,Jz)
+
+
+        return acc_x,acc_y,acc_w,Vy_wheel_f,Vy_wheel_r
+
+
 
 
 
@@ -2407,13 +2544,17 @@ class dyn_model_culomb_tires():
         F_cent_x = + self.m * w * vy  # only y component of F is needed
         F_cent_y = - self.m * w * vx  # only y component of F is needed
 
+        # add front-rear Fx partitioning
+        c_front = self.lr/(self.lf+self.lr)
+        c_rear = self.lf/(self.lf+self.lr)
 
+    
         b = np.array(  [Fx_wheels/2,
                         Fy_wheel_f,
                         Fy_wheel_r,
                         F_cent_y])
         
-        A = np.array([  [1+np.cos(steer_angle),-np.sin(steer_angle),0,0],
+        A = np.array([  [  1+np.cos(steer_angle),-np.sin(steer_angle),0,0],
                         [+np.sin(steer_angle),+np.cos(steer_angle),1,0],
                         [+np.sin(steer_angle)*self.lf  ,np.cos(steer_angle)*self.lf  ,-self.lr,0]]) # -self.l_COM
         
