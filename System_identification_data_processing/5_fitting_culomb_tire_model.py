@@ -1,4 +1,5 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,culomb_pacejka_tire_model,model_parameters
+from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,\
+plot_vicon_data,culomb_pacejka_tire_model,model_parameters,directly_measured_model_parameters
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -61,7 +62,9 @@ font = {'family' : 'normal',
 # # ------------------------------------------------------
 # load model parameters
 
-[theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
+[theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
+
+[a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
@@ -76,63 +79,51 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
+
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
+#folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'
 
-
-
-# steering dynamics time constant
-# Time constant in the steering dynamics
-# filtering coefficients
-
-
-# # car parameters
-# l = 0.175 # length of the car
-# m = 1.67 # mass
-# Jz_0 = 0.006513 # Moment of inertia of uniform rectangle of shape 0.18 x 0.12
-
-# # Automatically adjust following parameters according to tweaked values
-# l_COM = lr - COM_positon #distance of the reference point from the centre of mass)
-# Jz = Jz_0 + m*l_COM**2 # correcting the moment of inertia for the extra distance of the reference point from the COM
-# lf = l-lr
 
 
 
 # --- Starting data processing  ------------------------------------------------
 
 
-#robot2vicon_delay = 5 # samples delay
+# #robot2vicon_delay = 5 # samples delay
+# df_raw_data = get_data(folder_path)
+
+# # process the data
+# steps_shift = 10 # decide to filter more or less the vicon data
+# df = process_raw_vicon_data(df_raw_data,steps_shift)
 
 
-df_raw_data = get_data(folder_path)
 
-# process the data
-steps_shift = 10 # decide to filter more or less the vicon data
-df = process_raw_vicon_data(df_raw_data,steps_shift)
+# check if there is a processed vicon data file already
+file_name = 'processed_vicon_data.csv'
+# Check if the CSV file exists in the folder
+file_path = os.path.join(folder_path, file_name)
 
-# # check if there is a processed vicon data file already
-# file_name = 'processed_vicon_data.csv'
-# # Check if the CSV file exists in the folder
-# file_path = os.path.join(folder_path, file_name)
+if not os.path.isfile(file_path):
+    # If the file does not exist, process the raw data
+    # get the raw data
+    df_raw_data = get_data(folder_path)
 
-# if not os.path.isfile(file_path):
-#     # If the file does not exist, process the raw data
-#     # get the raw data
-#     df_raw_data = get_data(folder_path)
+    # process the data
+    steps_shift = 10 # decide to filter more or less the vicon data
+    df = process_raw_vicon_data(df_raw_data,steps_shift)
 
-#     # process the data
-#     steps_shift = 10 # decide to filter more or less the vicon data
-#     df = process_raw_vicon_data(df_raw_data,steps_shift)
-
-#     #df.to_csv(file_path, index=False)
-#     print(f"File '{file_path}' saved.")
-# else:
-#     print(f"File '{file_path}' already exists, loading data.")
-#     df = pd.read_csv(file_path)
+    df.to_csv(file_path, index=False)
+    print(f"File '{file_path}' saved.")
+else:
+    print(f"File '{file_path}' already exists, loading data.")
+    df = pd.read_csv(file_path)
 
 
 
@@ -151,6 +142,10 @@ if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_
     # Reset the index if you want a clean, continuous index
     df.reset_index(drop=True, inplace=True)
 
+elif folder_path == 'System_identification_data_processing/Data/steering_identification_25_sept_2024':
+    # cut the data in two parts cause something is wrong in the middle (probably a temporary lag in the network)
+    df=df[df['vicon time']<460]
+
 
 
 
@@ -162,7 +157,21 @@ if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_
 ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
+ax_wheel_f,ax_wheel_r,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
+
+
+# # plot lateral forces vs slip angles
+# plt.figure()
+# plt.plot(df['slip angle front'],df['Fy front wheel'],'o',label='front wheel')
+# plt.plot(df['slip angle rear'],df['Fy rear wheel'],'o',label='rear wheel')
+# plt.xlabel('slip angle [rad]')
+# plt.ylabel('lateral force [N]')
+# plt.legend()
+# plt.show()
+
+
+
+
 
 
 
@@ -172,20 +181,25 @@ ax_wheels,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = 
 initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
 train_its = 1000
-learning_rate = 0.0001
+learning_rate = 0.001 # 00#06
 
 print('')
 print('Fitting pacejka-like culomb friction tire model ')
 
 #instantiate the model
-pacejka_culomb_tire_model_obj = culomb_pacejka_tire_model(initial_guess)
+pacejka_culomb_tire_model_obj = culomb_pacejka_tire_model(initial_guess,m_front_wheel,m_rear_wheel)
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
 optimizer_object = torch.optim.Adam(pacejka_culomb_tire_model_obj.parameters(), lr=learning_rate)
 
 # generate data in tensor form for torch
-train_x = torch.unsqueeze(torch.tensor(np.concatenate((df['V_y front wheel'].to_numpy(),df['V_y rear wheel'].to_numpy()))),1).cuda()
+data_columns = ['V_y front wheel','V_y rear wheel'] # velocities
+# using slip angles instead of velocities
+#data_columns = ['slip angle front','slip angle rear'] # slip angles
+
+train_x = torch.tensor(df[data_columns].to_numpy()).cuda()
+#train_x = torch.unsqueeze(torch.tensor(np.concatenate((df['V_y front wheel'].to_numpy(),df['V_y rear wheel'].to_numpy()))),1).cuda()
 train_y = torch.unsqueeze(torch.tensor(np.concatenate((df['Fy front wheel'].to_numpy(),df['Fy rear wheel'].to_numpy()))),1).cuda() 
 
 # save loss values for later plot
@@ -197,7 +211,8 @@ for i in range(train_its):
     optimizer_object.zero_grad()  
     
     # compute fitting outcome with current model parameters
-    output = pacejka_culomb_tire_model_obj(train_x)
+    F_y_f,F_y_r = pacejka_culomb_tire_model_obj(train_x)
+    output = torch.cat((F_y_f,F_y_r),0) 
 
     # evaluate loss function
     loss = loss_fn(output,  train_y)
@@ -211,12 +226,20 @@ for i in range(train_its):
 
 
 # --- print out parameters ---
-[d,c,b] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
-d, c, b= d.item(), c.item(), b.item()
-print('Wheel parameters:')
-print('d_t = ', d)
-print('c_t = ', c)
-print('b_t = ', b)
+[d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
+
+print('Front wheel parameters:')
+print('d_t_f = ', d_t_f.item())
+print('c_t_f = ', c_t_f.item())
+print('b_t_f = ', b_t_f.item())
+#print('e_t_f = ', e_t_f.item())
+
+
+print('Rear wheel parameters:')
+print('d_t_r = ', d_t_r.item())
+print('c_t_r = ', c_t_r.item())
+print('b_t_r = ', b_t_r.item())
+#print('e_t_r = ', e_t_r.item())
 
 
 # # # --- plot loss function ---
@@ -229,13 +252,20 @@ plt.legend()
 
 
 
-
 # evaluate model on plotting interval
-v_y_wheel_plotting = torch.unsqueeze(torch.linspace(torch.min(train_x),torch.max(train_x),100),1).cuda()
-lateral_force_vec = pacejka_culomb_tire_model_obj(v_y_wheel_plotting).detach().cpu().numpy()
+v_y_wheel_plotting_front = torch.unsqueeze(torch.linspace(torch.min(train_x[:,0]),torch.max(train_x[:,0]),100),1).cuda()
+lateral_force_vec_front = pacejka_culomb_tire_model_obj.lateral_tire_force(v_y_wheel_plotting_front,d_t_f,c_t_f,b_t_f,m_front_wheel).detach().cpu().numpy()
+# do the same for he rear wheel
+v_y_wheel_plotting_rear = torch.unsqueeze(torch.linspace(torch.min(train_x[:,1]),torch.max(train_x[:,1]),100),1).cuda()
+lateral_force_vec_rear = pacejka_culomb_tire_model_obj.lateral_tire_force(v_y_wheel_plotting_rear,d_t_r,c_t_r,b_t_r,m_rear_wheel).detach().cpu().numpy()
 
-ax_wheels.plot(v_y_wheel_plotting.detach().cpu().numpy(),lateral_force_vec,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
-ax_wheels.legend()
+
+ax_wheel_f.plot(v_y_wheel_plotting_front.cpu(),lateral_force_vec_front,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
+ax_wheel_f.legend()
+
+ax_wheel_r.plot(v_y_wheel_plotting_rear.cpu(),lateral_force_vec_rear,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
+ax_wheel_r.legend()
+
 plt.show()
 
 

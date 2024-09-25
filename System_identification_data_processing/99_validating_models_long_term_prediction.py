@@ -17,16 +17,16 @@ font = {'family' : 'normal',
 # SIMPLE CULOMB friction tyre model.
 
 # chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
-forward_propagate_indexes = [] #[1,2,3] # 1 =vx, 2=vy, 3=w
+forward_propagate_indexes = [1,2,3] #[1,2,3] # 1 =vx, 2=vy, 3=w
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
 #folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
 #folder_path = 'System_identification_data_processing/Data/free_driving_steer_rate_testing_16_sept_2024'
 
-folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 
 
 

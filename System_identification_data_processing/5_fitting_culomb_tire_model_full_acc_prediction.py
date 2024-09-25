@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,\
-culomb_pacejka_tire_model_full_dynamics,model_parameters,throttle_dynamics,steering_dynamics
+culomb_pacejka_tire_model_full_dynamics,model_parameters,throttle_dynamics,steering_dynamics,directly_measured_model_parameters
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -62,7 +62,10 @@ font = {'family' : 'normal',
 # # ------------------------------------------------------
 # load model parameters
 
-[theta_correction, lr, l_COM, Jz, lf, m, a_m, b_m, c_m, d_m,
+
+[theta_correction, l_COM, l_lateral_shift_reference,lr, lf, Jz, m] = directly_measured_model_parameters()
+
+[a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
@@ -75,14 +78,16 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 
 
+
+
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
-folder_path = 'System_identification_data_processing/Data/91_free_driving_and_throttle_ramp'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_and_throttle_ramp'
 
 
 
