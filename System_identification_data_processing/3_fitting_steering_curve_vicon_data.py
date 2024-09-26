@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data,process_raw_data_steering, steering_curve_model,plot_raw_data,process_vicon_data_kinematics,\
-directly_measured_model_parameters,plot_vicon_data
+directly_measured_model_parameters,plot_vicon_data, model_functions
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -15,7 +15,8 @@ matplotlib.rc('font', **font)
 [theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'  # small sinusoidal input
+#folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'  # small sinusoidal input
+folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 
 # # get the raw data
 # df_raw_data = get_data(folder_path)
@@ -51,10 +52,49 @@ else:
 
 
 
+
+if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps':
+    #cut off time instances where the vicon missed a detection to avoid corrupted datapoints
+    df1 = df[df['vicon time']<100]
+    df1 = df1[df1['vicon time']>20]
+
+    df2 = df[df['vicon time']>185]
+    df2 = df2[df2['vicon time']<268]
+
+    df3 = df[df['vicon time']>283]
+    df3 = df3[df3['vicon time']<350]
+
+    df4 = df[df['vicon time']>365]
+    df4 = df4[df4['vicon time']<410]
+
+    df5 = df[df['vicon time']>445]
+    df5 = df5[df5['vicon time']<500]
+
+    df6 = df[df['vicon time']>540]
+    df6 = df6[df6['vicon time']<600]
+
+    df7 = df[df['vicon time']>645]
+    df7 = df7[df7['vicon time']<658]
+
+    df8 = df[df['vicon time']>661]
+    df8 = df8[df8['vicon time']<725]
+
+    df9 = df[df['vicon time']>745]
+    df9 = df9[df9['vicon time']<820]
+
+    df = pd.concat([df1,df2,df3,df4,df5,df6,df7,df8,df9]) 
+
+
+
+
+
+
+
+
+
 # select points where velocity is not too low
 df = df[df['vx body'] > 0.3]
-
-
+df = df[df['vx body'] < 0.6]
 
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
@@ -65,7 +105,8 @@ ax0,ax1,ax2 = plot_raw_data(df)
 
 w_vec = df['w'].to_numpy()
 vx = df['vx body'].to_numpy()
-measured_steering_angle= np.arctan2(w_vec * (lf+lr) ,  vx) 
+#measured_steering_angle= np.arctan2(w_vec * (lf+lr) ,  vx) 
+measured_steering_angle= np.arctan(w_vec * (lf+lr) / vx) 
 
 
 
@@ -149,6 +190,18 @@ print('e_s = ', e_s)
 
 # plot curve over the fitting data
 input_vec = np.linspace(-1,1,100)
+
+
+# from historical data
+a_s =  1.4141819477081299
+b_s =  0.36395299434661865
+c_s =  -0.0004661157727241516 - 0.01 #- 0.1 
+d_s =  0.517351508140564
+e_s =  1.0095096826553345
+model_functions_obj = model_functions()
+curve_usual_data = model_functions_obj.steering_2_steering_angle(input_vec,a_s,b_s,c_s,d_s,e_s)
+
+
 y_fitted = steering_curve_model_obj(torch.tensor(input_vec)).detach().numpy()
 
 fig = plt.figure(figsize=(10, 6))
@@ -159,13 +212,21 @@ right=0.99,
 hspace=0.2,
 wspace=0.2)
 
+fig1, ((ax)) = plt.subplots(1, 1, figsize=(10, 6), constrained_layout=True)
+color_code_label = 'vx body'
+scatter = plt.scatter(df['steering'].to_numpy(), measured_steering_angle, label = 'data',c=df[color_code_label].to_numpy(),cmap='plasma') 
+ax.scatter(np.array([0.0]),np.array([0.0]),color='k',label='zero',marker='+', zorder=20)
+ax.plot(input_vec, y_fitted ,'orangered',label = "steering curve",linewidth=4)
+ax.plot(input_vec, curve_usual_data ,'navy',label = "steering curve",linewidth=4)
+ax.set_xlabel("Steering input")
+ax.set_ylabel("Steering angle [rad]")
 
-plt.scatter(df['steering'].to_numpy(), measured_steering_angle, label = 'data') 
-plt.plot(input_vec, y_fitted ,'orangered',label = "steering curve",linewidth=4)
-plt.xlabel("Steering input")
-plt.ylabel("Steering angle [rad]")
+cbar1 = fig1.colorbar(scatter,ax=ax)
+cbar1.set_label(color_code_label)  # Label the colorbar
 #plt.title('Steering angle vs steering command scatter plot')
-plt.legend()
-plt.show()
+ax.legend()
 
+
+
+plt.show()
 
