@@ -82,7 +82,7 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
 #folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
 
-folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
@@ -90,6 +90,9 @@ folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 
 #folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'
 
+#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
+
+folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024_fast_ramp'
 
 
 
@@ -177,6 +180,17 @@ elif  folder_path == 'System_identification_data_processing/Data/81_throttle_ram
 
 
 
+if folder_path == 'System_identification_data_processing/Data/circles_27_sept_2024':
+    df1 = df[df['vicon time']>1]
+    df1 = df1[df1['vicon time']<375]
+
+    df2 = df[df['vicon time']>377]
+    df2 = df2[df2['vicon time']<830]
+
+    df3 = df[df['vicon time']>860]
+    df3 = df3[df3['vicon time']<1000]
+
+    df = pd.concat([df1,df2,df3])
 
 
 
@@ -184,9 +198,10 @@ elif  folder_path == 'System_identification_data_processing/Data/81_throttle_ram
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df)
 
-# plot vicon related data (longitudinal and lateral velocities, yaw rate related)
-ax_wheel_f,ax_wheel_r,ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force = plot_vicon_data(df) 
 
+ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,\
+ax_total_force_rear,ax_lat_force,ax_long_force,\
+ax_acc_x_body,ax_acc_y_body,ax_acc_w = plot_vicon_data(df) 
 
 # # plot lateral forces vs slip angles
 # plt.figure()
@@ -209,7 +224,7 @@ ax_wheel_f,ax_wheel_r,ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,ax_
 initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
 train_its = 1000
-learning_rate = 0.01 # 00#06
+learning_rate = 0.001 # 00#06
 
 print('')
 print('Fitting pacejka-like culomb friction tire model ')
@@ -223,7 +238,7 @@ optimizer_object = torch.optim.Adam(pacejka_culomb_tire_model_obj.parameters(), 
 
 # generate data in tensor form for torch
 # data_columns = ['V_y front wheel','V_y rear wheel'] # velocities
-data_columns = ['slip angle front','slip angle rear'] # velocities
+data_columns = ['slip angle front','slip angle rear','ax body'] # velocities
 
 
 # using slip angles instead of velocities
@@ -257,7 +272,7 @@ for i in range(train_its):
 
 
 # --- print out parameters ---
-[d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
+[d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r,k_pitch] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
 
 print('# Front wheel parameters:')
 print('d_t_f = ', d_t_f.item())
@@ -272,6 +287,8 @@ print('c_t_r = ', c_t_r.item())
 print('b_t_r = ', b_t_r.item())
 #print('e_t_r = ', e_t_r.item())
 
+# pitch influence
+print('k_pitch = ', k_pitch.item())
 
 # # # --- plot loss function ---
 plt.figure()
@@ -299,6 +316,11 @@ ax_wheel_f_alpha.legend()
 
 ax_wheel_r_alpha.plot(alpha_r_plotting_rear.cpu(),lateral_force_vec_rear,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
 ax_wheel_r_alpha.legend()
+
+# plot model outputs
+ax_wheel_f_alpha.scatter(df['slip angle front'],F_y_f.detach().cpu().numpy(),color='k',label='Tire model output (with pitch influece)',s=2)
+ax_wheel_r_alpha.scatter(df['slip angle rear'],F_y_r.detach().cpu().numpy(),color='k',label='Tire model output (with pitch influece)',s=2)
+
 
 plt.show()
 

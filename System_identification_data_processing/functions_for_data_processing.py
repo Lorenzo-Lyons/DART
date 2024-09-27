@@ -60,28 +60,28 @@ def model_parameters():
     d_f =  -0.11705359816551208
 
     # steering angle curve --from fitting on vicon data
-    # a_s =  1.4141819477081299
-    # b_s =  0.36395299434661865
-    # c_s =  -0.0004661157727241516 - 0.01 #- 0.1 
-    # d_s =  0.517351508140564
-    # e_s =  1.0095096826553345
+    a_s =  1.4141819477081299
+    b_s =  0.36395299434661865
+    c_s =  -0.0004661157727241516 - 0.03 # littel adjustment to allign the tire curves
+    d_s =  0.517351508140564
+    e_s =  1.0095096826553345
 
 
-    a_s =  1.2842596769332886
-    b_s =  0.3637458086013794
-    c_s =  -0.05655587837100029
-    d_s =  0.3872089385986328
-    e_s =  1.2888582944869995
+    # a_s =  1.2842596769332886
+    # b_s =  0.3637458086013794
+    # c_s =  -0.05655587837100029
+    # d_s =  0.3872089385986328
+    # e_s =  1.2888582944869995
 
  
     # Front wheel parameters:
-    d_t_f =  -0.771766722202301
-    c_t_f =  0.8276205658912659
-    b_t_f =  11.562139511108398
+    d_t_f =  -0.8404577374458313
+    c_t_f =  0.8373607397079468
+    b_t_f =  8.419219017028809
     # Rear wheel parameters:
-    d_t_r =  -0.8978420495986938
-    c_t_r =  0.8053815364837646
-    b_t_r =  14.013175964355469
+    d_t_r =  -0.8504821062088013
+    c_t_r =  0.9500793218612671
+    b_t_r =  11.358808517456055
 
 
     #additional friction due to steering angle
@@ -556,25 +556,8 @@ def process_raw_vicon_data(df,steps_shift):
                                                                                ,lr)
         
     df['Vx_wheel_front'] =  np.cos(-steering_angle) * df['vx body'].to_numpy() - np.sin(-steering_angle)*(df['vy body'].to_numpy() + lf*df['w'].to_numpy())
-    # #Vy_wheel_r = df['vy body'].to_numpy() - lr * df['w'].to_numpy() # lateral velocity of the rear wheel
-    # Vx_wheel_r = df['vx body'].to_numpy() 
-
-
-    # Vx_correction_term_r = 0.1*np.exp(-100*Vx_wheel_r**2) # this avoids the vx term being 0 and having undefined angles for small velocities
-    # # note that it will be negligible outside the vx = [-0.2,0.2] m/s interval.
-    # Vx_wheel_r = Vx_wheel_r + Vx_correction_term_r
-    # a_slip_r = - np.arctan(Vy_wheel_r/ Vx_wheel_r) #/ np.pi * 180  #converting alpha into degrees
-                
-
-    # # front slip angle
-    # #Vy_wheel_f = (df['vy body'].to_numpy() + df['w'].to_numpy() * lf) #* np.cos(steering_angle) - df['vx body'].to_numpy() * np.sin(steering_angle)
-    # Vx_wheel_f = df['Vx_wheel_front'].to_numpy() #(df['vy body'].to_numpy() + df['w'].to_numpy() * lf) * np.sin(steering_angle) + df['vx body'].to_numpy() * np.cos(steering_angle)
-    # Vx_correction_term_f = 0.1*np.exp(-100*Vx_wheel_f**2)
-    # Vx_wheel_f = Vx_wheel_f + Vx_correction_term_f
-    # #a_slip_f_star = np.arctan2(Vy_wheel_f, np.exp(-30*np.abs(df['vx body'])) + np.abs(df['vx body']))
-    # #the steering angle changes sign if you go in reverse!
-    # a_slip_f = - np.arctan(Vy_wheel_f/ Vx_wheel_f) #/ np.pi * 180  #converting alpha into degrees
-
+    
+    # evaluate slip angles
     a_slip_f, a_slip_r = model_functions_obj.evaluate_slip_angles(df['vx body'].to_numpy(),df['vy body'].to_numpy(),df['w'].to_numpy(),lf,lr,steering_angle)
 
     # add new columns
@@ -620,8 +603,8 @@ def process_raw_vicon_data(df,steps_shift):
         c_rear = m_rear_wheel/m
 
         A = np.array([[+c_front * np.cos(steer_angle) + c_rear * 1,-np.sin(steer_angle),0],
-                    [+np.sin(steer_angle),np.cos(steer_angle),1],
-                    [lf * np.sin(steer_angle)             ,lf * np.cos(steer_angle)          ,-lr]])
+                    [+c_front *np.sin(steer_angle),np.cos(steer_angle),1],
+                    [c_front * lf * np.sin(steer_angle)             ,lf * np.cos(steer_angle)          ,-lr]])
         
         [Fx_i_wheel, Fy_f_wheel, Fy_r_wheel] = np.linalg.solve(A, b)
 
@@ -803,66 +786,78 @@ def plot_vicon_data(df):
     #ax3.plot(df['vicon time'].to_numpy(),df['steering angle time delayed'].to_numpy()/df['steering angle time delayed'].max(),label='steering angle time delayed normalized',color='k')
     ax3.legend()
 
-    # plot input data points
-    fig1, ((ax1, ax2)) = plt.subplots(1, 2, figsize=(10, 6), constrained_layout=True)
-    ax1.set_title('control input map')
-    ax1.scatter(df['steering'].to_numpy(), df['throttle'].to_numpy(),color='skyblue')
-    ax1.set_xlabel('steering')
-    ax1.set_ylabel('throttle')
-    ax1.set_xlim([-1,1])
+    # # plot input data points
+    # fig1, ((ax1, ax2)) = plt.subplots(1, 2, figsize=(10, 6), constrained_layout=True)
+    # ax1.set_title('control input map')
+    # ax1.scatter(df['steering'].to_numpy(), df['throttle'].to_numpy(),color='skyblue')
+    # ax1.set_xlabel('steering')
+    # ax1.set_ylabel('throttle')
+    # ax1.set_xlim([-1,1])
 
-    ax2.set_title('Vy-Vx map')
-    ax2.scatter(df['vy body'].to_numpy(), df['vx body'].to_numpy(),color='k')
-    ax2.set_xlabel('Vy')
-    ax2.set_ylabel('Vx')
+    # ax2.set_title('Vy-Vx map')
+    # ax2.scatter(df['vy body'].to_numpy(), df['vx body'].to_numpy(),color='k')
+    # ax2.set_xlabel('Vy')
+    # ax2.set_ylabel('Vx')
 
-    # plot Wheel velocity vs force data
-    fig1, ((ax_wheel_f,ax_wheel_r)) = plt.subplots(1, 2, figsize=(10, 6), constrained_layout=True)
-    # determine x limits
-    x_lim = [np.min([df['V_y rear wheel'].min(),df['V_y front wheel'].min()]),
-             np.max([df['V_y rear wheel'].max(),df['V_y front wheel'].max()])]
+    # # plot Wheel velocity vs force data
+    # fig1, ((ax_wheel_f,ax_wheel_r)) = plt.subplots(1, 2, figsize=(10, 6), constrained_layout=True)
+    # # determine x limits
+    # x_lim = [np.min([df['V_y rear wheel'].min(),df['V_y front wheel'].min()]),
+    #          np.max([df['V_y rear wheel'].max(),df['V_y front wheel'].max()])]
     
-    #color_code_label = 'ax body'
-    #color_code_label = 'steering angle'
-    #color_code_label = 'ay body no centrifugal'
-    color_code_label = 'vx body'
-    #color_code_label = 'Fx wheel'
-    c_front = df[color_code_label].to_numpy()
-    #c_front = df[color_code_label].to_numpy()
-    #c_front = (df['Fx wheel'].to_numpy()**2+df['Fy front wheel'].to_numpy()**2) ** 0.5
-    #c_rear = (df['Fx wheel'].to_numpy()**2+df['Fy rear wheel'].to_numpy()**2) ** 0.5
-    #color_code_label = 'total force'
+    # color_code_label = 'ax body'
+    # #color_code_label = 'steering angle'
+    # #color_code_label = 'ay body no centrifugal'
+    # #color_code_label = 'vx body'
+    # #color_code_label = 'Fx wheel'
+    # c_front = df[color_code_label].to_numpy()
+    # #c_front = df[color_code_label].to_numpy()
+    # #c_front = (df['Fx wheel'].to_numpy()**2+df['Fy front wheel'].to_numpy()**2) ** 0.5
+    # #c_rear = (df['Fx wheel'].to_numpy()**2+df['Fy rear wheel'].to_numpy()**2) ** 0.5
+    # #color_code_label = 'total force'
 
-    ax_wheel_f.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',color='peru',s=3) #df['steering angle time delayed'].diff().to_numpy()
-    scatter_front = ax_wheel_f.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',c=c_front,cmap='plasma',s=3) #df['vel encoder'].to_numpy()- 
-    #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
+    # ax_wheel_f.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',color='peru',s=3) #df['steering angle time delayed'].diff().to_numpy()
+    # scatter_front = ax_wheel_f.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',c=c_front,cmap='plasma',s=3) #df['vel encoder'].to_numpy()- 
+    # #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
     
-    #scatter = ax_wheel_f.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',s=3,c=df['vicon time'].to_numpy(),  # color coded by 'steering angle time delayed'
-    #cmap='viridis')
-    cbar1 = fig1.colorbar(scatter_front, ax=ax_wheel_f)
-    cbar1.set_label(color_code_label)  # Label the colorbar  'vel encoder-vx body'
+    # #scatter = ax_wheel_f.scatter(df['V_y front wheel'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',s=3,c=df['vicon time'].to_numpy(),  # color coded by 'steering angle time delayed'
+    # #cmap='viridis')
+    # cbar1 = fig1.colorbar(scatter_front, ax=ax_wheel_f)
+    # cbar1.set_label(color_code_label)  # Label the colorbar  'vel encoder-vx body'
 
-    #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
-    scatter_rear = ax_wheel_r.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=c_front,cmap='plasma',s=3)
-    #cbar2 = fig1.colorbar(scatter_rear, ax=ax_wheel_f)
-    #cbar2.set_label('ax body')  # Label the colorbar
-    ax_wheel_f.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
-    #ax_wheel_r.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x
+    # #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
+    # scatter_rear = ax_wheel_r.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=c_front,cmap='plasma',s=3)
+    # #cbar2 = fig1.colorbar(scatter_rear, ax=ax_wheel_f)
+    # #cbar2.set_label('ax body')  # Label the colorbar
+    # ax_wheel_f.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
+    # #ax_wheel_r.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x
 
-    ax_wheel_r.set_xlabel('V_y wheel')
-    ax_wheel_r.set_ylabel('Fy')
-    ax_wheel_r.set_xlim(x_lim[0],x_lim[1])
-    ax_wheel_r.legend()
+    # ax_wheel_r.set_xlabel('V_y wheel')
+    # ax_wheel_r.set_ylabel('Fy')
+    # ax_wheel_r.set_xlim(x_lim[0],x_lim[1])
+    # ax_wheel_r.legend()
 
 
-    ax_wheel_f.set_xlabel('V_y wheel')
-    ax_wheel_f.set_ylabel('Fy')
-    ax_wheel_f.set_xlim(x_lim[0],x_lim[1])
-    ax_wheel_f.legend()
-    ax_wheel_f.set_title('Wheel lateral forces')
-    #colorbar = fig1.colorbar(scatter, label='steering angle time delayed derivative')
+    # ax_wheel_f.set_xlabel('V_y wheel')
+    # ax_wheel_f.set_ylabel('Fy')
+    # ax_wheel_f.set_xlim(x_lim[0],x_lim[1])
+    # ax_wheel_f.legend()
+    # ax_wheel_f.set_title('Wheel lateral forces')
+    # #colorbar = fig1.colorbar(scatter, label='steering angle time delayed derivative')
  
+    # get dirctly measurable parameters
+    [theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
+    # plot wheel curve
+    [a_m, b_m, c_m, d_m,
+    a_f, b_f, c_f, d_f,
+    a_s, b_s, c_s, d_s, e_s,
+    d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
+    a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+    max_st_dot,fixed_delay_stdn,k_stdn,
+    w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
+    w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 
+    model_functions_obj = model_functions() # instantiate the model functions object
 
 
 
@@ -874,16 +869,35 @@ def plot_vicon_data(df):
     x_lim_alpha = [np.min([df['slip angle rear'].min(),df['slip angle front'].min()]),
              np.max([df['slip angle rear'].max(),df['slip angle front'].max()])]
     
-    color_code_label = 'steering'
+    # evaluate wheel curve
+    slip_angles_to_plot = np.linspace(x_lim_alpha[0],x_lim_alpha[1],100)
+    wheel_curve_f = model_functions_obj.lateral_tire_force(slip_angles_to_plot,d_t_f,c_t_f,b_t_f,m_front_wheel)
+    wheel_curve_r = model_functions_obj.lateral_tire_force(slip_angles_to_plot,d_t_r,c_t_r,b_t_r,m_rear_wheel)
+
+    
+    y_lim_alpha = [np.min([df['Fy front wheel'].min(),df['Fy rear wheel'].min()]),
+                   np.max([df['Fy front wheel'].max(),df['Fy rear wheel'].max()])]
+    
+    #color_code_label = 'steering'
+    color_code_label = 'ax body'
+    #color_code_label = 'ay body'
+    cmap = 'Spectral'
+    #cmap = 'plasma'
+
     c_front = df[color_code_label].to_numpy()
 
-    scatter_front = ax_wheel_f_alpha.scatter(df['slip angle front'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',c=c_front,cmap='plasma',s=3) #df['vel encoder'].to_numpy()- 
+    scatter_front = ax_wheel_f_alpha.scatter(df['slip angle front'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',c=c_front,cmap=cmap,s=3) #df['vel encoder'].to_numpy()- 
 
     cbar1 = fig1.colorbar(scatter_front, ax=ax_wheel_f_alpha)
     cbar1.set_label(color_code_label)  # Label the colorbar  'vel encoder-vx body'
 
     #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
-    scatter_rear = ax_wheel_r_alpha.scatter(df['slip angle rear'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=c_front,cmap='plasma',s=3)
+    scatter_rear = ax_wheel_r_alpha.scatter(df['slip angle rear'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=c_front,cmap=cmap,s=3)
+
+    #add wheel curve
+    ax_wheel_f_alpha.plot(slip_angles_to_plot,wheel_curve_f,color='silver',label='Tire model',linewidth=4,linestyle='--')
+    ax_wheel_r_alpha.plot(slip_angles_to_plot,wheel_curve_r,color='silver',label='Tire model',linewidth=4,linestyle='--')
+
 
     ax_wheel_f_alpha.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
     ax_wheel_r_alpha.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x
@@ -891,12 +905,14 @@ def plot_vicon_data(df):
     ax_wheel_r_alpha.set_xlabel('slip angle [rad]')
     ax_wheel_r_alpha.set_ylabel('Fy')
     ax_wheel_r_alpha.set_xlim(x_lim_alpha[0],x_lim_alpha[1])
+    ax_wheel_r_alpha.set_ylim(y_lim_alpha[0],y_lim_alpha[1])
     ax_wheel_r_alpha.legend()
 
 
     ax_wheel_f_alpha.set_xlabel('slip angle [rad]') 
     ax_wheel_f_alpha.set_ylabel('Fy')
     ax_wheel_f_alpha.set_xlim(x_lim_alpha[0],x_lim_alpha[1])
+    ax_wheel_f_alpha.set_ylim(y_lim_alpha[0],y_lim_alpha[1])
     ax_wheel_f_alpha.legend()
     ax_wheel_f_alpha.set_title('Wheel lateral forces')
     #colorbar = fig1.colorbar(scatter, label='steering angle time delayed derivative')
@@ -922,7 +938,7 @@ def plot_vicon_data(df):
     ax1.set_title('time steps')
 
     # plot acceleration data
-    fig1, ((ax1, ax2, ax3),(ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(10, 6), constrained_layout=True)
+    fig1, ((ax1, ax2, ax3),(ax_acc_x_body, ax_acc_y_body, ax_acc_w)) = plt.subplots(2, 3, figsize=(10, 6), constrained_layout=True)
     ax1.plot(df['vicon time'].to_numpy(), df['ax body no centrifugal'].to_numpy(),label='acc x absolute measured in body frame',color = 'dodgerblue')
     ax1.set_xlabel('time [s]')
     ax1.set_title('X_ddot @ R(yaw)')
@@ -939,20 +955,20 @@ def plot_vicon_data(df):
     ax3.legend()
 
     # plot accelerations in the body frame
-    ax4.plot(df['vicon time'].to_numpy(), df['ax body'].to_numpy(),label='acc x in body frame',color = 'dodgerblue')
-    ax4.set_xlabel('time [s]')
-    ax4.set_title('X_ddot @ R(yaw) + cent')
-    ax4.legend()
+    ax_acc_x_body.plot(df['vicon time'].to_numpy(), df['ax body'].to_numpy(),label='acc x in body frame',color = 'dodgerblue')
+    ax_acc_x_body.set_xlabel('time [s]')
+    ax_acc_x_body.set_title('X_ddot @ R(yaw) + cent')
+    ax_acc_x_body.legend()
 
-    ax5.plot(df['vicon time'].to_numpy(), df['ay body'].to_numpy(),label='acc y in body frame',color = 'orangered')
-    ax5.set_xlabel('time [s]')
-    ax5.set_title('Y_ddot @ R(yaw) + cent')
-    ax5.legend()
+    ax_acc_y_body.plot(df['vicon time'].to_numpy(), df['ay body'].to_numpy(),label='acc y in body frame',color = 'orangered')
+    ax_acc_y_body.set_xlabel('time [s]')
+    ax_acc_y_body.set_title('Y_ddot @ R(yaw) + cent')
+    ax_acc_y_body.legend()
 
-    ax6.plot(df['vicon time'].to_numpy(), df['acc_w'].to_numpy(),label='acc w',color = 'slateblue')
-    ax6.set_xlabel('time [s]')
-    ax6.set_title('Acc w')
-    ax6.legend()
+    ax_acc_w.plot(df['vicon time'].to_numpy(), df['acc_w'].to_numpy(),label='acc w',color = 'slateblue')
+    ax_acc_w.set_xlabel('time [s]')
+    ax_acc_w.set_title('Acc w')
+    ax_acc_w.legend()
 
 
 
@@ -1017,7 +1033,10 @@ def plot_vicon_data(df):
 
 
 
-    return ax_wheel_f,ax_wheel_r,ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,ax_total_force_rear,ax_lat_force,ax_long_force
+    return ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,\
+ax_total_force_rear,ax_lat_force,ax_long_force,\
+ax_acc_x_body,ax_acc_y_body,ax_acc_w
+
 
 
 
@@ -1080,21 +1099,37 @@ class model_functions():
     
     def evaluate_slip_angles(self,vx,vy,w,lf,lr,steer_angle):
         if torch.is_tensor(vx):
-            Vx_correction_term = 0.1*np.exp(-100*vx**2) # keeps it positive and avoids division by zero
-            Vx = vx + Vx_correction_term
-            # evaluate slip angles
-            alpha_f = torch.atan2((vy + lf * w) , Vx) - steer_angle
-            alpha_r = torch.atan2((vy - lr * w) , Vx)
-        else:
-            Vx_correction_term = 0.1*np.exp(-100*vx**2)
-            Vx = vx + Vx_correction_term
-            # evaluate slip angles
-            alpha_f = np.arctan2((vy + lf * w) , Vx) - steer_angle
-            alpha_r = np.arctan2((vy - lr * w) , Vx)
+            steer_angle_tensor = steer_angle * torch.Tensor([1]).cuda()
+            vx_wheel_f = torch.cos(-steer_angle_tensor) * vx - torch.sin(-steer_angle_tensor)*(vy + lf*w)
+            vy_wheel_f = torch.sin(-steer_angle_tensor) * vx + torch.cos(-steer_angle_tensor)*(vy + lf*w)
 
+            #Vx_correction_term = 0.1*np.exp(-100*vx**2) # keeps it positive and avoids division by zero
+            Vx_correction_term_f = 0.4*torch.exp(-7*vx_wheel_f)
+            Vx_correction_term_r = 0.4*torch.exp(-7*vx)
+
+            Vx_f = vx + Vx_correction_term_f
+            Vx_r = vx + Vx_correction_term_r
+            # evaluate slip angles
+            alpha_f = torch.atan2(vy_wheel_f, Vx_f)
+            alpha_r = torch.atan2((vy - lr * w) , Vx_r)
+        else:
+            # do the same but for numpy
+            vx_wheel_f = np.cos(-steer_angle) * vx - np.sin(-steer_angle)*(vy + lf*w)
+            vy_wheel_f = np.sin(-steer_angle) * vx + np.cos(-steer_angle)*(vy + lf*w)
+
+            #Vx_correction_term = 0.1*np.exp(-100*vx**2) # keeps it positive and avoids division by zero
+            Vx_correction_term_f = 0.4*np.exp(-7*vx_wheel_f)
+            Vx_correction_term_r = 0.4*np.exp(-7*vx)
+            
+            Vx_f = vx + Vx_correction_term_f
+            Vx_r = vx + Vx_correction_term_r
+            # evaluate slip angles
+            alpha_f = np.arctan2(vy_wheel_f, Vx_f)
+            alpha_r = np.arctan2((vy - lr * w) , Vx_r)
+            
         return alpha_f,alpha_r
 
-    
+
     def lateral_tire_force(self,alpha,d_t,c_t,b_t,m_wheel):
         if torch.is_tensor(alpha):
             F_y = m_wheel * 9.81 * d_t * torch.sin(c_t * torch.arctan(b_t * alpha)) 
@@ -1494,6 +1529,8 @@ class culomb_pacejka_tire_model(torch.nn.Sequential,model_functions):
         self.register_parameter(name='c_r', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
         self.register_parameter(name='b_r', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
 
+        self.register_parameter(name='k_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+
 
     def transform_parameters_norm_2_real(self):
         # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
@@ -1528,7 +1565,9 @@ class culomb_pacejka_tire_model(torch.nn.Sequential,model_functions):
         #e_r = self.minmax_scale_hm(-1,1,constraint_weights(self.e_r))
 
 
-        return [d_f,c_f,b_f,d_r,c_r,b_r]
+        k_pitch = self.minmax_scale_hm(-1,1,constraint_weights(self.k_pitch))
+
+        return [d_f,c_f,b_f,d_r,c_r,b_r,k_pitch]
         
     def minmax_scale_hm(self,min,max,normalized_value):
     # normalized value should be between 0 and 1
@@ -1537,10 +1576,14 @@ class culomb_pacejka_tire_model(torch.nn.Sequential,model_functions):
     def forward(self, train_x):  # this is the model that will be fitted
         alpha_front = torch.unsqueeze(train_x[:,0],1)
         alpha_rear  = torch.unsqueeze(train_x[:,1],1) 
+        acc_x = torch.unsqueeze(train_x[:,2],1)
     
-        [d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r] = self.transform_parameters_norm_2_real() # e_t_f, e_t_r
+        [d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r,k_pitch] = self.transform_parameters_norm_2_real() # e_t_f, e_t_r
         # evalaute lateral tire force
-        F_y_f = self.lateral_tire_force(alpha_front,d_t_f,c_t_f,b_t_f,self.m_front_wheel) # adding front-rear nominal loading
+        D_m_f = acc_x * k_pitch
+        D_m_r = - acc_x * k_pitch
+
+        F_y_f = self.lateral_tire_force(alpha_front,d_t_f,c_t_f,b_t_f,self.m_front_wheel+D_m_f) # adding front-rear nominal loading
         F_y_r = self.lateral_tire_force(alpha_rear,d_t_r,c_t_r,b_t_r,self.m_rear_wheel) 
         #F_y_r = self.lateral_tire_force(vy_rear,d_t_f,c_t_f,b_t_f,self.m_rear_wheel) 
 
@@ -2458,6 +2501,9 @@ class steering_friction_model(torch.nn.Sequential,model_functions):
         self.register_parameter(name='c_t_r', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
         self.register_parameter(name='b_t_r', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
 
+        # add pitch coefficient
+        self.register_parameter(name='k_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+
 
 
         self.m = m
@@ -2470,14 +2516,14 @@ class steering_friction_model(torch.nn.Sequential,model_functions):
 
         # Tire model 
         # front tire
-        # self.d_t_f = d_t_f
-        # self.c_t_f = c_t_f
-        # self.b_t_f = b_t_f
+        self.d_t_f_default = d_t_f
+        self.c_t_f_default = c_t_f
+        self.b_t_f_default = b_t_f
 
-        # # rear tire
-        # self.d_t_r = d_t_r
-        # self.c_t_r = c_t_r
-        # self.b_t_r = b_t_r
+        # rear tire
+        self.d_t_r_default = d_t_r
+        self.c_t_r_default = c_t_r
+        self.b_t_r_default = b_t_r
 
         # Motor curve
         self.a_m =  a_m
@@ -2523,9 +2569,13 @@ class steering_friction_model(torch.nn.Sequential,model_functions):
         c_t_r = self.minmax_scale_hm(0,1,constraint_weights(self.c_t_r))
         b_t_r = self.minmax_scale_hm(0.01,1,constraint_weights(self.b_t_r))
 
+        # pitch coefficient
+        k_pitch = self.minmax_scale_hm(0,10,constraint_weights(self.k_pitch))
+
         return [a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
                 a_s,b_s,c_s,d_s,e_s,
-                d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r]
+                d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r,
+                k_pitch]
         
     def minmax_scale_hm(self,min,max,normalized_value):
     # normalized value should be between 0 and 1
@@ -2542,38 +2592,58 @@ class steering_friction_model(torch.nn.Sequential,model_functions):
         throttle = torch.unsqueeze(train_x[:,3],1) 
         steer_angle = torch.unsqueeze(train_x[:,4],1) 
 
+        Fx_wheels = torch.unsqueeze(train_x[:,5],1)
+        Fy_f = torch.unsqueeze(train_x[:,6],1)
+        Fy_r = torch.unsqueeze(train_x[:,7],1)
+        acc_x = torch.unsqueeze(train_x[:,8],1)
+
+
+
         [a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
                 a_s,b_s,c_s,d_s,e_s,
-                d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r] = self.transform_parameters_norm_2_real()
+                d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r,
+                k_pitch] = self.transform_parameters_norm_2_real()
 
         # adjust real steering angle to account for reduction in steering angle at high speeds
         #steer_angle = steer_angle_original * (1 - k * vx * w)
 
         #steer_angle = self.steering_2_steering_angle(steer_command,a_s,b_s,c_s,d_s,e_s)
 
-        F_friction_due_to_steering_val = self.F_friction_due_to_steering(steer_angle,vx,a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
+        # F_friction_due_to_steering_val = self.F_friction_due_to_steering(steer_angle,vx,a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
 
-        # evaluate longitudinal forces
-        Fx_wheels = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m)\
-                    + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
-                    + F_friction_due_to_steering_val 
+        # # evaluate longitudinal forces
+        # Fx_wheels = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m)\
+        #             + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
+        #             + F_friction_due_to_steering_val 
+
+        Dm_f = - k_pitch * acc_x
+        Dm_r = + k_pitch * acc_x
         
-        c_front = self.m_front_wheel/self.m
-        c_rear = self.m_rear_wheel/self.m
+        c_front = (self.m_front_wheel)/self.m # +Dm_f
+        c_rear = (self.m_rear_wheel)/self.m # +Dm_r
 
         # redistribute Fx to front and rear wheels according to normal load
         Fx_front = Fx_wheels * c_front
         Fx_rear = Fx_wheels * c_rear
 
         # evaluate lateral tire forces
-        Vy_wheel_f, Vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steer_angle,self.lf,self.lr)
+        #Vy_wheel_f, Vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steer_angle,self.lf,self.lr)
+
+        #evaluate slip angles
+        alpha_f,alpha_r = self.evaluate_slip_angles(vx,vy,w,steer_angle,self.lf,self.lr)
+
 
         # Fy_wheel_f = self.lateral_tire_force(Vy_wheel_f,self.d_t_f,self.c_t_f,self.b_t_f,self.m_front_wheel)
         # Fy_wheel_r = self.lateral_tire_force(Vy_wheel_r,self.d_t_r,self.c_t_r,self.b_t_r,self.m_rear_wheel)
-        Fy_wheel_f = self.lateral_tire_force(Vy_wheel_f,d_t_f,c_t_f,b_t_f,self.m_front_wheel)
-        Fy_wheel_r = self.lateral_tire_force(Vy_wheel_r,d_t_r,c_t_r,b_t_r,self.m_rear_wheel)
 
-        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,self.lf,self.lr,self.m,self.Jz)
+        # front and rear normal loads
+        mz_f = self.m_front_wheel + Dm_f
+        mz_r = self.m_rear_wheel + Dm_r
+
+        Fy_wheel_f = self.lateral_tire_force(alpha_f,self.d_t_f_default,self.c_t_f_default,self.b_t_f_default,mz_f)
+        Fy_wheel_r = self.lateral_tire_force(alpha_r,self.d_t_r_default,self.c_t_r_default,self.b_t_r_default,mz_r)
+
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_r,self.lf,self.lr,self.m,self.Jz)
 
         return acc_x,acc_y,acc_w
 
@@ -2783,11 +2853,21 @@ class dyn_model_culomb_tires(model_functions):
         w = state_action[2]
         throttle = state_action[3]
         steer_angle = state_action[4]
+        Fx_wheels = state_action[5]
+        Fy_f = state_action[6]
+        Fy_r = state_action[7]
+        acc_x = state_action[8]
 
-        Fx_wheels = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m)\
-                    + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
-                    + self.F_friction_due_to_steering(vx,steer_angle,self.a_stfr,self.b_stfr,self.d_stfr,self.e_stfr,self.f_stfr,self.g_stfr)
-        
+
+        # if self.a_stfr:
+        #     Fx_wheels = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m)\
+        #                 + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)\
+        #                 +self.F_friction_due_to_steering(vx,steer_angle,self.a_stfr,self.b_stfr,self.d_stfr,self.e_stfr,self.f_stfr,self.g_stfr)
+        # else:
+        #     Fx_wheels = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m)\
+        #                 + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f)
+
+
         c_front = self.m_front_wheel/self.m
         c_rear = self.m_rear_wheel/self.m
 
@@ -2804,7 +2884,10 @@ class dyn_model_culomb_tires(model_functions):
         Fy_wheel_f = self.lateral_tire_force(alpha_f,self.d_t_f,self.c_t_f,self.b_t_f,self.m_front_wheel)
         Fy_wheel_r = self.lateral_tire_force(alpha_r,self.d_t_r,self.c_t_r,self.b_t_r,self.m_rear_wheel)
 
-        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,self.lf,self.lr,self.m,self.Jz)
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steer_angle,
+                                                           Fx_front,Fx_rear,
+                                                           Fy_wheel_f,Fy_wheel_r,
+                                                           self.lf,self.lr,self.m,self.Jz)
 
         return np.array([acc_x,acc_y,acc_w])
     
