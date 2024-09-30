@@ -58,7 +58,7 @@ file_path = os.path.join(folder_path, file_name)
 #     # get the raw data
 # df_raw_data = get_data(folder_path)
 
-steps_shift = 10
+steps_shift = 5
 
 
 if not os.path.isfile(file_path):
@@ -151,8 +151,8 @@ elif folder_path == 'System_identification_data_processing/Data/circles_27_sept_
 
     df = pd.concat([df1,df2,df3])
 
-
-#df = df[df['vx body']>0.5]
+# df = df[df['vx body']>0.3]
+# df = df[df['vx body']<2]
 
 
 # df = df[df['vx body']<2]
@@ -209,7 +209,7 @@ dynamic_model = dyn_model_culomb_tires(m,m_front_wheel,m_rear_wheel,lr,lf,l_COM,
 
 
 
-columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering angle','Fx wheel','Fy front wheel','Fy rear wheel','ax body']
+columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering angle']
 input_data = df[columns_to_extract].to_numpy()
 
 acc_x_model = np.zeros(input_data.shape[0])
@@ -259,7 +259,7 @@ ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w_model,label='acc_w model',color=
 
 # evaluate friction curve
 velocity_range = np.linspace(0,df['vx body'].max(),100)
-friction_curve = dynamic_model.rolling_friction(velocity_range,a_f,b_f,c_f,d_f)
+#friction_curve = dynamic_model.rolling_friction(velocity_range,a_f,b_f,c_f,d_f)
 
 # model error in [N]
 missing_force = (acc_x_model - df['ax body'].to_numpy())*m
@@ -270,22 +270,22 @@ from mpl_toolkits.mplot3d import Axes3D
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 
+
+
+color_code_label = 'w'
+
 scatter = ax.scatter(
     df['vx body'].to_numpy(),                    # x-axis
     df['steering angle'].to_numpy(),  # y-axis
     missing_force,                    # z-axis 
-    c=df['steering angle'].to_numpy(),  # color coded by 'steering angle time delayed'
+    c=df[color_code_label].to_numpy(),  # color coded by 'steering angle time delayed'
     cmap='viridis'  # Colormap
 )
 
 ax.set_xlabel('vx body')
 ax.set_ylabel('steering angel [rad]')
 ax.set_zlabel('Force [N]')
-colorbar = fig.colorbar(scatter, label='w')
-
-
-
-
+colorbar = fig.colorbar(scatter, label=color_code_label)
 
 
 
@@ -299,7 +299,7 @@ colorbar = fig.colorbar(scatter, label='w')
 initial_guess = torch.ones(6) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
 train_its = 1000
-learning_rate = 0.01
+learning_rate = 0.001
 
 print('')
 print('Fitting extra steering friction model ')
@@ -317,15 +317,14 @@ optimizer_object = torch.optim.Adam(steering_friction_model_obj.parameters(), lr
 
 # generate data in tensor form for torch
 # train_x = torch.tensor(input_data).cuda()
-# train_y = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda()
+
 
 # generate data in tensor form for torch
-#train_x = torch.unsqueeze(torch.tensor(np.concatenate((df['V_y front wheel'].to_numpy(),df['V_y rear wheel'].to_numpy()))),1).cuda()
 train_x = torch.tensor(input_data).cuda()
 
 # -- Y lables --
-train_y = torch.unsqueeze(torch.tensor(np.concatenate((df['ax body'].to_numpy(),df['ay body'].to_numpy(),df['acc_w'].to_numpy()))),1).cuda() #,df['aw_abs_filtered_more'].to_numpy()
-
+#train_y = torch.unsqueeze(torch.tensor(np.concatenate((df['ax body'].to_numpy(),df['ay body'].to_numpy(),df['acc_w'].to_numpy()))),1).cuda() #,df['aw_abs_filtered_more'].to_numpy()
+train_y = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda() # only ax
 
 
 
@@ -344,7 +343,7 @@ for i in range(train_its):
     output = torch.cat((acc_x.double(),acc_y.double(),acc_w.double()),0)
 
     # evaluate loss function
-    loss = loss_fn(output,  train_y)
+    loss = loss_fn(acc_x,  train_y)
     loss_vec[i] = loss.item()
 
     # evaluate the gradient of the loss function with respect to the fitting parameters
@@ -355,14 +354,15 @@ for i in range(train_its):
 
 
 # --- print out parameters ---
-[a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
-a_s,b_s,c_s,d_s,e_s,
+[a_stfr_model,b_stfr_model,d_stfr_model,e_stfr_model,f_stfr_model,g_stfr_model,\
+a_s,b_s,c_s,d_s,e_s,\
 d_t_f_model,c_t_f_model,b_t_f_model,d_t_r_model,c_t_r_model,b_t_r_model,k_pitch] = steering_friction_model_obj.transform_parameters_norm_2_real()
 
 
-a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,a_s,b_s,c_s,d_s,e_s,\
-d_t_f_model,c_t_f_model,b_t_f_model,d_t_r_model,c_t_r_model,b_t_r_model,k_pitch = a_stfr.item(),b_stfr.item(),d_stfr.item(),\
-e_stfr.item(),f_stfr.item(),g_stfr.item(),a_s.item(),b_s.item(),c_s.item(),d_s.item(),e_s.item(),d_t_f_model.item(),\
+a_stfr,b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,\
+a_s,b_s,c_s,d_s,e_s,\
+d_t_f_model,c_t_f_model,b_t_f_model,d_t_r_model,c_t_r_model,b_t_r_model,k_pitch = a_stfr_model.item(),b_stfr_model.item(),d_stfr_model.item(),\
+e_stfr_model.item(),f_stfr_model.item(),g_stfr_model.item(),a_s.item(),b_s.item(),c_s.item(),d_s.item(),e_s.item(),d_t_f_model.item(),\
 c_t_f_model.item(),b_t_f_model.item(),d_t_r_model.item(),c_t_r_model.item(),b_t_r_model.item(),k_pitch.item()
 
 print('Friction due to steering parameters:')
@@ -419,6 +419,48 @@ ax_acc_y_body.legend()
 
 ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w.detach().cpu().numpy(),label='acc_w model with steering friction (model output)',color='k')
 ax_acc_w.legend()
+
+
+
+
+
+# missing_force_model =  (acc_x.detach().cpu().numpy() - df['ax body'].to_numpy())*m
+
+# # add output to the scatter plot cause it's difficult to see if the fitting went well or not otherwise
+# scatter = ax.scatter(
+#     df['vx body'].to_numpy(),                    # x-axis
+#     df['steering angle'].to_numpy(),  # y-axis
+#     missing_force_model,                    # z-axis 
+#     color='k'
+# )
+
+
+
+
+# plot the survafe plot on the data
+# find maximum value of velocity
+v_max = df['vx body'].max()
+
+steering_angle_range = np.linspace(-0.4,0.4, 100)
+velocity_rage = np.linspace(0, v_max, 100)
+steering_angle_grid, velocity_grid = np.meshgrid(steering_angle_range, velocity_rage)
+# Create input points
+input_points = np.column_stack(
+    (
+        steering_angle_grid.flatten(),
+        velocity_grid.flatten(),
+    )
+)
+
+
+input_grid = torch.tensor(input_points, dtype=torch.float32).cuda()
+Steering_friction_grid = steering_friction_model_obj.F_friction_due_to_steering(input_grid[:,0],input_grid[:,1],a_stfr_model,b_stfr_model,d_stfr_model,e_stfr_model,f_stfr_model,g_stfr_model).detach().cpu().view(100, 100).numpy()
+
+# Plot the surface
+# minus sign on z to show correction term
+ax.plot_surface(velocity_grid,steering_angle_grid,-Steering_friction_grid, color='k', alpha=0.3)
+
+
 
 plt.show()
 
