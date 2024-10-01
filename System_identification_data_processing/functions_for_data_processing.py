@@ -1156,6 +1156,34 @@ class model_functions():
             acc_w = M/Jz
         
         return acc_x,acc_y,acc_w
+    
+
+
+    def produce_past_action_coefficients_2nd_oder_critically_damped(self,w_natural_Hz,length):
+        # Generate the k coefficients for past actions
+        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
+        k_vec = torch.zeros((length,1)).cuda()
+        k_dev_vec = torch.zeros((length,1)).cuda()
+        for i in range(length):
+            k_vec[i], k_dev_vec[i] = self.impulse_response_2n_oder_critically_damped(i*self.dt,w_natural_Hz) # 
+        # the dt is really important to get the amplitude right
+        k_vec = k_vec * self.dt
+        k_dev_vec = k_dev_vec * self.dt
+        return k_vec.double() ,  k_dev_vec.double()   
+
+
+    def impulse_response_2n_oder_critically_damped(self,t,w_natural_Hz):
+        #second order impulse response
+        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
+        w = w_natural_Hz * 2 *np.pi # convert to rad/s
+        f = w**2 * t * torch.exp(-w*t)
+        f_dev = w**2 * (torch.exp(-w*t)-w*t*torch.exp(-w*t)) 
+        return f ,f_dev
+
+
+
+
+
 
 
 
@@ -1494,13 +1522,15 @@ class pacejka_tire_model(torch.nn.Sequential,model_functions):
 
 
 class pacejka_tire_model_pitch_roll(torch.nn.Sequential,model_functions):
-    def __init__(self,param_vals,m_front_wheel,m_rear_wheel,lf,lr,d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r):
+    def __init__(self,param_vals,m_front_wheel,m_rear_wheel,lf,lr,d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r,n_past_actions,dt):
         super(pacejka_tire_model_pitch_roll, self).__init__()
         # define mass of the robot
         self.m_front_wheel = m_front_wheel
         self.m_rear_wheel = m_rear_wheel
         self.lf = lf
         self.lr = lr
+        self.dt = dt
+        self.n_past_actions = n_past_actions
         # save tire parameters
         self.d_t_f = d_t_f
         self.c_t_f = c_t_f
@@ -1514,7 +1544,7 @@ class pacejka_tire_model_pitch_roll(torch.nn.Sequential,model_functions):
 
         # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
         self.register_parameter(name='k_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-        self.register_parameter(name='k_roll', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
+        self.register_parameter(name='w_natural_Hz_pitch', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
 
     def transform_parameters_norm_2_real(self):
         # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
@@ -1525,9 +1555,9 @@ class pacejka_tire_model_pitch_roll(torch.nn.Sequential,model_functions):
         constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
         
         k_pitch = self.minmax_scale_hm(0,0.5,constraint_weights(self.k_pitch))
-        k_roll = self.minmax_scale_hm(0,0.01,constraint_weights(self.k_roll))
+        w_natural_Hz_pitch = self.minmax_scale_hm(0,5,constraint_weights(self.w_natural_Hz_pitch))
 
-        return [k_pitch,k_roll]
+        return [k_pitch,w_natural_Hz_pitch]
         
     def minmax_scale_hm(self,min,max,normalized_value):
         # normalized value should be between 0 and 1
@@ -1538,29 +1568,44 @@ class pacejka_tire_model_pitch_roll(torch.nn.Sequential,model_functions):
         alpha_rear  = torch.unsqueeze(train_x[:,1],1)
         acc_x = torch.unsqueeze(train_x[:,2],1)
         acc_y  = torch.unsqueeze(train_x[:,3],1)
-    
-        [k_pitch,k_roll] = self.transform_parameters_norm_2_real() 
 
-        # TESTING
+        [k_pitch,w_natural_Hz_pitch] = self.transform_parameters_norm_2_real() 
+
+
+        past_acc_x = train_x[:,4:]
+
+
+        # #produce past action coefficients
+        k_vec_pitch,k_dev_vec_pitch = self.produce_past_action_coefficients_2nd_oder_critically_damped(w_natural_Hz_pitch,self.n_past_actions) # 
+
+        # # convert to rad/s
+        w_natural_pitch = w_natural_Hz_pitch * 2 *np.pi
+
+        # # pitch dynamics
+        c_pitch = 2 * w_natural_pitch 
+        k_pitch_dynamics = w_natural_pitch**2
+        acc_x_filtered = past_acc_x @ k_vec_pitch + c_pitch/k_pitch_dynamics * past_acc_x @ k_dev_vec_pitch # this is the non-scaled response (we don't know the magnitude of the input)
+    
+        
+
+
+        # evaluate influence coefficients based on equilibrium of moments
         l_tilde = -0.5*self.lf**2-0.5*self.lr**2-self.lf*self.lr
         l_star = (self.lf-self.lr)/2
         #z_COM = 0.07 #  
 
         k_pitch_front = k_pitch * (+self.lf + l_star)/l_tilde  / 9.81 # covert to Kg force
-        k_pitch_rear =  k_pitch * (-self.lr + l_star)/l_tilde  / 9.81 # covert to Kg force
+        #k_pitch_rear =  k_pitch * (-self.lr + l_star)/l_tilde  / 9.81 # covert to Kg force
 
-        alpha_front_modifier_roll = acc_y * k_roll
-
-
-        acc_x_term = acc_x * k_pitch_front  #* torch.tanh(-k_roll * acc_x**2) # activates it after 1.5 m/s^2
-        #D_m_r = -acc_x * k_pitch_rear  + k_roll * acc_y
+        acc_x_term_f = acc_x_filtered * k_pitch_front  #* torch.tanh(-k_roll * acc_x**2) # activates it after 1.5 m/s^2
+        #acc_x_term_r = acc_x * k_pitch_rear  #D_m_r = -acc_x * k_pitch_rear  + k_roll * acc_y
 
 
         # evalaute lateral tire force
-        F_y_f = self.lateral_tire_force(alpha_front,self.d_t_f,self.c_t_f,self.b_t_f,self.m_front_wheel + acc_x_term) # adding front-rear nominal loading
+        F_y_f = self.lateral_tire_force(alpha_front,self.d_t_f,self.c_t_f,self.b_t_f,self.m_front_wheel + acc_x_term_f) # adding front-rear nominal loading
         F_y_r = self.lateral_tire_force(alpha_rear,self.d_t_r,self.c_t_r,self.b_t_r,self.m_rear_wheel) #+ D_m_r
 
-        return F_y_f,F_y_r
+        return F_y_f,F_y_r, acc_x_filtered
 
 
 

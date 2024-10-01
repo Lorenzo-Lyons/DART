@@ -107,14 +107,24 @@ ax_acc_x_body,ax_acc_y_body,ax_acc_w = plot_vicon_data(df)
 # define first guess for parameters
 initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of their range constraint
 # define number of training iterations
-train_its = 1000
-learning_rate = 0.001 # 00#06
+train_its = 100
+learning_rate = 0.01 # 00#06
 
 print('')
 print('Fitting pacejka-like culomb friction tire model ')
 
+
+n_past_actions = 50 # 50
+refinement_factor = 10 # 10
+dt =  np.diff(df['vicon time'].to_numpy()).mean() / refinement_factor
+train_x_past_acc_x = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'ax body')
+
+
 #instantiate the model
-pacejka_culomb_tire_model_obj = pacejka_tire_model_pitch_roll(initial_guess,m_front_wheel,m_rear_wheel,lf,lr,d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r)
+pacejka_culomb_tire_model_obj = pacejka_tire_model_pitch_roll(initial_guess,m_front_wheel,m_rear_wheel,lf,lr,
+                                                              d_t_f,c_t_f,b_t_f,d_t_r,c_t_r,b_t_r,
+                                                              n_past_actions*refinement_factor,dt)
+
 
 #define loss and optimizer objects
 loss_fn = torch.nn.MSELoss() 
@@ -126,29 +136,32 @@ data_columns = ['slip angle front','slip angle rear','ax body','ay body'] # velo
 
 # add past actions to fit pitch dynamics
 # past longitudinal accelerations
-n_past_actions = 50 # 50
-refinement_factor = 10 # 10
-train_x_past_acc_x = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'ax body')
 
 
 
 
 
 
-train_x = torch.tensor(df[data_columns].to_numpy()).cuda()
+
+train_x_model_inputs = torch.tensor(df[data_columns].to_numpy()).cuda()
+train_x = torch.cat((train_x_model_inputs, train_x_past_acc_x), dim=1)
 train_y = torch.unsqueeze(torch.tensor(np.concatenate((df['Fy front wheel'].to_numpy(),df['Fy rear wheel'].to_numpy()))),1).cuda() 
 
 
 # save loss values for later plot
 loss_vec = np.zeros(train_its)
 
-# train the model
-for i in range(train_its):
+
+
+from tqdm import tqdm
+tqdm_obj = tqdm(range(0,train_its), desc="training", unit="iterations")
+
+for i in tqdm_obj:
     # clear gradient information from previous step before re-evaluating it for the current iteration
     optimizer_object.zero_grad()  
     
     # compute fitting outcome with current model parameters
-    F_y_f,F_y_r = pacejka_culomb_tire_model_obj(train_x)
+    F_y_f,F_y_r,acc_x_filtered = pacejka_culomb_tire_model_obj(train_x)
     output = torch.cat((F_y_f,F_y_r),0) 
 
     # evaluate loss function
@@ -163,11 +176,11 @@ for i in range(train_its):
 
 
 # --- print out parameters ---
-[k_pitch,k_roll] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
+[k_pitch,w_natural_Hz_pitch] = pacejka_culomb_tire_model_obj.transform_parameters_norm_2_real()
 
 print('# pitch and roll:')
 print('k_pitch = ', k_pitch.item())
-print('k_roll = ', k_roll.item())
+print('w_natural_Hz_pitch = ', w_natural_Hz_pitch.item())
 
 
 # # # --- plot loss function ---
@@ -185,6 +198,18 @@ plt.legend()
 # plot model outputs
 ax_wheel_f_alpha.scatter(df['slip angle front'],F_y_f.detach().cpu().numpy(),color='k',label='Tire model output with pitch influece',s=3,alpha=0.5)
 ax_wheel_r_alpha.scatter(df['slip angle rear'],F_y_r.detach().cpu().numpy(),color='k',label='Tire model output with pitch influece',s=3,alpha=0.5)
+
+
+# plot filtered acceleration signal
+plt.figure()
+plt.title('Filtered acceleration signal')
+plt.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax data',color='dodgerblue')
+plt.plot(df['vicon time'].to_numpy(),acc_x_filtered.detach().cpu().numpy(),color='k',label='filtered acceleration model output')
+plt.xlabel('time [s]')
+plt.ylabel('acceleration [m/s^2]')
+plt.legend()
+
+
 
 
 plt.show()

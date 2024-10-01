@@ -149,7 +149,7 @@ dynamic_model = dyn_model_culomb_tires(m,lr,lf,l_COM,Jz,
                  d_t,c_t,b_t,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
-                 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
+                 a_stfr, b_stfr,d_stfr,e_stfr)
 
 
 
