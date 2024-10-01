@@ -1,5 +1,6 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,\
-fullmodel_with_steering_dynamics_model,model_parameters,steering_dynamics_model,directly_measured_model_parameters
+fullmodel_with_steering_dynamics_model,model_parameters,steering_dynamics_model,directly_measured_model_parameters,\
+process_vicon_data_kinematics
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -51,7 +52,7 @@ refinement_factor = 5 #int(np.ceil(T/dt_steering))
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
 w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
 w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
@@ -62,11 +63,11 @@ tweak_steering_curve = True
 
 
 
-df_raw_data = get_data(folder_path)
-
 # process the data
-steps_shift = 3 # decide to filter more or less the vicon data
-df = process_raw_vicon_data(df_raw_data,steps_shift)
+steps_shift = 5 # decide to filter more or less the vicon data
+df_raw_data = get_data(folder_path)
+df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift,theta_correction, l_COM, l_lateral_shift_reference)
+df = process_raw_vicon_data(df_kinematics,steps_shift)
 
 
 # # Starting data processing

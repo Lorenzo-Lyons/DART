@@ -1,5 +1,8 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,\
-plot_vicon_data,model_parameters,directly_measured_model_parameters,process_vicon_data_kinematics,pacejka_tire_model_pitch_roll
+plot_vicon_data,model_parameters,directly_measured_model_parameters,process_vicon_data_kinematics,\
+    pacejka_tire_model_pitch_roll,throttle_dynamics,steering_dynamics,\
+    generate_tensor_past_actions
+
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -13,7 +16,7 @@ import os
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
 w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
 w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
@@ -30,14 +33,16 @@ w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 
 
 #folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'
 
 #folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
 
-folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024_fast_ramp'
+#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024_fast_ramp'
+
+
 
 
 
@@ -53,32 +58,36 @@ folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024_f
 
 
 
-# # check if there is a processed vicon data file already
-# file_name = 'processed_vicon_data.csv'
-# # Check if the CSV file exists in the folder
-# file_path = os.path.join(folder_path, file_name)
+# check if there is a processed vicon data file already
+file_name = 'processed_vicon_data_throttle_steering_dynamics.csv'
+# Check if the CSV file exists in the folder
+file_path = os.path.join(folder_path, file_name)
 
-# if not os.path.isfile(file_path):
-#     steps_shift = 10 # decide to filter more or less the vicon data
-#     df_raw_data = get_data(folder_path)
-#     df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift,theta_correction, l_COM, l_lateral_shift_reference)
-#     df = process_raw_vicon_data(df_kinematics,steps_shift)
+if not os.path.isfile(file_path):
 
-#     df.to_csv(file_path, index=False)
-#     print(f"File '{file_path}' saved.")
-# else:
-#     print(f"File '{file_path}' already exists, loading data.")
-#     df = pd.read_csv(file_path)
+    steps_shift = 5 # decide to filter more or less the vicon data
+    df_raw_data = get_data(folder_path)
 
+    # replace throttle with time integrated throttle
+    filtered_throttle = throttle_dynamics(df_raw_data,d_m)
+    df_raw_data['throttle'] = filtered_throttle
 
-
-
-steps_shift = 5
-df_raw_data = get_data(folder_path)
-df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift,theta_correction, l_COM, l_lateral_shift_reference)
-df = process_raw_vicon_data(df_kinematics,steps_shift)
+    # add steering time integrated 
+    st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn)
+    # over-write the actual data with the forward integrated data
+    df_raw_data['steering angle'] = st_vec_angle_optuna
+    df_raw_data['steering'] = st_vec_optuna
 
 
+    df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift,theta_correction, l_COM, l_lateral_shift_reference)
+    df = process_raw_vicon_data(df_kinematics,steps_shift)
+
+    # save the file
+    df.to_csv(file_path, index=False)
+    print(f"File '{file_path}' saved.")
+else:
+    print(f"File '{file_path}' already exists, loading data.")
+    df = pd.read_csv(file_path)
 
 
 
@@ -112,13 +121,23 @@ loss_fn = torch.nn.MSELoss()
 optimizer_object = torch.optim.Adam(pacejka_culomb_tire_model_obj.parameters(), lr=learning_rate)
 
 # generate data in tensor form for torch
-# data_columns = ['V_y front wheel','V_y rear wheel'] # velocities
 data_columns = ['slip angle front','slip angle rear','ax body','ay body'] # velocities
 
 
+# add past actions to fit pitch dynamics
+# past longitudinal accelerations
+n_past_actions = 50 # 50
+refinement_factor = 10 # 10
+train_x_past_acc_x = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'ax body')
+
+
+
+
+
+
 train_x = torch.tensor(df[data_columns].to_numpy()).cuda()
-#train_x = torch.unsqueeze(torch.tensor(np.concatenate((df['V_y front wheel'].to_numpy(),df['V_y rear wheel'].to_numpy()))),1).cuda()
 train_y = torch.unsqueeze(torch.tensor(np.concatenate((df['Fy front wheel'].to_numpy(),df['Fy rear wheel'].to_numpy()))),1).cuda() 
+
 
 # save loss values for later plot
 loss_vec = np.zeros(train_its)
@@ -161,26 +180,11 @@ plt.legend()
 
 
 
-# evaluate model on plotting interval
-#v_y_wheel_plotting_front = torch.unsqueeze(torch.linspace(torch.min(train_x[:,0]),torch.max(train_x[:,0]),100),1).cuda()
-# alpha_f_plotting_front = torch.unsqueeze(torch.linspace(torch.min(train_x[:,0]),torch.max(train_x[:,0]),100),1).cuda()
-# lateral_force_vec_front = pacejka_culomb_tire_model_obj.lateral_tire_force(alpha_f_plotting_front,d_t_f,c_t_f,b_t_f,m_front_wheel).detach().cpu().numpy()
 
-
-# # do the same for he rear wheel
-# alpha_r_plotting_rear = torch.unsqueeze(torch.linspace(torch.min(train_x[:,1]),torch.max(train_x[:,1]),100),1).cuda()
-# lateral_force_vec_rear = pacejka_culomb_tire_model_obj.lateral_tire_force(alpha_r_plotting_rear,d_t_r,c_t_r,b_t_r,m_rear_wheel).detach().cpu().numpy()
-
-
-# ax_wheel_f_alpha.plot(alpha_f_plotting_front.cpu(),lateral_force_vec_front,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
-# ax_wheel_f_alpha.legend()
-
-# ax_wheel_r_alpha.plot(alpha_r_plotting_rear.cpu(),lateral_force_vec_rear,color='#2c4251',label='Tire model',linewidth=4,linestyle='-')
-# ax_wheel_r_alpha.legend()
 
 # plot model outputs
-ax_wheel_f_alpha.scatter(df['slip angle front'],F_y_f.detach().cpu().numpy(),color='k',label='Tire model output (with pitch influece)',s=3)
-ax_wheel_r_alpha.scatter(df['slip angle rear'],F_y_r.detach().cpu().numpy(),color='k',label='Tire model output (with pitch influece)',s=3)
+ax_wheel_f_alpha.scatter(df['slip angle front'],F_y_f.detach().cpu().numpy(),color='k',label='Tire model output with pitch influece',s=3,alpha=0.5)
+ax_wheel_r_alpha.scatter(df['slip angle rear'],F_y_r.detach().cpu().numpy(),color='k',label='Tire model output with pitch influece',s=3,alpha=0.5)
 
 
 plt.show()

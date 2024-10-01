@@ -1,34 +1,25 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,full_dynamic_model,model_parameters,throttle_dynamics,\
+,dyn_model_culomb_tires,model_parameters,throttle_dynamics,\
     process_vicon_data_kinematics,steering_dynamics,directly_measured_model_parameters
 from matplotlib import pyplot as plt
-import torch
 import numpy as np
 import pandas as pd
-import glob
 import os
-from scipy.interpolate import CubicSpline
-import matplotlib
-font = {'family' : 'normal',
-        'size'   : 10}
 
-#matplotlib.rc('font', **font)
 
-# This script is used to fit the tire model to the data collected using the vicon external tracking system with a 
-# SIMPLE CULOMB friction tyre model.
 
 # chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
-forward_propagate_indexes = [5] #[1,2,3] # 1 = vx, 2=vy, 3=w
+
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
 #folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
 #folder_path = 'System_identification_data_processing/Data/free_driving_steer_rate_testing_16_sept_2024'
 
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
+folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
 
 
 
@@ -39,7 +30,7 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
 w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
 w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
@@ -52,7 +43,7 @@ dynamic_model = dyn_model_culomb_tires(m,m_front_wheel,m_rear_wheel,lr,lf,l_COM,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
                  d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
-                 a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr)
+                 a_stfr, b_stfr,d_stfr,e_stfr)
 
 
 
@@ -70,7 +61,7 @@ steps_shift = 5 # decide to filter more or less the vicon data
 
 
 # check if there is a processed vicon data file already
-file_name = 'processed_vicon_data.csv'
+file_name = 'processed_vicon_data_throttle_steering_dynamics.csv'
 # Check if the CSV file exists in the folder
 file_path = os.path.join(folder_path, file_name)
 
@@ -104,8 +95,22 @@ else:
 
 
 
+if folder_path == 'System_identification_data_processing/Data/circles_27_sept_2024':
 
-# plot the value of 
+    df1 = df[df['vicon time']>1]
+    df1 = df1[df1['vicon time']<375]
+
+    df2 = df[df['vicon time']>377]
+    df2 = df2[df2['vicon time']<830]
+
+    df3 = df[df['vicon time']>860]
+    df3 = df3[df3['vicon time']<1000]
+
+    df = pd.concat([df1,df2,df3])
+    df = df[df['vx body']>0.5]
+    #df = df[df['vx body']<2.5]
+    df = df[df['ax body']<2]
+    df = df[df['ax body']>-1]
 
 
 
@@ -126,8 +131,7 @@ ax_acc_x_body,ax_acc_y_body,ax_acc_w = plot_vicon_data(df)
 
 
 # producing long term predictions
-columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering angle',
-                      'Fx wheel','Fy front wheel','Fy rear wheel','slip angle front','slip angle rear']
+columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering angle']
 input_data = df[columns_to_extract].to_numpy()
 
 

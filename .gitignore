@@ -2,3 +2,7 @@ Data_processing/__pycache__
 .vscode
 catkin_ws
 notes.txt
+merged_files.csv
+processed_vicon_data.csv
+processed_kinematics_vicon_data.csv
+processed_vicon_data_throttle_steering_dynamics.csv

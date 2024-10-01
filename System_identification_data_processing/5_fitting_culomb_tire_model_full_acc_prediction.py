@@ -63,13 +63,13 @@ font = {'family' : 'normal',
 # load model parameters
 
 
-[theta_correction, l_COM, l_lateral_shift_reference,lr, lf, Jz, m] = directly_measured_model_parameters()
+[theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
 
 [a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t, c_t, b_t,
-a_stfr, b_stfr,d_stfr,e_stfr,f_stfr,g_stfr,
+a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
 w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
 w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
