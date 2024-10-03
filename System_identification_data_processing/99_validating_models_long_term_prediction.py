@@ -39,20 +39,20 @@ a_s, b_s, c_s, d_s, e_s,
 d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
 a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
-w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
-w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
+k_pitch,w_natural_Hz_pitch] = model_parameters()
 
 
 
 
-
+pitch_dynamics_flag = False
 
 # the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
 dynamic_model = dyn_model_culomb_tires(m,m_front_wheel,m_rear_wheel,lr,lf,l_COM,Jz,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
                  d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
-                 a_stfr, b_stfr,d_stfr,e_stfr)
+                 a_stfr, b_stfr,d_stfr,e_stfr,
+                 pitch_dynamics_flag,k_pitch,w_natural_Hz_pitch)
 
 
 
