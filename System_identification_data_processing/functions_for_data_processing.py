@@ -991,7 +991,9 @@ class model_functions():
         # this is just a class to collect all the functions that are used to model the dynamics
         pass
 
-
+    def minmax_scale_hm(self,min,max,normalized_value):
+        # normalized value should be between 0 and 1
+        return min + normalized_value * (max-min)
 
     def steering_2_steering_angle(self,steering_command,a_s,b_s,c_s,d_s,e_s):
 
@@ -1181,9 +1183,18 @@ class model_functions():
         return x_dot_dot
 
 
+    def produce_past_action_coefficients_1st_oder(self,C,length):
+
+        k_vec = torch.zeros((length,1)).cuda()
+        for i in range(length):
+            k_vec[i] = self.impulse_response_1st_oder(i*self.dt,C) # 
+        # the dt is really important to get the amplitude right
+        k_vec = k_vec * self.dt
+        return k_vec.double()
 
 
-
+    def impulse_response_1st_oder(self,t,C):
+        return torch.exp(-t/C)*1/C
 
 
 
@@ -1724,6 +1735,63 @@ class pacejka_tire_model_pitch(torch.nn.Sequential,model_functions):
 
 
 
+class steering_dynamics_model_NN(torch.nn.Module):
+    def __init__(self,input_size, output_size):
+
+        super(steering_dynamics_model_NN, self).__init__()
+        self.linear_layer = torch.nn.Linear(input_size, output_size)
+        self.activation = torch.nn.Tanh()
+
+    def forward(self,train_x):
+        out = self.linear_layer(train_x)
+        #out_activation = self.activation(out)
+
+        return out #* out_activation
+
+
+class steering_dynamics_model_modulated_first_order(torch.nn.Sequential,model_functions):
+    def __init__(self,n_past_actions,dt):
+        super(steering_dynamics_model_modulated_first_order, self).__init__()
+
+        self.n_past_actions = n_past_actions
+        self.dt = dt
+
+        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
+        #steering dynamics parameters
+        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+        self.register_parameter(name='k', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+
+        self.constraint_weights = torch.nn.Hardtanh(0, 1)
+
+    def transform_parameters_norm_2_real(self):
+        a = self.minmax_scale_hm(0,2,self.constraint_weights(self.a))
+        b = self.minmax_scale_hm(0.01,0.4,self.constraint_weights(self.b))
+        c = self.minmax_scale_hm(-0.1,+0.1,self.constraint_weights(self.c))
+        k = self.minmax_scale_hm(0,0.3,self.constraint_weights(self.k))
+        return [a,b,c,k]
+
+
+    def forward(self,train_x):
+
+        # extract parameters
+        [a,b,c,k] = self.transform_parameters_norm_2_real()
+
+        # apply activation function to capture actuator saturation
+        #steering_angle_input = a * torch.tanh((train_x/b))
+
+        # #produce past action coefficients
+        k_vec = self.produce_past_action_coefficients_1st_oder(k,self.n_past_actions) # 
+
+        steering_angle = train_x @ k_vec
+
+        return steering_angle
+    
+
+
+
+
 
 class steering_dynamics_model(torch.nn.Sequential,model_functions):
     def __init__(self,param_vals,dt,tweak_steering_curve):
@@ -2062,6 +2130,8 @@ class full_model_with_pitch_and_roll_dynamics(torch.nn.Sequential,model_function
         self.b_stfr = b_stfr
         self.d_stfr = d_stfr
         self.e_stfr = e_stfr
+
+
 
 
 

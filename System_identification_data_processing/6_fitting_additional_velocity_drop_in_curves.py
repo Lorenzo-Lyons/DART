@@ -26,14 +26,14 @@ folder_path = 'System_identification_data_processing/Data/steer_friction_trainin
 
 [theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
 
+# load model parameters
 [a_m, b_m, c_m, d_m,
 a_f, b_f, c_f, d_f,
 a_s, b_s, c_s, d_s, e_s,
 d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
 a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
-w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
-w_natural_Hz_roll,k_f_roll,k_r_roll]= model_parameters()
+k_pitch,w_natural_Hz_pitch] = model_parameters()
 
 
 # --- Starting data processing  ------------------------------------------------
@@ -168,12 +168,20 @@ f_stfr=[]
 g_stfr=[]
 
 
-# define model NOTE: this will give you the absolute accelerations measured in the body frame
-dynamic_model = dyn_model_culomb_tires(m,m_front_wheel,m_rear_wheel,lr,lf,l_COM,Jz,
+
+pitch_dynamics_flag = False
+
+
+# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
+dyn_model_culomb_tires_obj = dyn_model_culomb_tires(m,m_front_wheel,m_rear_wheel,lr,lf,l_COM,Jz,
                  a_m,b_m,c_m,
                  a_f,b_f,c_f,d_f,
                  d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
-                 a_stfr, b_stfr,d_stfr,e_stfr)
+                 a_stfr, b_stfr,d_stfr,e_stfr,
+                 pitch_dynamics_flag,k_pitch,w_natural_Hz_pitch)
+
+
+
 
 
 columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering angle']
@@ -185,7 +193,7 @@ acc_w_model = np.zeros(input_data.shape[0])
 
 for i in range(df.shape[0]):
     # correct for centrifugal acceleration
-    accelerations = dynamic_model.forward(input_data[i,:])
+    accelerations = dyn_model_culomb_tires_obj.forward(input_data[i,:])
 
     acc_x_model[i] = accelerations[0]
     acc_y_model[i] = accelerations[1]

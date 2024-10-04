@@ -27,10 +27,14 @@ font = {'family' : 'normal',
 # 5 = steering
 # 6 = pitch dot
 # 7 = pitch
+  
 
+# actually there is a problem with integrating the throttle and steering (leading to modle exploding)
+# but also the extra pitch term overestimates the velocity drop [ACTUALLY by disabliing extra drop due to steering it gets closer to not overestimating the velocity drop]
+# so interesting to see there
 
 #forward_propagate_indexes = [1,2,3,4,5,6,7]
-forward_propagate_indexes = [1,2,3]
+forward_propagate_indexes = [1,2,3,6,7]
 
 
 # select data folder NOTE: this assumes that the current directory is DART
@@ -54,6 +58,10 @@ a_stfr, b_stfr,d_stfr,e_stfr,
 max_st_dot,fixed_delay_stdn,k_stdn,
 k_pitch,w_natural_Hz_pitch] = model_parameters()
 
+
+
+
+a_stfr = []
 
 
 pitch_dynamics_flag = True
