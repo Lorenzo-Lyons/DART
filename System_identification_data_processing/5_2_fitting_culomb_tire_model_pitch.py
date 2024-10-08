@@ -88,6 +88,7 @@ initial_guess = torch.ones(3) * 0.5 # initialize parameters in the middle of the
 train_its = 100
 learning_rate = 0.01 # 00#06
 
+
 print('')
 print('Fitting pitch influence on lateral forces ')
 

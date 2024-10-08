@@ -103,10 +103,10 @@ def model_parameters():
     e_stfr =  0.8271232843399048
 
     # steering dynamics
-
     max_st_dot = 9.395668777594302
-    fixed_delay_stdn = 5.904623074022001
-    k_stdn = 0.24112116182648466
+    fixed_delay_stdn = 0 #5.904623074022001
+    #k_stdn = 0.24112116182648466
+    k_stdn = 0.10763473063707352
 
 
     # pitch parameters:
@@ -292,6 +292,7 @@ def throttle_dynamics(df_raw_data,d_m):
 
 
 def steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_stdn,k_stdn):
+    model_functions_obj = model_functions() # instantiate the model functions object
 
     # -------------------  forard integrate the steering signal  -------------------
     # NOTE this is a bit of a hack
@@ -303,7 +304,8 @@ def steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_std
     best_delay_int = int(np.round(fixed_delay_stdn))
 
     # Evaluate the shifted steering signal using the best fixed delay
-    steering_time_shifted = df_raw_data['steering'].shift(best_delay_int, fill_value=0).to_numpy()
+    #steering_time_shifted = df_raw_data['steering'].shift(best_delay_int, fill_value=0).to_numpy()
+    steering_time_shifted = df_raw_data['steering'].to_numpy()
 
     # Initialize variables for the steering prediction
     st = 0
@@ -313,25 +315,32 @@ def steering_dynamics(df_raw_data,a_s,b_s,c_s,d_s,e_s,max_st_dot,fixed_delay_std
     # Loop through the data to compute the predicted steering angles
     for k in range(1, df_raw_data.shape[0]):
         # Calculate the rate of change of steering (steering dot)
+        #st_dot = (steering_time_shifted[k-1] - st) / T * k_stdn
         st_dot = (steering_time_shifted[k-1] - st) / T * k_stdn
+
         # Apply max_st_dot limits
-        st_dot = np.min([st_dot, max_st_dot])
-        st_dot = np.max([st_dot, -max_st_dot])
+        # st_dot = np.min([st_dot, max_st_dot])
+        # st_dot = np.max([st_dot, -max_st_dot])
         
         # Update the steering value with the time step
         st += st_dot * T
         
+
         # Compute the steering angle using the two models with weights
-        w_s = 0.5 * (np.tanh(30 * (st + c_s)) + 1)
-        steering_angle1 = b_s * np.tanh(a_s * (st + c_s))
-        steering_angle2 = d_s * np.tanh(e_s * (st + c_s))
+        steering_angle = model_functions_obj.steering_2_steering_angle(st,a_s,b_s,c_s,d_s,e_s)
+        # w_s = 0.5 * (np.tanh(30 * (st + c_s)) + 1)
+        # steering_angle1 = b_s * np.tanh(a_s * (st + c_s))
+        # steering_angle2 = d_s * np.tanh(e_s * (st + c_s))
         
-        # Combine the two steering angles using the weight
-        steering_angle = (w_s) * steering_angle1 + (1 - w_s) * steering_angle2
+        # # Combine the two steering angles using the weight
+        # steering_angle = (w_s) * steering_angle1 + (1 - w_s) * steering_angle2
         
         # Store the predicted steering angle
         st_vec_angle_optuna[k] = steering_angle
         st_vec_optuna[k] = st
+
+
+
 
     return st_vec_angle_optuna, st_vec_optuna
 
@@ -987,6 +996,17 @@ ax_acc_x_body,ax_acc_y_body,ax_acc_w
 
 
 class model_functions():
+    [theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
+
+    #load model parameters
+    [a_m_self, b_m_self, c_m_self, d_m_self,
+    a_f_self, b_f_self, c_f_self, d_f_self,
+    a_s_self, b_s_self, c_s_self, d_s_self, e_s_self,
+    d_t_f_self, c_t_f_self, b_t_f_self,d_t_r_self, c_t_r_self, b_t_r_self,
+    a_stfr_self, b_stfr_self,d_stfr_self,e_stfr_self,
+    max_st_dot_self,fixed_delay_stdn_self,k_stdn_self,
+    k_pitch_self,w_natural_Hz_pitch_self] = model_parameters()
+
     def __init__(self):
         # this is just a class to collect all the functions that are used to model the dynamics
         pass
@@ -1624,117 +1644,6 @@ class pacejka_tire_model_pitch(torch.nn.Sequential,model_functions):
 
 
 
-
-
-# class culomb_pacejka_tire_model_full_dynamics(torch.nn.Sequential,model_functions):
-#     def __init__(self,param_vals):
-#         super(culomb_pacejka_tire_model_full_dynamics, self).__init__()
-#         # define mass of the robot
-
-#         # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
-#         self.register_parameter(name='Jz', param=torch.nn.Parameter(torch.Tensor([0.006513]).cuda())) # 0.006513
-#         self.register_parameter(name='lr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-
-
-#         self.register_parameter(name='d_t', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-#         self.register_parameter(name='c_t', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-#         self.register_parameter(name='b_t', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-        
-#         self.register_parameter(name='a_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-#         self.register_parameter(name='b_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-#         self.register_parameter(name='d_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-#         self.register_parameter(name='e_stfr', param=torch.nn.Parameter(torch.Tensor([param_vals[0]]).cuda()))
-
-#         [theta_correction, lr, l_COM, Jz, lf, m,
-#         a_m, b_m, c_m, d_m,
-#         a_f, b_f, c_f, d_f,
-#         a_s, b_s, c_s, d_s, e_s,
-#         d_t, c_t, b_t,
-#         a_stfr, b_stfr,d_stfr,e_stfr,
-#         max_st_dot,fixed_delay_stdn,k_stdn,
-#         w_natural_Hz_pitch,k_f_pitch,k_r_pitch,
-#         w_natural_Hz_roll,k_f_roll,k_r_roll] = model_parameters()
-
-#         self.m = m
-#         #self.lr = lr
-#         #self.lf = lf
-#         #self.Jz = Jz
-
-#         # Motor curve
-#         self.a_m =  a_m
-#         self.b_m =  b_m
-#         self.c_m =  c_m
-
-#         #Friction curve
-#         self.a_f =  a_f
-#         self.b_f =  b_f
-#         self.c_f =  c_f
-#         self.d_f =  d_f
-
-
-
-#     def transform_parameters_norm_2_real(self):
-#         # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
-#         # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
-#         # so every parameter is effectively constrained to be within a certain range.
-#         # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
-
-#         constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
-
-#         #friction curve F= -  a * tanh(b  * v) - v * c
-#         #friction curve F= -  a * tanh(b  * v) - v * c
-#         Jz = self.minmax_scale_hm(0,0.01,constraint_weights(self.Jz)) #  20 * 0.006513
-#         lr = self.minmax_scale_hm(0,0.175,constraint_weights(self.lr)) # 0.175
-#         d_t = self.minmax_scale_hm(-1,-20,constraint_weights(self.d_t))
-#         c_t = self.minmax_scale_hm(0.5,1.5,constraint_weights(self.c_t))
-#         b_t = self.minmax_scale_hm(0.01,10,constraint_weights(self.b_t))
-#         a_stfr = self.minmax_scale_hm(0,5,constraint_weights(self.a_stfr))
-#         b_stfr = self.minmax_scale_hm(0,5,constraint_weights(self.b_stfr))
-#         d_stfr = self.minmax_scale_hm(0,7,constraint_weights(self.d_stfr))
-#         e_stfr = self.minmax_scale_hm(0,5,constraint_weights(self.e_stfr))
-#         return [Jz,lr,d_t,c_t,b_t,a_stfr,b_stfr,d_stfr,e_stfr]
-        
-#     def minmax_scale_hm(self,min,max,normalized_value):
-#     # normalized value should be between 0 and 1
-#         return min + normalized_value * (max-min)
-    
-#     def forward(self, train_x):  # this is the model that will be fitted
-#         vx = torch.unsqueeze(train_x[:,0],1)
-#         vy = torch.unsqueeze(train_x[:,1],1) 
-#         w = torch.unsqueeze(train_x[:,2],1)
-#         throttle = torch.unsqueeze(train_x[:,3],1)
-#         steering_angle = torch.unsqueeze(train_x[:,4],1)
-
-#         # extract fitting parameters
-#         [Jz,lr,d_t,c_t,b_t,a_stfr,b_stfr,d_stfr,e_stfr] = self.transform_parameters_norm_2_real()
-#         lf = 0.175 - lr
-
-#         # evaluate longitudinal forces
-#         Fx = + self.motor_force(throttle,vx,self.a_m,self.b_m,self.c_m) \
-#              + self.rolling_friction(vx,self.a_f,self.b_f,self.c_f,self.d_f) \
-#              + self.F_friction_due_to_steering(steering_angle,vx,a_stfr,b_stfr,d_stfr,e_stfr) 
-        
-#         # partition longitudinal forces to front and rear tires according to static weight distribution
-#         Fx_front = Fx/2 * lr/(lr+lf)
-#         Fx_rear = Fx/2 * lf/(lr+lf)
-
-#         # evaluate lateral tire forces
-#         Vy_wheel_f,Vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steering_angle,lf,lr)
-
-#         # accounting for static load partitioning
-#         Fy_wheel_f = self.lateral_tire_force(Vy_wheel_f,d_t,c_t,b_t) * lr/(lr+lf)
-#         Fy_wheel_r = self.lateral_tire_force(Vy_wheel_r,d_t,c_t,b_t) *  lf/(lr+lf)
-
-#         acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,lf,lr,self.m,Jz)
-
-
-#         return acc_x,acc_y,acc_w,Vy_wheel_f,Vy_wheel_r
-
-
-
-
-
-
 class steering_dynamics_model_NN(torch.nn.Module):
     def __init__(self,input_size, output_size):
 
@@ -1752,39 +1661,35 @@ class steering_dynamics_model_NN(torch.nn.Module):
 class steering_dynamics_model_modulated_first_order(torch.nn.Sequential,model_functions):
     def __init__(self,n_past_actions,dt):
         super(steering_dynamics_model_modulated_first_order, self).__init__()
-
         self.n_past_actions = n_past_actions
         self.dt = dt
 
         # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
         #steering dynamics parameters
-        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
         self.register_parameter(name='k', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
 
         self.constraint_weights = torch.nn.Hardtanh(0, 1)
 
     def transform_parameters_norm_2_real(self):
-        a = self.minmax_scale_hm(0,2,self.constraint_weights(self.a))
-        b = self.minmax_scale_hm(0.01,0.4,self.constraint_weights(self.b))
-        c = self.minmax_scale_hm(-0.1,+0.1,self.constraint_weights(self.c))
         k = self.minmax_scale_hm(0,0.3,self.constraint_weights(self.k))
-        return [a,b,c,k]
-
-
+        return [k]
+    
     def forward(self,train_x):
 
         # extract parameters
-        [a,b,c,k] = self.transform_parameters_norm_2_real()
-
-        # apply activation function to capture actuator saturation
-        #steering_angle_input = a * torch.tanh((train_x/b))
+        [k] = self.transform_parameters_norm_2_real()
 
         # #produce past action coefficients
         k_vec = self.produce_past_action_coefficients_1st_oder(k,self.n_past_actions) # 
 
-        steering_angle = train_x @ k_vec
+        steering = train_x @ k_vec
+
+        steering_angle = self.steering_2_steering_angle(steering,
+                                                        self.a_s_self,
+                                                        self.b_s_self,
+                                                        self.c_s_self,
+                                                        self.d_s_self,
+                                                        self.e_s_self)
 
         return steering_angle
     

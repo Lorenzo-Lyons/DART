@@ -15,8 +15,9 @@ matplotlib.rc('font', **font)
 [theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
 
 # this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'  # small sinusoidal input
-folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'  # small sinusoidal input
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
 
 # # get the raw data
 # df_raw_data = get_data(folder_path)
@@ -49,6 +50,8 @@ if not os.path.isfile(file_path):
 else:
     print(f"File '{file_path}' already exists, loading data.")
     df = pd.read_csv(file_path)
+
+
 
 
 
@@ -193,13 +196,18 @@ input_vec = np.linspace(-1,1,100)
 
 
 # from historical data
-a_s =  1.4141819477081299
-b_s =  0.36395299434661865
-c_s =  -0.0004661157727241516 - 0.01 #- 0.1 
-d_s =  0.517351508140564
-e_s =  1.0095096826553345
+# steering angle curve --from fitting on vicon data
+# a_s =  1.4141819477081299
+# b_s =  0.36395299434661865
+# c_s =  -0.0004661157727241516 - 0.03 # littel adjustment to allign the tire curves
+# d_s =  0.517351508140564
+# e_s =  1.0095096826553345
 model_functions_obj = model_functions()
-curve_usual_data = model_functions_obj.steering_2_steering_angle(input_vec,a_s,b_s,c_s,d_s,e_s)
+curve_usual_data = model_functions_obj.steering_2_steering_angle(input_vec,model_functions_obj.a_s_self,
+                                                                 model_functions_obj.b_s_self,
+                                                                 model_functions_obj.c_s_self,
+                                                                 model_functions_obj.d_s_self,
+                                                                 model_functions_obj.e_s_self)
 
 
 y_fitted = steering_curve_model_obj(torch.tensor(input_vec)).detach().numpy()
@@ -217,7 +225,7 @@ color_code_label = 'vx body'
 scatter = plt.scatter(df['steering'].to_numpy(), measured_steering_angle, label = 'data',c=df[color_code_label].to_numpy(),cmap='plasma') 
 ax.scatter(np.array([0.0]),np.array([0.0]),color='k',label='zero',marker='+', zorder=20)
 ax.plot(input_vec, y_fitted ,'orangered',label = "steering curve",linewidth=4)
-ax.plot(input_vec, curve_usual_data ,'navy',label = "steering curve",linewidth=4)
+ax.plot(input_vec, curve_usual_data ,'navy',label = "steering curve from default parameters",linewidth=4)
 ax.set_xlabel("Steering input")
 ax.set_ylabel("Steering angle [rad]")
 
