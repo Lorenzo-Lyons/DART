@@ -2,13 +2,6 @@ from functions_for_data_processing import get_data,process_raw_data_steering, st
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
-# set font size for figures
-import matplotlib
-font = {'family' : 'normal',
-        'size'   : 22}
-
-matplotlib.rc('font', **font)
-
 
 
 # this assumes that the current directory is DART
@@ -55,11 +48,8 @@ ax0.legend()
 print('')
 print('Fitting steering curve model')
 
-initial_guess = torch.ones(5)*0.5
-#initial_guess[0] = torch.Tensor([0.95])
-
 #instantiate class object
-steering_curve_model_obj = steering_curve_model(initial_guess)
+steering_curve_model_obj = steering_curve_model()
 
 # define number of training iterations
 Steer_train_its = 300

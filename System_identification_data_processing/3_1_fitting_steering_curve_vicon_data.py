@@ -1,32 +1,22 @@
-from functions_for_data_processing import get_data,process_raw_data_steering, steering_curve_model,plot_raw_data,process_vicon_data_kinematics,\
+from functions_for_data_processing import get_data, steering_curve_model,plot_raw_data,process_vicon_data_kinematics,\
 directly_measured_model_parameters,plot_vicon_data, model_functions
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
 import pandas as pd
 import os
-# set font size for figures
-import matplotlib
-font = {'family' : 'normal',
-        'size'   : 22}
 
-matplotlib.rc('font', **font)
+mf = model_functions()
 
-[theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
+#[theta_correction, l_COM, l_lateral_shift_reference ,lr, lf, Jz, m,m_front_wheel,m_rear_wheel] = directly_measured_model_parameters()
+
+
+
 
 # this assumes that the current directory is DART
 folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'  # small sinusoidal input
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
 #folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
-
-# # get the raw data
-# df_raw_data = get_data(folder_path)
-
-# # process the data
-# steps_shift = 5 # decide to filter more or less the vicon data
-
-
-
 
 
 # --- Starting data processing  ------------------------------------------------
@@ -43,15 +33,13 @@ if not os.path.isfile(file_path):
 
     # process the data
     steps_shift = 5 # decide to filter more or less the vicon data
-    df = process_vicon_data_kinematics(df_raw_data,steps_shift,theta_correction, l_COM, l_lateral_shift_reference)
+    df = process_vicon_data_kinematics(df_raw_data,steps_shift)
 
     df.to_csv(file_path, index=False)
     print(f"File '{file_path}' saved.")
 else:
     print(f"File '{file_path}' already exists, loading data.")
     df = pd.read_csv(file_path)
-
-
 
 
 
@@ -108,8 +96,8 @@ ax0,ax1,ax2 = plot_raw_data(df)
 
 w_vec = df['w'].to_numpy()
 vx = df['vx body'].to_numpy()
-#measured_steering_angle= np.arctan2(w_vec * (lf+lr) ,  vx) 
-measured_steering_angle= np.arctan(w_vec * (lf+lr) / vx) 
+
+measured_steering_angle= np.arctan(w_vec * (mf.lf_self+mf.lr_self) / vx) 
 
 
 
@@ -136,11 +124,8 @@ ax0.legend()
 print('')
 print('Fitting steering curve model')
 
-initial_guess = torch.ones(5)*0.5
-#initial_guess[0] = torch.Tensor([0.95])
-
 #instantiate class object
-steering_curve_model_obj = steering_curve_model(initial_guess)
+steering_curve_model_obj = steering_curve_model()
 
 # define number of training iterations
 Steer_train_its = 1000
