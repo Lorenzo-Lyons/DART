@@ -1,16 +1,11 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,model_parameters,throttle_dynamics,\
-    process_vicon_data_kinematics,steering_dynamics,directly_measured_model_parameters
+,dyn_model_culomb_tires,produce_long_term_predictions,model_parameters,throttle_dynamics_data_processing,\
+    process_vicon_data_kinematics,steering_dynamics_data_processing
 from matplotlib import pyplot as plt
-import torch
 import numpy as np
 import pandas as pd
-import glob
 import os
-from scipy.interpolate import CubicSpline
-import matplotlib
-font = {'family' : 'normal',
-        'size'   : 10}
+
 
 #matplotlib.rc('font', **font)
 
@@ -53,19 +48,17 @@ file_path = os.path.join(folder_path, file_name)
 
 if not os.path.isfile(file_path):
     df_raw_data = get_data(folder_path)
-    # cut time
-    #df_raw_data = df_raw_data[df_raw_data['vicon time']<235]
+
+    
+    # replace throttle with time integrated throttle
+    filtered_throttle = throttle_dynamics_data_processing(df_raw_data)
+    df_raw_data['throttle filtered'] = filtered_throttle
 
     # replace steering angle with time integated version
-    # replace throttle with time integrated throttle
-    filtered_throttle = throttle_dynamics(df_raw_data)
-    df_raw_data['throttle'] = filtered_throttle
-
-    # add steering time integrated 
-    st_vec_angle_optuna, st_vec_optuna = steering_dynamics(df_raw_data)
+    st_angle_vec_FEuler, st_vec_FEuler = steering_dynamics_data_processing(df_raw_data)
     # over-write the actual data with the forward integrated data
-    df_raw_data['steering angle'] = st_vec_angle_optuna
-    df_raw_data['steering'] = st_vec_optuna
+    df_raw_data['steering angle filtered'] = st_angle_vec_FEuler
+    df_raw_data['steering filtered'] = st_vec_FEuler
 
     # process kinematics and dynamics
     df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift)
@@ -106,7 +99,7 @@ ax_acc_x_body,ax_acc_y_body,ax_acc_w = plot_vicon_data(df)
 
 
 # producing long term predictions
-columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle' ,'steering angle','vicon x','vicon y','vicon yaw']
+columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
 jumps = 25 #25

@@ -45,16 +45,52 @@ def model_parameters():
 
     # motor model  (from fitting both friction and motor model at the same time) 
     # rolling friction model
-    a_f =  1.4945894479751587
-    b_f =  3.9869790077209473
-    c_f =  0.7107542157173157
-    d_f =  -0.11705359816551208
+    # a_f =  1.4945894479751587
+    # b_f =  3.9869790077209473
+    # c_f =  0.7107542157173157
+    # d_f =  -0.11705359816551208
     
-    # motor parameters
-    a_m =  25.82439422607422
-    b_m =  5.084076881408691
-    c_m =  -0.15623189508914948
-    d_m =  0.6883225440979004
+    # # motor parameters
+    # a_m =  25.82439422607422
+    # b_m =  5.084076881408691
+    # c_m =  -0.15623189508914948
+    # time_C_m =  0.6883225440979004
+
+    # running the acc fittin again no significan tdifference from good old values
+    # a_m =  25.03089141845703
+    # b_m =  4.995916843414307
+    # c_m =  -0.15717816352844238
+    # time_C_m =  0.6670632362365723
+    # #friction parameters
+    # a_f =  1.4349071979522705
+    # b_f =  3.7849671840667725
+    # c_f =  0.6881474852561951
+    # d_f =  -0.1183752492070198
+
+
+    # new throttle filtering
+    #motor parameters
+    # a_m =  24.083377838134766
+    # b_m =  4.741486549377441
+    # c_m =  -0.16178612411022186
+    # time_C_m =  0.030739229172468185
+    # #friction parameters
+    # a_f =  1.2976819276809692
+    # b_f =  3.6736900806427
+    # c_f =  0.7031773924827576
+    # d_f =  -0.10329582542181015
+
+    # new throttle filtering with new acc evaluation
+    a_m =  27.10979652404785
+    b_m =  4.9038472175598145
+    c_m =  -0.17022192478179932
+    time_C_m =  0.06076022610068321
+    #friction parameters
+    a_f =  1.2651664018630981
+    b_f =  18.245620727539062
+    c_f =  0.7393395304679871
+    d_f =  -0.10188944637775421
+
 
 
     # low velocities
@@ -62,7 +98,7 @@ def model_parameters():
     # a_m =  21.817363739013672
     # b_m =  6.565138339996338
     # c_m =  -0.129939466714859
-    # d_m =  0.6320078372955322
+    # time_C_m =  0.6320078372955322
     # #friction parameters
     # a_f =  1.3517765998840332
     # b_f =  6.491852760314941
@@ -95,7 +131,7 @@ def model_parameters():
     e_stfr =  0.8271232843399048
 
     # steering dynamics
-    k_stdn = 0.10763473063707352
+    k_stdn =  0.09748353064060211
 
     # pitch dynamics
     k_pitch =  0.14062348008155823
@@ -103,7 +139,7 @@ def model_parameters():
 
 
 
-    return [a_m, b_m, c_m, d_m,
+    return [a_m, b_m, c_m, time_C_m,
             a_f, b_f, c_f, d_f,
             a_s, b_s, c_s, d_s, e_s,
             d_t_f, c_t_f, b_t_f,d_t_r, c_t_r, b_t_r,
@@ -154,26 +190,26 @@ class model_functions():
             F_rolling = - ( a_f * np.tanh(b_f  * vx) + c_f * vx + d_f * vx**2 )
         return F_rolling
     
-    def throttle_dynamics(self,throttle,throttle_prev,d_m):
-        # NOTE for some reasoon trying to re-order the past throttle actions all at the end makes a big mess for some reason.
-        # So ok not clean but this way it works so let's not irritate the coding gods.
+    # def throttle_dynamics(self,throttle,throttle_prev,time_C_m):
+    #     # NOTE for some reasoon trying to re-order the past throttle actions all at the end makes a big mess for some reason.
+    #     # So ok not clean but this way it works so let's not irritate the coding gods.
 
-        # Generate the k coefficients for past actions
-        n_previous_throttle = throttle_prev.shape[1]
+    #     # Generate the k coefficients for past actions
+    #     n_previous_throttle = throttle_prev.shape[1]
 
-        # Generate the k coefficients for past actions
-        k_values = [d_m * (1 - d_m)**i for i in range(self.n_previous_throttle + 1)]
+    #     # Generate the k coefficients for past actions
+    #     k_values = [time_C_m * (1 - time_C_m)**i for i in range(self.n_previous_throttle + 1)]
         
-        # # Calculate sum of k coefficients
-        k_sum = sum(k_values)
+    #     # # Calculate sum of k coefficients
+    #     k_sum = sum(k_values)
         
-        # Convert the k coefficients (excluding k0) to a tensor and reshape for matrix multiplication
-        k_vec = torch.unsqueeze(torch.tensor(k_values[1:], dtype=torch.float64)[:self.n_previous_throttle], 1).cuda()
+    #     # Convert the k coefficients (excluding k0) to a tensor and reshape for matrix multiplication
+    #     k_vec = torch.unsqueeze(torch.tensor(k_values[1:], dtype=torch.float64)[:self.n_previous_throttle], 1).cuda()
         
-        # Compute filtered throttle signal
-        throttle_filtered = (k_values[0] * throttle + throttle_prev @ k_vec) / k_sum
+    #     # Compute filtered throttle signal
+    #     throttle_filtered = (k_values[0] * throttle + throttle_prev @ k_vec) / k_sum
 
-        return throttle_filtered
+    #     return throttle_filtered
     
 
     def motor_force(self,throttle_filtered,v,a_m,b_m,c_m):
@@ -318,18 +354,57 @@ class model_functions():
         return x_dot_dot
 
 
-    def produce_past_action_coefficients_1st_oder(self,C,length):
-
-        k_vec = torch.zeros((length,1)).cuda()
-        for i in range(length):
-            k_vec[i] = self.impulse_response_1st_oder(i*self.dt,C) # 
-        # the dt is really important to get the amplitude right
-        k_vec = k_vec * self.dt
-        return k_vec.double()
+    def produce_past_action_coefficients_1st_oder(self,C,length,dt):
+        if torch.is_tensor(C):
+            k_vec = torch.zeros((length,1)).cuda()
+            for i in range(length):
+                k_vec[i] = self.impulse_response_1st_oder(i*dt,C) 
+            k_vec = k_vec * dt # the dt is really important to get the amplitude right
+            return k_vec.double()
+        
+        else:
+            k_vec = np.zeros((length,1))
+            for i in range(length):
+                k_vec[i] = self.impulse_response_1st_oder(i*dt,C) 
+            k_vec = k_vec * dt # the dt is really important to get the amplitude right
+            return k_vec 
 
 
     def impulse_response_1st_oder(self,t,C):
-        return torch.exp(-t/C)*1/C
+        if torch.is_tensor(C):
+            return torch.exp(-t/C)*1/C
+        else:
+            return np.exp(-t/C)*1/C
+
+
+
+    def produce_past_action_coefficients_1st_oder_step_response(self,C,length,dt):
+            if torch.is_tensor(C): # torch implementation
+                k_vec = torch.zeros((length,1)).cuda()
+                for i in range(1,length):
+                    k_vec[i] = self.step_response_1st_oder(i*dt,C) - self.step_response_1st_oder((i-1)*dt,C)
+                k_vec = k_vec.double()
+
+            else: # numpy implementation
+                k_vec = np.zeros((length,1))
+                for i in range(1,length): # the first value is zero because it has not had time to act yet
+                    k_vec[i] = self.step_response_1st_oder(i*dt,C) - self.step_response_1st_oder((i-1)*dt,C)  
+            
+            return k_vec 
+    
+
+    def step_response_1st_oder(self,t,C):
+        if torch.is_tensor(C):
+            return 1 - torch.exp(-t/C)
+        else:
+            return 1 - np.exp(-t/C)
+        
+    def continuous_time_1st_order_dynamics(self,x,forcing_term,C):
+        x_dot = 1/C * (forcing_term - x)
+        return x_dot
+
+
+
 
 
 def get_data(folder_path):
@@ -480,34 +555,32 @@ def process_raw_data_steering(df):
 
 
 
-def throttle_dynamics(df_raw_data):
+def throttle_dynamics_data_processing(df_raw_data):
     mf = model_functions() # instantiate the model functions object
 
-    # add filtered throttle
-    T = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
-    # Filter coefficient in the new sampling frequency
-    d_m_100Hz = 0.01/(0.01+(0.1/mf.d_m_self-0.1)) #convert to new sampling frequency
-
-    # Initialize the filtered steering angle list
-    #filtered_throttle = [df_raw_data['throttle'].iloc[0]]
+    dt = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
+    th = 0
     filtered_throttle = np.zeros(df_raw_data.shape[0])
-    # Apply the first-order filter
-    for i in range(1, len(df_raw_data)):
-        filtered_value = d_m_100Hz * df_raw_data['throttle'].iloc[i-1] + (1 - d_m_100Hz) * filtered_throttle[i-1]
-        filtered_throttle[i] = filtered_value
+    # Loop through the data to compute the predicted steering angles
 
+    ground_truth_refinement = 100 # this is used to integrate the steering angle with a higher resolution to avoid numerical errors
+    for t in range(1, len(filtered_throttle)):
+        # integrate ground trough with a much higher dt to have better numerical accuracy
+        for k in range(ground_truth_refinement):
+            th_dot = mf.continuous_time_1st_order_dynamics(th,df_raw_data['throttle'].iloc[t-1],mf.d_m_self)
+            th += dt/ground_truth_refinement * th_dot
+        filtered_throttle[t] = th
 
     return filtered_throttle
 
 
-def steering_dynamics(df_raw_data):
+def steering_dynamics_data_processing(df_raw_data):
     mf = model_functions() # instantiate the model functions object
 
     # -------------------  forard integrate the steering signal  -------------------
-    # NOTE this is a bit of a hack
-    T = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
+    dt = df_raw_data['vicon time'].diff().mean()  # Calculate the average time step
 
-    steering = df_raw_data['steering'].to_numpy()
+    #steering = df_raw_data['steering'].to_numpy()
 
     # Initialize variables for the steering prediction
     st = 0
@@ -515,25 +588,23 @@ def steering_dynamics(df_raw_data):
     st_vec_angle_vec = np.zeros(df_raw_data.shape[0])
 
     # Loop through the data to compute the predicted steering angles
-    for k in range(1, df_raw_data.shape[0]):
-        # Calculate the rate of change of steering (steering dot)
-
-        st_dot = (steering[k-1] - st) / T * mf.k_stdn_self
-        
-        # Update the steering value with the time step
-        st += st_dot * T
+    for t in range(1, df_raw_data.shape[0]):
+        ground_truth_refinement = 100 # this is used to integrate the steering angle with a higher resolution to avoid numerical errors
+        for k in range(ground_truth_refinement):
+            st_dot = mf.continuous_time_1st_order_dynamics(st,df_raw_data['steering'].iloc[t-1],mf.k_stdn_self) 
+            # Update the steering value with the time step
+            st += st_dot * dt/ground_truth_refinement
 
         # Compute the steering angle using the two models with weights
-        steering_angle = mf.steering_2_steering_angle(st,
-                                                          mf.a_s_self,
+        steering_angle = mf.steering_2_steering_angle(st, mf.a_s_self,
                                                           mf.b_s_self,
                                                           mf.c_s_self,
                                                           mf.d_s_self,
                                                           mf.e_s_self)
 
         # Store the predicted steering angle
-        st_vec_angle_vec[k] = steering_angle
-        st_vec[k] = st
+        st_vec_angle_vec[t] = steering_angle
+        st_vec[t] = st
 
     return st_vec_angle_vec, st_vec
 
@@ -715,16 +786,27 @@ def process_raw_vicon_data(df,steps_shift):
     # Evaluate steering angle and slip angles as they can be useful to tweak the parameters relative to the measuring system
     
     # evaluate steering angle if it is not provided
-    if 'steering angle' in df.columns:
-        steering_angle = df['steering angle'].to_numpy()
+    # if 'steering angle' in df.columns:
+    #     steering_angle = df['steering angle'].to_numpy()
+    # else:
+    steering_angle = mf.steering_2_steering_angle(df['steering'].to_numpy(),
+                                                            mf.a_s_self,
+                                                            mf.b_s_self,
+                                                            mf.c_s_self,
+                                                            mf.d_s_self,
+                                                            mf.e_s_self)
+    df['steering angle'] = steering_angle 
+
+
+    # if the provided data has the forward euler integrated inputs i.e. it has the input dynamics data, then use that instead
+    if 'steering angle filtered' in df.columns:
+        steering_angle = df['steering angle filtered'].to_numpy()
     else:
-        steering_angle = mf.steering_2_steering_angle(df['steering'].to_numpy(),
-                                                                       mf.a_s_self,
-                                                                       mf.b_s_self,
-                                                                       mf.c_s_self,
-                                                                       mf.d_s_self,
-                                                                       mf.e_s_self)
-        df['steering angle'] = steering_angle
+        steer_angle = df['steering angle'].to_numpy()
+
+
+
+
 
 
     df['Vx_wheel_front'] =  np.cos(-steering_angle) * df['vx body'].to_numpy() - np.sin(-steering_angle)*(df['vy body'].to_numpy() + mf.lf_self*df['w'].to_numpy())
@@ -754,7 +836,7 @@ def process_raw_vicon_data(df,steps_shift):
                       df['ay body no centrifugal'].iloc[i]*mf.m_self,
                      (df['acc_w'].iloc[i])*mf.Jz_self]) 
         
-        steer_angle = df['steering angle'].iloc[i]
+        steer_angle = steering_angle[i] # df['steering angle'].iloc[i]
         
         # accounting for static load partitioning on Fx
         c_front = (mf.m_front_wheel_self)/mf.m_self
@@ -893,7 +975,6 @@ def plot_vicon_data(df):
     ax4.plot(plotting_time_vec, df['unwrapped yaw'].to_numpy(), label="unwrapped theta",color='yellowgreen')
     ax4.plot(plotting_time_vec, df['vicon yaw'].to_numpy(), label="theta raw data", color='darkgreen')
     ax4.legend()
-
 
 
     # plot slip angles
@@ -1146,73 +1227,15 @@ class friction_curve_model(torch.nn.Sequential,model_functions):
         return self.rolling_friction(train_x,a,b,c,d)
 
 
-class motor_curve_model(torch.nn.Sequential,model_functions):
-    def __init__(self,n_previous_throttle):
-        super(motor_curve_model, self).__init__()
-        # define number of past throttle actions to keep use
-        self.n_previous_throttle = n_previous_throttle
-
-
-        # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
-        self.register_parameter(name='a', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-        self.register_parameter(name='b', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-        self.register_parameter(name='c', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-        self.register_parameter(name='d', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-
-
-    def transform_parameters_norm_2_real(self):
-        # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
-        # This method converts normalized values to real values. I.e. maps from [0,1] --> [min_val, max_val]
-        # so every parameter is effectively constrained to be within a certain range.
-        # where min_val max_val are set here in this method as the first arguments of minmax_scale_hm
-        constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
-
-        # motor curve F= (a - v * b) * w * (throttle+c) : w = 0.5 * (torch.tanh(100*(throttle+c))+1)
-        a = self.minmax_scale_hm(0,45,constraint_weights(self.a))
-        b = self.minmax_scale_hm(0,15,constraint_weights(self.b))
-        c = self.minmax_scale_hm(-0.3,0,constraint_weights(self.c))
-        d = self.minmax_scale_hm(0,1,constraint_weights(self.d))
-
-
-        return [a,b,c,d]
-        
-    def minmax_scale_hm(self,min,max,normalized_value):
-    # normalized value should be between 0 and 1
-        return min + normalized_value * (max-min)
-    
-    def forward(self, train_x):  # this is the model that will be fitted
-        throttle = torch.unsqueeze(train_x[:,0],1)
-        v = torch.unsqueeze(train_x[:,1],1)
-        #throttle_prev = torch.unsqueeze(train_x[:,2],1)
-        #throttle_prev_prev = torch.unsqueeze(train_x[:,3],1)
-        throttle_prev = train_x[:,2:2+self.n_previous_throttle]
-
-        # evaluate motor force as a function of the throttle
-        [a,b,c,d] = self.transform_parameters_norm_2_real()
-        # evaluate coefficients for the throttle filter
-        k0 = d
-        k1 = d * (1-d)
-        k2 = d * (1-d)**2
-        k3 = d * (1-d)**3 
-        k4 = d * (1-d)**4 
-        k5 = d * (1-d)**5 
-        sum = (k0+k1+k2+k3+k4+k5)
-
-        k_vec = torch.unsqueeze(torch.cat([k1,k2,k3,k4,k5],0)[:self.n_previous_throttle],1).double()
-
-        throttle_filtered = (k0 * throttle + throttle_prev @ k_vec)/sum
-
-        Fx = self.motor_force(throttle_filtered,v,a,b,c)
-
-        return Fx
-    
 
 
 class motor_and_friction_model(torch.nn.Sequential,model_functions):
-    def __init__(self,n_previous_throttle):
+    def __init__(self,n_previous_throttle,dt,fit_friction_flag):
         super(motor_and_friction_model, self).__init__()
         # define number of past throttle actions to keep use
         self.n_previous_throttle = n_previous_throttle
+        self.dt = dt
+        self.fit_friction_flag = fit_friction_flag
 
 
         # initialize parameters NOTE that the initial values should be [0,1], i.e. they should be the normalized value.
@@ -1220,7 +1243,7 @@ class motor_and_friction_model(torch.nn.Sequential,model_functions):
         self.register_parameter(name='a_m', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
         self.register_parameter(name='b_m', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
         self.register_parameter(name='c_m', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
-        self.register_parameter(name='d_m', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+        self.register_parameter(name='time_C_m', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
         # friction parameters
         self.register_parameter(name='a_f', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
         self.register_parameter(name='b_f', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
@@ -1238,7 +1261,7 @@ class motor_and_friction_model(torch.nn.Sequential,model_functions):
         a_m = self.minmax_scale_hm(0,45,constraint_weights(self.a_m))
         b_m = self.minmax_scale_hm(0,15,constraint_weights(self.b_m))
         c_m = self.minmax_scale_hm(-0.3,0,constraint_weights(self.c_m))
-        d_m = self.minmax_scale_hm(0,1,constraint_weights(self.d_m))
+        time_C_m = self.minmax_scale_hm(0.0001,0.5,constraint_weights(self.time_C_m))
 
         # friction curve F= -  a * tanh(b  * v) - v * c
         a_f = self.minmax_scale_hm(0.1,3.0,constraint_weights(self.a_f))
@@ -1246,7 +1269,7 @@ class motor_and_friction_model(torch.nn.Sequential,model_functions):
         c_f = self.minmax_scale_hm(0.01,2,constraint_weights(self.c_f))
         d_f = self.minmax_scale_hm(-0.2,0.2,constraint_weights(self.d_f))
 
-        return [a_m,b_m,c_m,d_m,a_f,b_f,c_f,d_f]
+        return [a_m,b_m,c_m,time_C_m,a_f,b_f,c_f,d_f]
     
         
     def minmax_scale_hm(self,min,max,normalized_value):
@@ -1254,20 +1277,28 @@ class motor_and_friction_model(torch.nn.Sequential,model_functions):
         return min + normalized_value * (max-min)
     
     def forward(self, train_x):  # this is the model that will be fitted
-        throttle = torch.unsqueeze(train_x[:,0],1)
-        v = torch.unsqueeze(train_x[:,1],1)
-        #throttle_prev = torch.unsqueeze(train_x[:,2],1)
-        #throttle_prev_prev = torch.unsqueeze(train_x[:,3],1)
-        throttle_prev = train_x[:,2:2+self.n_previous_throttle]
+        v = torch.unsqueeze(train_x[:,0],1)
+        throttle_mat = train_x[:,1:]
 
         # evaluate motor force as a function of the throttle
-        [a_m,b_m,c_m,d_m,a_f,b_f,c_f,d_f] = self.transform_parameters_norm_2_real()
+        [a_m,b_m,c_m,time_C_m,a_f,b_f,c_f,d_f] = self.transform_parameters_norm_2_real()
 
-        throttle_filtered = self.throttle_dynamics(throttle,throttle_prev,d_m)
+        k_vec = self.produce_past_action_coefficients_1st_oder_step_response(time_C_m,self.n_previous_throttle,self.dt)
+
+        #k_vec_base = self.produce_past_action_coefficients_1st_oder_step_response(time_C_m,self.n_previous_throttle+1,self.dt) # 
+        # using average between current and following coefficient
+        #k_vec = 0.5 * (k_vec_base[0:-1] + k_vec_base[1:])
+        filtered_throttle_model = throttle_mat @ k_vec
+
+        if self.fit_friction_flag:
+            Friction = self.rolling_friction(v,a_f,b_f,c_f,d_f)
+        else:
+            Friction = self.rolling_friction(v,self.a_f_self,self.b_f_self,self.c_f_self,self.d_f_self)
         
-        Fx = self.motor_force(throttle_filtered,v,a_m,b_m,c_m) + self.rolling_friction(v,a_f,b_f,c_f,d_f)
+        
+        Fx = self.motor_force(filtered_throttle_model,v,a_m,b_m,c_m) + Friction
 
-        return Fx
+        return Fx, filtered_throttle_model, k_vec
 
 
 class steering_curve_model(torch.nn.Sequential,model_functions):
@@ -1462,7 +1493,9 @@ class steering_dynamics_model_first_order(torch.nn.Sequential,model_functions):
         [k] = self.transform_parameters_norm_2_real()
 
         # #produce past action coefficients
-        k_vec = self.produce_past_action_coefficients_1st_oder(k,self.n_past_actions) # 
+        #k_vec = self.produce_past_action_coefficients_1st_oder(k,self.n_past_actions) # 
+        k_vec = self.produce_past_action_coefficients_1st_oder_step_response(k,self.n_past_actions,self.dt)
+
 
         steering = train_x @ k_vec
 
@@ -1774,7 +1807,10 @@ class dyn_model_culomb_tires(model_functions):
         vy = state_action[1]
         w = state_action[2]
         throttle = state_action[3]
-        steer_angle = state_action[4]
+        #steer_angle = state_action[4]
+        steering = state_action[4]
+        # # convert steering to steering angle
+        steer_angle = self.steering_2_steering_angle(steering,self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
 
         # if using pitch dynamics account for the extra load on front tires
         if self.pitch_dynamics_flag:
@@ -1880,7 +1916,7 @@ class dyn_model_culomb_tires_pitch(dyn_model_culomb_tires):
 
 # class full_dynamic_model():
 #     def __init__(self, lr, l_COM, Jz, lf, m,
-#             a_m, b_m, c_m, d_m,
+#             a_m, b_m, c_m, time_C_m,
 #             a_f, b_f, c_f, d_f,
 #             a_s, b_s, c_s, d_s, e_s,
 #             d_t, c_t, b_t,
@@ -1906,7 +1942,7 @@ class dyn_model_culomb_tires_pitch(dyn_model_culomb_tires):
 #         self.a_m =  a_m
 #         self.b_m =  b_m
 #         self.c_m =  c_m
-#         self.d_m =  d_m    
+#         self.time_C_m =  time_C_m    
 
 #         #Friction curve
 #         self.a_f =  a_f
@@ -2027,7 +2063,7 @@ class dyn_model_culomb_tires_pitch(dyn_model_culomb_tires):
 
 
 #         # forwards integrate steering and throttle commands
-#         throttle_time_constant = 0.1 * self.d_m / (1 + self.d_m) # converting from discrete time to continuous time
+#         throttle_time_constant = 0.1 * self.time_C_m / (1 + self.time_C_m) # converting from discrete time to continuous time
 #         throttle_dot = (throttle_command - throttle) / throttle_time_constant
 
 #         # integrate steering

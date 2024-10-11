@@ -134,7 +134,7 @@ ax_steering_angle.legend()
 
 # using a linear layer in an NN with the past steering signals as input to predict the steering angle
 n_past_actions = 50 # 50
-refinement_factor = 10
+refinement_factor = 1
 
 dt =  np.diff(df['vicon time'].to_numpy()).mean() / refinement_factor
 
@@ -183,11 +183,11 @@ for i in tqdm_obj:
 
 
 # print out parameters
-[k] = steering_dynamics_model_first_order_obj.transform_parameters_norm_2_real()
+[k_stdn] = steering_dynamics_model_first_order_obj.transform_parameters_norm_2_real()
 
 # print parameters
 print('First order integrator parameter:')
-print('k = ', k.item())
+print('k_stdn = ', k_stdn.item())
 
 
 
@@ -211,23 +211,20 @@ st = 0
 st_vec_angle_forward_integrated = np.zeros(df.shape[0])
 
 # Loop through the data to compute the predicted steering angles
-for t in range(0, len(true_steering_angle_vec)):
-
-    # for i in range(0,refinement_factor):
-    #     # Calculate the rate of change of steering (steering dot)
-    #     st_dot = k.item() * (df['steering'].iloc[t] - st) / dt
-    #     # Update the steering value with the time step
-    #     st += st_dot * (dt/refinement_factor)
-
+ground_truth_refinement = 100 # this is used to integrate the steering angle with a higher resolution to avoid numerical errors
+for t in range(1, len(true_steering_angle_vec)):
     # Calculate the rate of change of steering (steering dot)
-    st_dot = k.item() * (df['steering'].iloc[t] - st) / dt
-    # Update the steering value with the time step
-    st += st_dot * dt
+    for k in range(ground_truth_refinement):
+        st_dot = mf.continuous_time_1st_order_dynamics(st,df['steering'].iloc[t-1],k_stdn.item()) 
+        # Update the steering value with the time step
+        st += st_dot * dt/ground_truth_refinement
     
     # Store the predicted steering angle
     st_vec_angle_forward_integrated[t] = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
-ax_steering_angle.plot(df['vicon time'].to_numpy(),st_vec_angle_forward_integrated,label='forwards integrated 1st order',color='navy',linewidth=3,linestyle='--')
+
+
+ax_steering_angle.plot(df['vicon time'].to_numpy(),st_vec_angle_forward_integrated,label='Forward Euler integration',color='navy',linewidth=3,linestyle='--')
 ax_steering_angle.legend()
 
 
