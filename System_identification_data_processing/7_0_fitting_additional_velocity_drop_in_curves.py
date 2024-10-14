@@ -1,5 +1,6 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,steering_friction_model,process_vicon_data_kinematics, model_functions
+,dyn_model_culomb_tires,steering_friction_model,process_vicon_data_kinematics, model_functions,\
+throttle_dynamics_data_processing,steering_dynamics_data_processing
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -22,26 +23,65 @@ mf = model_functions()
 
 
 # --- Starting data processing  ------------------------------------------------
+# # check if there is a processed vicon data file already
+# file_name = 'processed_vicon_data.csv'
+# # Check if the CSV file exists in the folder
+# file_path = os.path.join(folder_path, file_name)
+
+
+# steps_shift = 5
+
+# if not os.path.isfile(file_path):
+#     # If the file does not exist, process the raw data
+#     # get the raw data
+#     df_raw_data = get_data(folder_path)
+#     df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift)
+#     df = process_raw_vicon_data(df_kinematics,steps_shift)
+
+#     df.to_csv(file_path, index=False)
+#     print(f"File '{file_path}' saved.")
+# else:
+#     print(f"File '{file_path}' already exists, loading data.")
+#     df = pd.read_csv(file_path)
+
+
+# process data
+
+steps_shift = 5 # decide to filter more or less the vicon data
+
 # check if there is a processed vicon data file already
-file_name = 'processed_vicon_data.csv'
+file_name = 'processed_vicon_data_throttle_steering_dynamics.csv'
 # Check if the CSV file exists in the folder
 file_path = os.path.join(folder_path, file_name)
 
-
-steps_shift = 5
-
 if not os.path.isfile(file_path):
-    # If the file does not exist, process the raw data
-    # get the raw data
     df_raw_data = get_data(folder_path)
+
+    # add throttle with time integrated throttle
+    filtered_throttle = throttle_dynamics_data_processing(df_raw_data)
+    df_raw_data['throttle filtered'] = filtered_throttle
+
+    # add steering angle with time integated version
+    st_angle_vec_FEuler, st_vec_FEuler = steering_dynamics_data_processing(df_raw_data)
+    # over-write the actual data with the forward integrated data
+    df_raw_data['steering angle filtered'] = st_angle_vec_FEuler
+    df_raw_data['steering filtered'] = st_vec_FEuler
+
+    # process kinematics and dynamics
     df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift)
     df = process_raw_vicon_data(df_kinematics,steps_shift)
 
+    #save the processed data file
     df.to_csv(file_path, index=False)
     print(f"File '{file_path}' saved.")
 else:
     print(f"File '{file_path}' already exists, loading data.")
     df = pd.read_csv(file_path)
+
+
+
+
+
 
 
 #cut off time instances where the vicon missed a detection to avoid corrupted datapoints
@@ -156,7 +196,7 @@ dyn_model_culomb_tires_obj = dyn_model_culomb_tires(steering_friction_flag,pitch
 
 
 
-columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering angle']
+columns_to_extract = ['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
 input_data = df[columns_to_extract].to_numpy()
 
 acc_x_model = np.zeros(input_data.shape[0])
@@ -201,6 +241,9 @@ ax.set_xlabel('vx body')
 ax.set_ylabel('steering angel [rad]')
 ax.set_zlabel('Force [N]')
 colorbar = fig.colorbar(scatter, label=color_code_label)
+
+
+
 
 
 # --------------- fitting extra steering friction model---------------

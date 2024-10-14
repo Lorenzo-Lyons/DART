@@ -49,6 +49,7 @@ df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift)
 df = process_raw_vicon_data(df_kinematics,steps_shift)
 
 
+df = df[df['vicon time']<70] # just use first part of data where velocity is quite low to avoid dynamic effects like pitch dynamics
 df = df[df['vx body']>0.2] # remove low velocity points that give undefined slip angles
 
 

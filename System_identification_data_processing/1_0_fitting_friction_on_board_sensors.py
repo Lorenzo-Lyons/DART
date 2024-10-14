@@ -78,7 +78,6 @@ plt.legend()
 print('')
 print('Fitting acceleration curve model')
 
-
 # define first guess for parameters
 # NOTE that the parmeter range constraint is set in the self.transform_parameters_norm_2_real method.
 

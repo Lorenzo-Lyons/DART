@@ -14,22 +14,7 @@ mf = model_functions()
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
-
-#folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
-
-
-#folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'
-
 folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
-
-#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024_fast_ramp'
-
-
 
 # --- Starting data processing  ------------------------------------------------
 
@@ -63,7 +48,6 @@ if not os.path.isfile(file_path):
 else:
     print(f"File '{file_path}' already exists, loading data.")
     df = pd.read_csv(file_path)
-
 
 
 

@@ -17,6 +17,8 @@ mf = model_functions()
 # get the raw data
 df_raw_data = get_data(folder_path)
 
+
+
 # plot raw data
 ax0,ax1,ax2 = plot_raw_data(df_raw_data)
 
@@ -26,32 +28,16 @@ m = mf.m_self #mass of the robot
 
 df = df_raw_data[['elapsed time sensors','throttle','vel encoder']].copy() 
 
+
+
 #evaluate acceleration
 steps = 1
-# acc = (df_raw_data['vel encoder'].to_numpy()[steps:] - df_raw_data['vel encoder'].to_numpy()[:-steps])/(df_raw_data['elapsed time sensors'].to_numpy()[steps:]-df_raw_data['elapsed time sensors'].to_numpy()[:-steps])
-# for i in range(steps):
-#     acc = np.append(acc , 0)# add a zero at the end to have the same length as the original data
-
-shifted_time0 = df['elapsed time sensors'].shift(steps)
-shifted_v0 = df['vel encoder'].shift(steps)
-
-shifted_time2 = df['elapsed time sensors'].shift(0)
-shifted_v2 = df['vel encoder'].shift(0)
-
-# Finite differences
-acc = (shifted_v2 - shifted_v0) / (shifted_time2 - shifted_time0)
-
-# Handle the first and last elements (they will be NaN due to the shift)
-#acc[-steps_shift:] = 0
-acc[:steps] = 0
+acc = (df_raw_data['vel encoder'].to_numpy()[steps:] - df_raw_data['vel encoder'].to_numpy()[:-steps])/(df_raw_data['elapsed time sensors'].to_numpy()[steps:]-df_raw_data['elapsed time sensors'].to_numpy()[:-steps])
+for i in range(steps):
+    acc = np.append(acc , 0)# add a zero at the end to have the same length as the original data
 
 
-
-
-
-df['force'] = m * acc 
-
-
+df['force'] = m * acc
 
 
 
@@ -83,7 +69,7 @@ ax3.legend()
 # --------------- fitting acceleration curve--------------- 
 print('')
 print('Fitting motor and friction model')
-fit_friction_flag = False
+fit_friction_flag = True
 
 
 
@@ -199,7 +185,7 @@ ground_truth_refinement = 100 # this is used to integrate the steering angle wit
 for t in range(1, len(filtered_throttle)):
     # integrate ground trough with a much higher dt to have better numerical accuracy
     for k in range(ground_truth_refinement):
-        th_dot = mf.continuous_time_1st_order_dynamics(th,df_raw_data['throttle'].iloc[t-1],time_C_m) # this 1 step delay is due to how forward euler works
+        th_dot = mf.continuous_time_1st_order_dynamics(th,df_raw_data['throttle'].iloc[t],time_C_m) # this 1 step delay is due to how forward euler works
         th += dt/ground_truth_refinement * th_dot
     filtered_throttle[t] = th
 

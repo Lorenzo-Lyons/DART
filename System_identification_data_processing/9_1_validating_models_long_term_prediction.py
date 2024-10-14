@@ -1,5 +1,5 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,model_parameters,throttle_dynamics_data_processing,\
+,dyn_model_culomb_tires,produce_long_term_predictions,model_functions,throttle_dynamics_data_processing,\
     process_vicon_data_kinematics,steering_dynamics_data_processing
 from matplotlib import pyplot as plt
 import numpy as np
@@ -13,7 +13,7 @@ import os
 # SIMPLE CULOMB friction tyre model.
 
 # chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
-forward_propagate_indexes = [1,2,3] #[1,2,3] # 1 = vx, 2=vy, 3=w
+forward_propagate_indexes = [1,2,3,4,5] #[1,2,3] # 1 = vx, 2=vy, 3=w, 4=throttle, 5=steering
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
@@ -32,7 +32,7 @@ pitch_dynamics_flag = False
 dynamic_model = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
 
 
-mf = model_parameters()
+mf = model_functions()
 
 
 
@@ -50,11 +50,11 @@ if not os.path.isfile(file_path):
     df_raw_data = get_data(folder_path)
 
     
-    # replace throttle with time integrated throttle
+    # add throttle with time integrated throttle
     filtered_throttle = throttle_dynamics_data_processing(df_raw_data)
     df_raw_data['throttle filtered'] = filtered_throttle
 
-    # replace steering angle with time integated version
+    # add steering angle with time integated version
     st_angle_vec_FEuler, st_vec_FEuler = steering_dynamics_data_processing(df_raw_data)
     # over-write the actual data with the forward integrated data
     df_raw_data['steering angle filtered'] = st_angle_vec_FEuler
@@ -75,18 +75,8 @@ else:
 
 
 
-
-
-
-
-
-
-
-
-
-
-# plot raw data
-ax0,ax1,ax2 = plot_raw_data(df)
+# # plot raw data
+# ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot vicon related data (longitudinal and lateral velocities, yaw rate related)
 ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,\
@@ -97,13 +87,24 @@ ax_acc_x_body,ax_acc_y_body,ax_acc_w = plot_vicon_data(df)
 
 
 
-
 # producing long term predictions
-columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','vicon x','vicon y','vicon yaw']
+n_states = 5
+n_inputs = 2
+
+
+columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
 jumps = 25 #25
 long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
+
+
+
+
+
+
+
+
 
 # plot long term predictions over real data
 fig, ((ax10,ax11,ax12)) = plt.subplots(3, 1, figsize=(10, 6))
@@ -148,21 +149,23 @@ fig.subplots_adjust(top=0.995,
                     hspace=0.345,
                     wspace=0.2)
 
+x_index = n_states + n_inputs + 1
+y_index = n_states + n_inputs + 2
+yaw_index = n_states + n_inputs + 3
 
-
-ax13.plot(time_vec_data,input_data_long_term_predictions[:,6],color='dodgerblue',label='x',linewidth=4,linestyle='-')
+ax13.plot(time_vec_data,input_data_long_term_predictions[:,x_index],color='dodgerblue',label='x',linewidth=4,linestyle='-')
 ax13.set_xlabel('time [s]')
 ax13.set_ylabel('y [m]')
 ax13.legend()
 ax13.set_title('trajectory in the x-y plane')
 
-ax14.plot(time_vec_data,input_data_long_term_predictions[:,7],color='orangered',label='y',linewidth=4,linestyle='-')
+ax14.plot(time_vec_data,input_data_long_term_predictions[:,y_index],color='orangered',label='y',linewidth=4,linestyle='-')
 ax14.set_xlabel('time [s]')
 ax14.set_ylabel('y [m]')
 ax14.legend()
 ax14.set_title('trajectory in the x-y plane')
 
-ax15.plot(time_vec_data,input_data_long_term_predictions[:,8],color='orchid',label='yaw',linewidth=4,linestyle='-')
+ax15.plot(time_vec_data,input_data_long_term_predictions[:,yaw_index],color='orchid',label='yaw',linewidth=4,linestyle='-')
 ax15.set_xlabel('time [s]')
 ax15.set_ylabel('yaw [rad]')
 ax15.legend()
@@ -178,7 +181,7 @@ fig.subplots_adjust(top=0.995,
                     hspace=0.345,
                     wspace=0.2)
 
-ax16.plot(input_data_long_term_predictions[:,6],input_data_long_term_predictions[:,7],color='orange',label='trajectory',linewidth=4,linestyle='-')
+ax16.plot(input_data_long_term_predictions[:,x_index],input_data_long_term_predictions[:,y_index],color='orange',label='trajectory',linewidth=4,linestyle='-')
 ax16.set_xlabel('x [m]')
 ax16.set_ylabel('y [m]')
 ax16.legend()
@@ -210,7 +213,7 @@ ax_acc_w.legend()
 
 
 # plot long term predictions
-input_data_acc_prediction = input_data_long_term_predictions[:,[1,2,3,4,5]]
+input_data_acc_prediction = input_data_long_term_predictions[:,1:n_states+n_inputs+1] # [1,2,3,4,5]
 acc_x_model_from_data = np.zeros(df.shape[0])
 acc_y_model_from_data = np.zeros(df.shape[0])
 acc_w_model_from_data = np.zeros(df.shape[0])
@@ -229,28 +232,38 @@ ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w_model_from_data,color='maroon',l
 
 
 
+# plot the input dynamics
+fig, ((ax_th,ax_st)) = plt.subplots(2, 1, figsize=(10, 6))
+ax_th.plot(df['vicon time'].to_numpy(),df['throttle'].to_numpy(),label='throttle',color='gray',linestyle='--')
+ax_th.plot(df['vicon time'].to_numpy(),df['throttle filtered'].to_numpy(),label='throttle filtered',color='dodgerblue')
+ax_th.legend()
 
-
+ax_st.plot(df['vicon time'].to_numpy(),df['steering'].to_numpy(),label='steering',color='gray',linestyle='--')
+ax_st.plot(df['vicon time'].to_numpy(),df['steering filtered'].to_numpy(),label='steering filtered',color='orangered')
+ax_st.legend()
 
 
 
 # plot long term predictions
 
-for i in range(0,len(long_term_predictions)):
-    pred = long_term_predictions[i]
+for pred in long_term_predictions:
+
     #velocities
     ax10.plot(pred[:,0],pred[:,1],color='k',alpha=0.2)
     ax11.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
     ax12.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
     # positions
-    ax13.plot(pred[:,0],pred[:,6],color='k',alpha=0.2)
-    ax14.plot(pred[:,0],pred[:,7],color='k',alpha=0.2)
-    ax15.plot(pred[:,0],pred[:,8],color='k',alpha=0.2)
+    ax13.plot(pred[:,0],pred[:,x_index],color='k',alpha=0.2)
+    ax14.plot(pred[:,0],pred[:,y_index],color='k',alpha=0.2)
+    ax15.plot(pred[:,0],pred[:,yaw_index],color='k',alpha=0.2)
     #trajectory
-    ax16.plot(pred[:,6],pred[:,7],color='k',alpha=0.2)
+    ax16.plot(pred[:,x_index],pred[:,y_index],color='k',alpha=0.2)
+    # input dynamics
+    ax_th.plot(pred[:,0],pred[:,4],color='k',alpha=0.2)
+    ax_st.plot(pred[:,0],pred[:,5],color='k',alpha=0.2)
 
     #accelerations
-    state_action_matrix = pred[:,[1,2,3,4,5]]
+    state_action_matrix = pred[:,1:n_states+n_inputs+1] 
     # add Fx
 
     acc_x_model = np.zeros(pred.shape[0])
