@@ -1979,23 +1979,61 @@ class SVGPModel_actuator_dynamics(ApproximateGP):
         self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=n_inputs))
         # time filtering related
         self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
-        if self.actuator_time_delay_fitting_tag:
-            self.time_delay = torch.nn.Linear(n_past_actions,1)
-            self.time_delay.weight.data.fill_(0.5)
-            self.time_delay.bias.data.fill_(0.5)
+        self.n_past_actions = n_past_actions
+        if self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
+            # self.time_delay_throttle = torch.nn.Linear(n_past_actions,1, bias=False)
+            # self.time_delay_throttle.weight.data.fill_(1/n_past_actions) # default is sliding average
+            # #self.time_delay_throttle.bias.data.fill_(0.5)
+
+            # self.time_delay_steering = torch.nn.Linear(n_past_actions,1, bias=False)
+            # self.time_delay_steering.weight.data.fill_(1/n_past_actions) # default is sliding average
+            # #self.time_delay_steering.bias.data.fill_(0.5)
+            self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+
+    def constrained_linear_layer(self, raw_weights):
+        # Apply softplus to make weights positive
+        positive_weights = torch.nn.functional.softplus(raw_weights)
+        # Normalize the weights along the last dimension so they sum to 1 for each output unit
+        normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
+        # Apply the weights to the input
+        return normalized_weights
+
+    def return_likelyhood_optimizer_objects(self,learning_rate):
+        likelihood = gpytorch.likelihoods.GaussianLikelihood() # gaussian likelihood
+        optimizer = torch.optim.AdamW([{'params': self.parameters()}, {'params': likelihood.parameters()},], lr=learning_rate)
+        return likelihood, optimizer
 
 
     def forward(self, x):
+        # extract throttle and steering inputs
+        if self.actuator_time_delay_fitting_tag != 0: # extract inputs
+            throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
+            steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
 
+            normalized_weights_throttle = self.constrained_linear_layer(self.raw_weights_throttle)
+            normalized_weights_steering = self.constrained_linear_layer(self.raw_weights_steering)
 
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
+            throttle = torch.matmul(throttle_past_actions, normalized_weights_throttle.t())
+            steering = torch.matmul(steering_past_actions, normalized_weights_steering.t())
+
+            x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+        else:
+            x_4_model = x
+
+    
+
+        mean_x = self.mean_module(x_4_model)
+        covar_x = self.covar_module(x_4_model)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
 
 
-def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, train_y_w, n_inducing_points,actuator_time_delay_fitting_tag,n_past_actions):
+def train_SVGP_model(learning_rate,num_epochs,
+                     train_x, train_y_vx, train_y_vy, train_y_w,
+                     n_inducing_points,
+                     actuator_time_delay_fitting_tag,n_past_actions):
     
     # start fitting
     # make contiguous (not sure why)
@@ -2045,11 +2083,14 @@ def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, 
     model_w.train_x = train_x 
     model_w.train_y_w = train_y_w
 
+    # define likelyhood and optimizer objects
+    likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate)
+    likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate)
+    likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate)
 
-    #define likelyhood objects
-    likelihood_vx = gpytorch.likelihoods.GaussianLikelihood()
-    likelihood_vy = gpytorch.likelihoods.GaussianLikelihood()
-    likelihood_w = gpytorch.likelihoods.GaussianLikelihood()
+
+    
+
  
 
 
@@ -2069,12 +2110,6 @@ def train_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, train_y_vy, 
     likelihood_vx.train()
     likelihood_vy.train()
     likelihood_w.train()
-
-    #set up optimizer and its options
-    optimizer_vx = torch.optim.AdamW([{'params': model_vx.parameters()}, {'params': likelihood_vx.parameters()},], lr=learning_rate)
-    optimizer_vy = torch.optim.AdamW([{'params': model_vy.parameters()}, {'params': likelihood_vy.parameters()},], lr=learning_rate)
-    optimizer_w = torch.optim.AdamW([{'params': model_w.parameters()}, {'params': likelihood_w.parameters()},], lr=learning_rate)
-
 
     # Set up loss object. We're using the VariationalELBO
     mll_vx = gpytorch.mlls.VariationalELBO(likelihood_vx, model_vx, num_data=train_y_vx.size(0))#, beta=1)

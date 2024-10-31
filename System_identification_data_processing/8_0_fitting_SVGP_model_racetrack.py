@@ -25,18 +25,15 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 15 # epochs for training the SVGP
+epochs = 20 # epochs for training the SVGP
+learning_rate = 0.01
 
 
 
 # select data folder NOTE: this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
-#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
-#folder_path = 'System_identification_data_processing/Data/free_driving_steer_rate_testing_16_sept_2024'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+
 
 steering_friction_flag = True
 pitch_dynamics_flag = False
@@ -91,12 +88,28 @@ df = df[df['vicon time']<66.5]
 
 
 # plot raw data
-ax0,ax1,ax2 = plot_raw_data(df)
+#ax0,ax1,ax2 = plot_raw_data(df)
 
 # plot 
-plot_vicon_data(df)
+#plot_vicon_data(df)
 
+# plotting body frame accelerations and data fitting results 
+fig, ((ax_x,ax_y,ax_w)) = plt.subplots(3, 1, figsize=(10, 6))
+fig.subplots_adjust(top=0.96,
+bottom=0.055,
+left=0.05,
+right=0.995,
+hspace=0.345,
+wspace=0.2)
 
+# add accelerations
+ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
+ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
+# add inputs
+ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
+ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
 
 
 
@@ -105,14 +118,15 @@ plot_vicon_data(df)
 
 # train the SVGP model
 n_inducing_points = 400
-learning_rate = 0.01
+
 
       
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
 # 2 = linear layer time delay fitting
-actuator_time_delay_fitting_tag = 0 
+actuator_time_delay_fitting_tag = 2
+n_past_actions = [] # default value
 
 
 
@@ -123,7 +137,7 @@ else:
     columns_to_extract = ['vx body', 'vy body', 'w'] #  angle time delayed
     train_x_states = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
 
-    n_past_actions = 50
+    n_past_actions = 30
     refinement_factor = 1 # no need to refine the time interval between data points
     train_x_throttle = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'throttle')
     train_x_steering = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'steering')
@@ -173,6 +187,34 @@ likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epoc
 
 
 
+# show linear layer weights
+if actuator_time_delay_fitting_tag != 0:
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
+    # x
+    normalized_weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)
+    normalized_weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)
+    ax1.plot(normalized_weights_throttle_vx.detach().cpu().numpy()[0],color='dodgerblue',label='throttle weights')
+    ax1.plot(normalized_weights_steering_vx.detach().cpu().numpy()[0],color='orangered',label='steering weights')
+    # y
+    normalized_weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)
+    normalized_weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)
+    ax2.plot(normalized_weights_throttle_vy.detach().cpu().numpy()[0],color='dodgerblue',label='throttle weights')
+    ax2.plot(normalized_weights_steering_vy.detach().cpu().numpy()[0],color='orangered',label='steering weights')
+    # w
+    normalized_weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)
+    normalized_weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)
+    ax3.plot(normalized_weights_throttle_w.detach().cpu().numpy()[0],color='dodgerblue',label='throttle weights')
+    ax3.plot(normalized_weights_steering_w.detach().cpu().numpy()[0],color='orangered',label='steering weights')
+
+    # add legends
+    ax1.legend()
+    ax2.legend()
+    ax3.legend()
+
+
+
+
+
 # display fitting results
 
 # Get into evaluation (predictive posterior) mode
@@ -190,31 +232,26 @@ lower_y, upper_y = preds_ay.confidence_region()
 lower_w, upper_w = preds_aw.confidence_region()
 
 
-# plotting body frame accelerations and data fitting results 
-fig, ((ax1,ax2,ax3)) = plt.subplots(3, 1, figsize=(10, 6))
-fig.subplots_adjust(top=0.995,
-                    bottom=0.11,
-                    left=0.095,
-                    right=0.995,
-                    hspace=0.345,
-                    wspace=0.2)
+
+
+
+
 
 # plot fitting results
-ax1.set_title('ax in body frame')
-ax1.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-ax1.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax1.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax1.legend()
+ax_x.set_title('ax in body frame')
+ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
+ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
+ax_x.legend()
 
-ax2.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
-ax2.plot(df['vicon time'].to_numpy(),preds_ay.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax2.fill_between(df['vicon time'].to_numpy(), lower_y.detach().cpu().numpy(), upper_y.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax2.legend()
+ax_y.set_title('ay in body frame')
+ax_y.plot(df['vicon time'].to_numpy(),preds_ay.mean.detach().cpu().numpy(),color='k',label='model prediction')
+ax_y.fill_between(df['vicon time'].to_numpy(), lower_y.detach().cpu().numpy(), upper_y.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
+ax_y.legend()
 
-ax3.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
-ax3.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax3.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax3.legend()
+ax_w.set_title('aw in body frame')
+ax_w.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color='k',label='model prediction')
+ax_w.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
+ax_w.legend()
 
 
 plt.show()
