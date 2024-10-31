@@ -1,16 +1,13 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,dyn_model_SVGP,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten
+,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,dyn_model_SVGP,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten,\
+throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics, model_functions,generate_tensor_past_actions
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
 import pandas as pd
-import glob
 import os
-from scipy.interpolate import CubicSpline
-import matplotlib
 import tqdm
-font = {'family' : 'normal',
-        'size'   : 10}
+
 
 #matplotlib.rc('font', **font)
 
@@ -28,67 +25,69 @@ font = {'family' : 'normal',
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 50 # epochs for training the SVGP
-jumps = 200 # how many intervals between the long term predicions
+epochs = 15 # epochs for training the SVGP
+
+
+
+# select data folder NOTE: this assumes that the current directory is DART
+#folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
+#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+#folder_path = 'System_identification_data_processing/Data/free_driving_steer_rate_testing_16_sept_2024'
+#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
+#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
+
+steering_friction_flag = True
+pitch_dynamics_flag = False
+
+
+
+mf = model_functions()
+
+
+
+# process data
+
+steps_shift = 5 # decide to filter more or less the vicon data
+
+
+# check if there is a processed vicon data file already
+file_name = 'processed_vicon_data_throttle_steering_dynamics.csv'
+# Check if the CSV file exists in the folder
+file_path = os.path.join(folder_path, file_name)
+
+if not os.path.isfile(file_path):
+    df_raw_data = get_data(folder_path)
+
+    
+    # add throttle with time integrated throttle
+    filtered_throttle = throttle_dynamics_data_processing(df_raw_data)
+    df_raw_data['throttle filtered'] = filtered_throttle
+
+    # add steering angle with time integated version
+    st_angle_vec_FEuler, st_vec_FEuler = steering_dynamics_data_processing(df_raw_data)
+    # over-write the actual data with the forward integrated data
+    df_raw_data['steering angle filtered'] = st_angle_vec_FEuler
+    df_raw_data['steering filtered'] = st_vec_FEuler
+
+    # process kinematics and dynamics
+    df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift)
+    df = process_raw_vicon_data(df_kinematics,steps_shift)
+
+    #save the processed data file
+    df.to_csv(file_path, index=False)
+    print(f"File '{file_path}' saved.")
+else:
+    print(f"File '{file_path}' already exists, loading data.")
+    df = pd.read_csv(file_path)
 
 
 
 
-# this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/5_tire_model_data' 
-#folder_path = 'System_identification_data_processing/Data/6_racetrack_lap_v_060' 
-folder_path = 'System_identification_data_processing/Data/7_racetrack_lap_v_1' 
-
-# get the raw data
-df_raw_data = get_data(folder_path)
-
-
-#these are delays between robot time and robot reaction
-delay_th = 0.01 # [s]
-delay_st = 0.14 # [s]
-#this is the delay between the vicon time and the robot time
-delay_vicon_to_robot = 0.1 #0.05 #[s]
-
-
-l = 0.175
-lr = 0.53*l #0.45 the reference point taken by the data is not exaclty in the center of the vehicle
-
-lf = l-lr
-theta_correction = 1.5/180*np.pi #0.5/180*np.pi works for front wheel and 1.5 works for back wheel
-
-df = process_raw_vicon_data(df_raw_data,delay_th,delay_st,delay_vicon_to_robot,lf,lr,theta_correction)
-
-
-
-# use this if using v=0.60 dataset
-if folder_path == 'System_identification_data_processing/Data/6_racetrack_lap_v_060':
-    time_cut = 30
-    df = df[df['elapsed time sensors'] > time_cut]
-
-elif folder_path == 'System_identification_data_processing/Data/7_racetrack_lap_v_1':
-    time_cut =  18
-    time_finish = 28 # 33.5 #
-    #highlighting sharp corner clockwise (w<0)
-    # time_cut =  27
-    # time_finish = 31
-    #highlighting slow corner anticlockwise (w>0)
-    # time_cut =  19.5
-    # time_finish = 28
-    df = df[df['elapsed time sensors'] > time_cut]
-    df = df[df['elapsed time sensors'] < time_finish]
-
-
-elif folder_path == 'System_identification_data_processing/Data/5_tire_model_data':
-    df1 = df[df['elapsed time sensors'] > 5.0]
-    df1 = df1[df1['elapsed time sensors'] < 58.7]
-
-    df2 = df[df['elapsed time sensors'] > 77.7]
-    df2 = df2[df2['elapsed time sensors'] < 135.0] # 140.0 156
-
-    # Concatenate all DataFrames into a single DataFrame vertically
-    df = pd.concat((df1,df2), axis=0, ignore_index=True)
-
-
+# cut time up to 66.5 s
+df = df[df['vicon time']>8.5] 
+df = df[df['vicon time']<66.5]  
 
 
 # plot raw data
@@ -98,84 +97,44 @@ ax0,ax1,ax2 = plot_raw_data(df)
 plot_vicon_data(df)
 
 
-# inertial charcteristics
-m = 1.67
-Jz = 0.006513 # uniform rectangle of shape 0.18 x 0.12
 
 
-# evaluate forces in body frame starting from the ones in the absolute frame
-ax_body_vec = np.zeros(df.shape[0])
-ay_body_vec = np.zeros(df.shape[0])
-aw_body_vec = np.zeros(df.shape[0])
-
-# just for checking
-ay_centripetal_vec = np.zeros(df.shape[0])
-
-
-# since now the steering angle is not fixed, it is a good idea to apply the first order filter to it, to recover the true steering angle
-# Time step (sampling period)
-df = df.copy()
-T = df['elapsed time sensors'].diff().mean()  # Calculate the average time step
-# Time delay
-tau = 0.15
-# Filter coefficient
-alpha = T / (T + tau)
-# Initialize the filtered steering angle list
-filtered_steering_angle = [df['steering angle'].iloc[0]]
-# Apply the first-order filter
-for i in range(1, len(df)):
-    filtered_value = alpha * df['steering angle'].iloc[i] + (1 - alpha) * filtered_steering_angle[-1]
-    filtered_steering_angle.append(filtered_value)
-
-# Add the filtered values to the DataFrame
-df['steering angle time delayed'] = filtered_steering_angle
-
-# plot the steering angle time delayed vs W
-plt.figure()
-plt.plot(df['vicon time'].to_numpy(),df['steering angle'].to_numpy(),label='steering angle')
-plt.plot(df['vicon time'].to_numpy(),df['steering angle time delayed'].to_numpy(),label='steering angle time delayed')
-plt.plot(df['vicon time'].to_numpy(),df['w_abs_filtered'].to_numpy(),label='w filtered')
-plt.legend()
-
-
-
-
-# evaluate accelerations in the body frame
-for i in range(0,df.shape[0]):
-    b = np.array([df['ax_abs_filtered_more'].iloc[i],
-                  df['ay_abs_filtered_more'].iloc[i],
-                  df['aw_abs_filtered_more'].iloc[i]])
-    
-    yaw_i = df['unwrapped yaw'].iloc[i]
-
-    R = np.array([[+np.cos(-yaw_i),-np.sin(-yaw_i),0],
-                  [+np.sin(-yaw_i),np.cos(-yaw_i), 0],
-                  [0             ,0          ,1]])
-    
-    [ax_i, ay_i, aw_i] = R @ b
-
-
-    ax_body_vec[i] = ax_i
-    ay_body_vec[i] = ay_i- df['w_abs_filtered'].iloc[i]*df['vx body'].iloc[i]
-    aw_body_vec[i] = aw_i
-    ay_centripetal_vec[i] = df['w_abs_filtered'].iloc[i]*df['vx body'].iloc[i]
 
 
 
 
 # train the SVGP model
 n_inducing_points = 400
-learning_rate = 0.05
+learning_rate = 0.01
 
       
 # generate data in tensor form for torch
-#df['throttle'] = df['throttle'] - 0.2 # shifting to actual activation range
-columns_to_extract = ['vx body', 'vy body', 'w_abs_filtered', 'throttle' ,'steering'] #  angle time delayed
-SVGP_training_data = df[columns_to_extract].to_numpy()
-train_x = torch.tensor(SVGP_training_data).cuda()
-train_y_vx = torch.unsqueeze(torch.tensor(ax_body_vec),1).cuda() 
-train_y_vy = torch.unsqueeze(torch.tensor(ay_body_vec),1).cuda() 
-train_y_w  = torch.unsqueeze(torch.tensor(aw_body_vec),1).cuda() 
+# 0 = no time delay fitting
+# 1 = physics-based time delay fitting (1st order)
+# 2 = linear layer time delay fitting
+actuator_time_delay_fitting_tag = 0 
+
+
+
+if actuator_time_delay_fitting_tag == 0:
+    columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering'] #  angle time delayed
+    train_x = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
+else:
+    columns_to_extract = ['vx body', 'vy body', 'w'] #  angle time delayed
+    train_x_states = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
+
+    n_past_actions = 50
+    refinement_factor = 1 # no need to refine the time interval between data points
+    train_x_throttle = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'throttle')
+    train_x_steering = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'steering')
+
+    train_x = torch.cat((train_x_states,train_x_throttle,train_x_steering),1) # concatenate
+
+
+# produce y lables
+train_y_vx = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda()
+train_y_vy = torch.unsqueeze(torch.tensor(df['ay body'].to_numpy()),1).cuda()
+train_y_w  = torch.unsqueeze(torch.tensor(df['acc_w'].to_numpy()),1).cuda()
 
 #cast to float to avoid issues with data types
 # add some state noise to stabilize predictions in the long term
@@ -202,7 +161,15 @@ train_y_w = train_y_w.to(torch.float32)
 
 
 
-model_vx, model_vy, model_w, likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs, train_x, train_y_vx, train_y_vy, train_y_w, n_inducing_points)
+model_vx, model_vy, model_w,\
+likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs,
+                                                              train_x,
+                                                              train_y_vx,
+                                                              train_y_vy,
+                                                              train_y_w,
+                                                              n_inducing_points,
+                                                              actuator_time_delay_fitting_tag,
+                                                              n_past_actions)
 
 
 
@@ -234,27 +201,23 @@ fig.subplots_adjust(top=0.995,
 
 # plot fitting results
 ax1.set_title('ax in body frame')
-ax1.plot(df['vicon time'].to_numpy(),ax_body_vec,label='ax',color='dodgerblue')
-#ax1.plot(df['vicon time'].to_numpy(),train_y_vx.detach().cpu().numpy(),label='labels',color='navy')
+ax1.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
 ax1.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
 ax1.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
 ax1.legend()
 
-ax2.plot(df['vicon time'].to_numpy(),ay_body_vec,label='ay',color='orangered')
-#ax2.plot(df['vicon time'].to_numpy(),train_y_vy.detach().cpu().numpy(),label='labels',color='navy')
+ax2.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
 ax2.plot(df['vicon time'].to_numpy(),preds_ay.mean.detach().cpu().numpy(),color='k',label='model prediction')
-#ax2.plot(df['vicon time'].to_numpy(),ay_centripetal_vec,color='orange',label='centripetal acc',linestyle='--')
 ax2.fill_between(df['vicon time'].to_numpy(), lower_y.detach().cpu().numpy(), upper_y.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
 ax2.legend()
 
-ax3.plot(df['vicon time'].to_numpy(),aw_body_vec,label='aw',color='orchid')
-#ax3.plot(df['vicon time'].to_numpy(),train_y_w.detach().cpu().numpy(),label='labels',color='navy')
+ax3.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
 ax3.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color='k',label='model prediction')
 ax3.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
 ax3.legend()
 
 
-
+plt.show()
 
 
 
@@ -323,7 +286,6 @@ S_w = model_w.variational_strategy.variational_distribution.covariance_matrix.de
 # K_XX + k_XZ K_ZZ^{-1/2} (S - I) K_ZZ^{-1/2} k_ZX
 
 # solve the pre-post multiplication block
-from scipy.linalg import solve_triangular
 
 # Define a lower triangular matrix L and a matrix B
 L_inv_x = np.linalg.inv(np.linalg.cholesky(KZZ_x + jitter_term))
@@ -468,6 +430,7 @@ if check_SVGP_analytic_rebuild:
 
 
 
+plt.show()
 
 
 
@@ -475,6 +438,41 @@ if check_SVGP_analytic_rebuild:
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# REMOVE AFTER MAKING SURE THAT THE gp modle works with the new implementation of long term predictions
 
 
 
