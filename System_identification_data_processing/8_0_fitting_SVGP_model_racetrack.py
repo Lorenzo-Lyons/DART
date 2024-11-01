@@ -1,6 +1,8 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,dyn_model_SVGP,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten,\
-throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics, model_functions,generate_tensor_past_actions
+throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics,generate_tensor_past_actions,\
+SVGPModel_actuator_dynamics
+
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
@@ -25,9 +27,13 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 20 # epochs for training the SVGP
+epochs = 5 # epochs for training the SVGP
 learning_rate = 0.01
-
+# generate data in tensor form for torch
+# 0 = no time delay fitting
+# 1 = physics-based time delay fitting (1st order)
+# 2 = linear layer time delay fitting
+actuator_time_delay_fitting_tag = 0
 
 
 # select data folder NOTE: this assumes that the current directory is DART
@@ -35,18 +41,9 @@ learning_rate = 0.01
 folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
 
 
-steering_friction_flag = True
-pitch_dynamics_flag = False
-
-
-
-mf = model_functions()
-
-
-
 # process data
 
-steps_shift = 5 # decide to filter more or less the vicon data
+steps_shift = 2 # decide to filter more or less the vicon data
 
 
 # check if there is a processed vicon data file already
@@ -94,7 +91,7 @@ df = df[df['vicon time']<66.5]
 #plot_vicon_data(df)
 
 # plotting body frame accelerations and data fitting results 
-fig, ((ax_x,ax_y,ax_w)) = plt.subplots(3, 1, figsize=(10, 6))
+fig, ((ax_x,ax_y,ax_w)) = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
 fig.subplots_adjust(top=0.96,
 bottom=0.055,
 left=0.05,
@@ -117,15 +114,11 @@ ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_nump
 
 
 # train the SVGP model
-n_inducing_points = 400
+n_inducing_points = 100
 
 
       
-# generate data in tensor form for torch
-# 0 = no time delay fitting
-# 1 = physics-based time delay fitting (1st order)
-# 2 = linear layer time delay fitting
-actuator_time_delay_fitting_tag = 2
+
 n_past_actions = [] # default value
 
 
@@ -137,7 +130,7 @@ else:
     columns_to_extract = ['vx body', 'vy body', 'w'] #  angle time delayed
     train_x_states = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
 
-    n_past_actions = 30
+    n_past_actions = 50
     refinement_factor = 1 # no need to refine the time interval between data points
     train_x_throttle = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'throttle')
     train_x_steering = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'steering')
@@ -174,7 +167,7 @@ train_y_w = train_y_w.to(torch.float32)
 
 
 
-
+dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
 model_vx, model_vy, model_w,\
 likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs,
                                                               train_x,
@@ -183,7 +176,7 @@ likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epoc
                                                               train_y_w,
                                                               n_inducing_points,
                                                               actuator_time_delay_fitting_tag,
-                                                              n_past_actions)
+                                                              n_past_actions,dt)
 
 
 
@@ -191,20 +184,51 @@ likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epoc
 if actuator_time_delay_fitting_tag != 0:
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
     # x
-    normalized_weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)
-    normalized_weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)
-    ax1.plot(normalized_weights_throttle_vx.detach().cpu().numpy()[0],color='dodgerblue',label='throttle weights')
-    ax1.plot(normalized_weights_steering_vx.detach().cpu().numpy()[0],color='orangered',label='steering weights')
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = model_vx.transform_parameters_norm_2_real()
+        weights_throttle_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        #print out time parameter
+        print('model vx')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)[0]
+        weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)[0]
+    ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+    ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
+
+
     # y
-    normalized_weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)
-    normalized_weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)
-    ax2.plot(normalized_weights_throttle_vy.detach().cpu().numpy()[0],color='dodgerblue',label='throttle weights')
-    ax2.plot(normalized_weights_steering_vy.detach().cpu().numpy()[0],color='orangered',label='steering weights')
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = model_vy.transform_parameters_norm_2_real()
+        weights_throttle_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        # print out time parameter
+        print('model vy')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)[0]
+        weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)[0]
+    ax2.plot(weights_throttle_vy.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+    ax2.plot(weights_steering_vy.detach().cpu().numpy(),color='orangered',label='steering weights')
+
     # w
-    normalized_weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)
-    normalized_weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)
-    ax3.plot(normalized_weights_throttle_w.detach().cpu().numpy()[0],color='dodgerblue',label='throttle weights')
-    ax3.plot(normalized_weights_steering_w.detach().cpu().numpy()[0],color='orangered',label='steering weights')
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = model_w.transform_parameters_norm_2_real()
+        weights_throttle_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        # print out time parameter
+        print('model w')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)[0]
+        weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)[0]
+    ax3.plot(weights_throttle_w.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+    ax3.plot(weights_steering_w.detach().cpu().numpy(),color='orangered',label='steering weights')
 
     # add legends
     ax1.legend()
@@ -253,8 +277,6 @@ ax_w.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color
 ax_w.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
 ax_w.legend()
 
-
-plt.show()
 
 
 
@@ -371,6 +393,111 @@ if over_write_saved_parameters:
 
 
 
+
+
+
+# create a subset of the data to speed up future taining runs
+sigma_threshold = 0.2 # when all points in the dataset have less than this value, the subsampling stops
+indexes_to_keep = []
+updated_model = SVGPModel_actuator_dynamics(model_vx.variational_strategy.inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt).cuda()
+updated_model.covar_module.base_kernel.raw_lengthscale = model_vx.covar_module.base_kernel.raw_lengthscale
+updated_model.covar_module.raw_outputscale = model_vx.covar_module.raw_outputscale
+
+# for visualization purposes
+plt.ion()
+fig, ax_x = plt.subplots(1, 1, figsize=(10, 6), sharex=True)
+fig.subplots_adjust(top=0.96,
+bottom=0.055,
+left=0.05,
+right=0.995,
+hspace=0.345,
+wspace=0.2)
+
+# add accelerations
+ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+ax_x.set_title('ax in body frame')
+ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
+ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
+ax_x.legend()
+
+import gpytorch
+from torch.utils.data import TensorDataset, DataLoader
+train_dataset_subsampling = TensorDataset(train_x, train_y_vx)
+train_loader_subsampling = DataLoader(train_dataset_subsampling, batch_size=250, shuffle=True)
+
+
+max_sigma = sigma_threshold + 1 # initial value must be higher than the threshold
+while max_sigma > sigma_threshold:
+    preds_ax = updated_model(train_x)
+    lower_x, upper_x = preds_ax.confidence_region()  # use variance
+    uncertainty_x = (upper_x - lower_x) / 2
+
+    # add the point with the most uncertainty to the inducing points
+    # Find the index of the maximum uncertainty
+    max_uncertainty_idx = torch.argmax(uncertainty_x)
+    max_sigma = torch.max(uncertainty_x)
+
+    # Retrieve the point in train_x with the highest uncertainty
+    most_uncertain_point = train_x[max_uncertainty_idx]
+    indexes_to_keep.append(max_uncertainty_idx.item())
+
+    # Append this point to the inducing points
+    new_inducing_points = torch.cat([updated_model.variational_strategy.inducing_points, most_uncertain_point.unsqueeze(0)], dim=0)
+
+    # update the model with the new inducing point
+    updated_model = SVGPModel_actuator_dynamics(new_inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt).cuda()
+    updated_model.covar_module.base_kernel.lengthscale = model_vx.covar_module.base_kernel.lengthscale
+    updated_model.covar_module.outputscale = model_vx.covar_module.outputscale
+    # run 1 epoch of training
+    likelihood_subsampling,optimizer_subsampling = updated_model.return_likelyhood_optimizer_objects(learning_rate)
+    likelihood_subsampling.cuda()
+    mll_subsampling = gpytorch.mlls.VariationalELBO(likelihood_subsampling, updated_model, num_data=train_y_vx.size(0))
+
+    minibatch_iter_subsampling = tqdm.tqdm(train_loader_subsampling, desc="Minibatch subsampling", leave=False, disable=True)
+    for x_batch_subsampling, y_batch_subsampling in minibatch_iter_subsampling:
+        optimizer_subsampling.zero_grad()
+        output_subsampling = updated_model(x_batch_subsampling)
+        loss_subsampling = -mll_subsampling(output_subsampling, y_batch_subsampling[:,0])
+        minibatch_iter_subsampling.set_postfix(loss=loss_subsampling.item())
+        loss_subsampling.backward()
+        optimizer_subsampling.step()
+
+    
+    print(f'added point {max_uncertainty_idx} with uncertainty {max_sigma.item()}') 
+
+    # add visuals
+    # Allow the plot to update
+    ax_x.clear()
+    ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+    ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
+    ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+    for kk in range(0,len(indexes_to_keep)):
+        ax_x.axvline(df['vicon time'].iloc[indexes_to_keep[kk]], color='r', linestyle='--', label='subsampled points')
+    ax_x.legend()
+    plt.pause(0.1)  # Pause to allow the plot to refresh
+
+plt.ioff()  # Disable interactive mode
+
+# when subsampling is finished take a subset of the data and save it as a new pandas dataframe
+df_subset = df.iloc[indexes_to_keep]
+subset_file_path = os.path.join(folder_path, 'active_learning_df_subset.csv')
+df_subset.to_csv(subset_file_path, index=False)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 if check_SVGP_analytic_rebuild:
     # storing for later plot
     two_sigma_cov_rebuilt_x = np.zeros(train_x.shape[0])
@@ -384,7 +511,6 @@ if check_SVGP_analytic_rebuild:
     analytic_predictions_iter = tqdm.tqdm(range(train_x.shape[0]), desc="analytic predictions")
     for i in analytic_predictions_iter:
         loc = np.expand_dims(train_x.cpu().numpy()[i,:],0)
-
 
         kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
 
@@ -437,26 +563,26 @@ if check_SVGP_analytic_rebuild:
     # ----- plot over the model training results -----
 
     #ax.plot(train_x.cpu().numpy(), rebuilt_mean,'red',label='pseudo points',linewidth=5)
-    ax1.plot(df['vicon time'].to_numpy(), mean_mS_x, 'orange',linestyle='--',label='mean mS')
+    ax_x.plot(df['vicon time'].to_numpy(), mean_mS_x, 'orange',linestyle='--',label='mean mS')
 
     #plot covariance rebuilt using m and S
-    ax1.fill_between(df['vicon time'].to_numpy(),mean_mS_x - two_sigma_cov_rebuilt_x,
+    ax_x.fill_between(df['vicon time'].to_numpy(),mean_mS_x - two_sigma_cov_rebuilt_x,
                     mean_mS_x + two_sigma_cov_rebuilt_x, alpha=0.3,label='covariance mS',color='orange')
 
 
     #ax.plot(train_x.cpu().numpy(), rebuilt_mean,'red',label='pseudo points',linewidth=5)
-    ax2.plot(df['vicon time'].to_numpy(), mean_mS_y, 'orange',linestyle='--',label='mean mS')
+    ax_y.plot(df['vicon time'].to_numpy(), mean_mS_y, 'orange',linestyle='--',label='mean mS')
 
     #plot covariance rebuilt using m and S
-    ax2.fill_between(df['vicon time'].to_numpy(),mean_mS_y - two_sigma_cov_rebuilt_y,
+    ax_y.fill_between(df['vicon time'].to_numpy(),mean_mS_y - two_sigma_cov_rebuilt_y,
                     mean_mS_y + two_sigma_cov_rebuilt_y, alpha=0.3,label='covariance mS',color='orange')
 
 
     #ax.plot(train_x.cpu().numpy(), rebuilt_mean,'red',label='pseudo points',linewidth=5)
-    ax3.plot(df['vicon time'].to_numpy(), mean_mS_w, 'orange',linestyle='--',label='mean mS')
+    ax_w.plot(df['vicon time'].to_numpy(), mean_mS_w, 'orange',linestyle='--',label='mean mS')
 
     #plot covariance rebuilt using m and S
-    ax3.fill_between(df['vicon time'].to_numpy(),mean_mS_w - two_sigma_cov_rebuilt_w,
+    ax_w.fill_between(df['vicon time'].to_numpy(),mean_mS_w - two_sigma_cov_rebuilt_w,
                     mean_mS_w + two_sigma_cov_rebuilt_w, alpha=0.3,label='covariance mS',color='orange')
 
 
@@ -465,12 +591,7 @@ if check_SVGP_analytic_rebuild:
 
 
 
-
-
 plt.show()
-
-
-
 
 
 

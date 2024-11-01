@@ -590,7 +590,7 @@ def process_vicon_data_kinematics(df,steps_shift):
     df['steering'] = zoh_interp(df['vicon time'].to_numpy())
 
     
-    robot2vicon_delay = 5 # samples delay between the robot and the vicon data # very important to get it right (you can see the robot reacting to throttle and steering inputs before they have happened otherwise)
+    robot2vicon_delay = 0 # samples delay between the robot and the vicon data # very important to get it right (you can see the robot reacting to throttle and steering inputs before they have happened otherwise)
     # this is beacause the lag between vicon-->laptop, and robot-->laptop is different. (The vicon data arrives sooner)
 
     # there is a timedelay between robot and vicon system. Ideally the right way to do this would be to shift BACKWARDS in time the robot data.
@@ -1968,8 +1968,8 @@ from gpytorch.variational import VariationalStrategy
 
 
 # SVGP 
-class SVGPModel_actuator_dynamics(ApproximateGP):
-    def __init__(self,inducing_points,actuator_time_delay_fitting_tag,n_past_actions):
+class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
+    def __init__(self,inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt):
         n_inputs = 5 # how many inputs will be given to the SVGP after time delay fitting has happened
 
         variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
@@ -1980,17 +1980,23 @@ class SVGPModel_actuator_dynamics(ApproximateGP):
         # time filtering related
         self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
         self.n_past_actions = n_past_actions
-        if self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
-            # self.time_delay_throttle = torch.nn.Linear(n_past_actions,1, bias=False)
-            # self.time_delay_throttle.weight.data.fill_(1/n_past_actions) # default is sliding average
-            # #self.time_delay_throttle.bias.data.fill_(0.5)
+        self.dt = dt
 
-            # self.time_delay_steering = torch.nn.Linear(n_past_actions,1, bias=False)
-            # self.time_delay_steering.weight.data.fill_(1/n_past_actions) # default is sliding average
-            # #self.time_delay_steering.bias.data.fill_(0.5)
+        if self.actuator_time_delay_fitting_tag == 1:
+            # add time constant parameters
+            self.register_parameter('time_C_throttle', torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+            self.register_parameter('time_C_steering', torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+            self.constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+            
+        elif self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
             self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
             self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
-
+    def transform_parameters_norm_2_real(self):
+        
+        time_C_throttle = self.minmax_scale_hm(0.001,0.1,self.constraint_weights(self.time_C_throttle))
+        time_C_steering = self.minmax_scale_hm(0.001,0.1,self.constraint_weights(self.time_C_steering))
+        return [time_C_throttle,time_C_steering] 
+    
     def constrained_linear_layer(self, raw_weights):
         # Apply softplus to make weights positive
         positive_weights = torch.nn.functional.softplus(raw_weights)
@@ -2011,11 +2017,17 @@ class SVGPModel_actuator_dynamics(ApproximateGP):
             throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
             steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
 
-            normalized_weights_throttle = self.constrained_linear_layer(self.raw_weights_throttle)
-            normalized_weights_steering = self.constrained_linear_layer(self.raw_weights_steering)
+            if self.actuator_time_delay_fitting_tag == 1: # using physics informed
+                [time_C_throttle,time_C_steering] = self.transform_parameters_norm_2_real()
+                weights_throttle = self.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,self.n_past_actions,self.dt).float()
+                weights_steering = self.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,self.n_past_actions,self.dt).float()
 
-            throttle = torch.matmul(throttle_past_actions, normalized_weights_throttle.t())
-            steering = torch.matmul(steering_past_actions, normalized_weights_steering.t())
+            elif self.actuator_time_delay_fitting_tag == 2: # using linear layer
+                weights_throttle = self.constrained_linear_layer(self.raw_weights_throttle).t()
+                weights_steering = self.constrained_linear_layer(self.raw_weights_steering).t()
+
+            throttle = torch.matmul(throttle_past_actions, weights_throttle)
+            steering = torch.matmul(steering_past_actions, weights_steering)
 
             x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
         else:
@@ -2033,7 +2045,7 @@ class SVGPModel_actuator_dynamics(ApproximateGP):
 def train_SVGP_model(learning_rate,num_epochs,
                      train_x, train_y_vx, train_y_vy, train_y_w,
                      n_inducing_points,
-                     actuator_time_delay_fitting_tag,n_past_actions):
+                     actuator_time_delay_fitting_tag,n_past_actions,dt):
     
     # start fitting
     # make contiguous (not sure why)
@@ -2062,9 +2074,9 @@ def train_SVGP_model(learning_rate,num_epochs,
     inducing_points = inducing_points.to(torch.float32)
 
     #initialize models
-    model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions)
-    model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions)
-    model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions)
+    model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+    model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+    model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
 
 
     # assign first guess lengthscales                                                            vx, vy ,w, throttle,steer
