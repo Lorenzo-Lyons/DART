@@ -2044,8 +2044,11 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
 def train_SVGP_model(learning_rate,num_epochs,
                      train_x, train_y_vx, train_y_vy, train_y_w,
-                     n_inducing_points,
-                     actuator_time_delay_fitting_tag,n_past_actions,dt):
+                     inducing_points,
+                     actuator_time_delay_fitting_tag,n_past_actions,dt,
+                    model_vx,model_vy,model_w,
+                    likelihood_vx,likelihood_vy,likelihood_w,
+                    optimizer_vx,optimizer_vy,optimizer_w):
     
     # start fitting
     # make contiguous (not sure why)
@@ -2066,17 +2069,17 @@ def train_SVGP_model(learning_rate,num_epochs,
     train_loader_w = DataLoader(train_dataset_w, batch_size=250, shuffle=True)
 
     #choosing initial guess inducing points as a random subset of the training data
-    random.seed(10) # set the seed so to have same points for every run
-    # random selection of inducing points
-    random_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
-    inducing_points = train_x[random_indexes, :]
+    # random.seed(10) # set the seed so to have same points for every run
+    # # random selection of inducing points
+    # random_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
+    # inducing_points = train_x[random_indexes, :]
 
-    inducing_points = inducing_points.to(torch.float32)
+    #inducing_points = inducing_points.to(torch.float32)
 
     #initialize models
-    model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-    model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-    model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+    # model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+    # model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+    # model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
 
 
     # assign first guess lengthscales                                                            vx, vy ,w, throttle,steer
@@ -2096,9 +2099,9 @@ def train_SVGP_model(learning_rate,num_epochs,
     model_w.train_y_w = train_y_w
 
     # define likelyhood and optimizer objects
-    likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate)
-    likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate)
-    likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate)
+    # likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate)
+    # likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate)
+    # likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate)
 
 
     
@@ -2128,8 +2131,8 @@ def train_SVGP_model(learning_rate,num_epochs,
     mll_vy = gpytorch.mlls.VariationalELBO(likelihood_vy, model_vy, num_data=train_y_vy.size(0))#, beta=1)
     mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=train_y_w.size(0))#, beta=1)
 
-    # start training (tqdm is just to show the loading bar)
-    epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
+    
+    
 
 
 
@@ -2137,11 +2140,15 @@ def train_SVGP_model(learning_rate,num_epochs,
     loss_2_print_vy_vec = []
     loss_2_print_w_vec = []
 
-    for i in epochs_iter:
+    minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False, disable=True)
+    minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False, disable=True)
+    minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False, disable=True)
+    
+    # start training (tqdm is just to show the loading bar)
+    #epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
+    for i in range(num_epochs): # epochs_iter
         # Within each iteration, we will go over each minibatch of data
-        minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False, disable=True)
-        minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False, disable=True)
-        minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False, disable=True)
+
 
         for x_batch_vx, y_batch_vx in minibatch_iter_vx:
             optimizer_vx.zero_grad()
@@ -2174,12 +2181,12 @@ def train_SVGP_model(learning_rate,num_epochs,
         loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
            
     #plot loss functions
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
-    ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
-    ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
-    ax.legend()
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    # ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+    # ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+    # ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+    # ax.legend()
 
 
     #move to gpu for later evaluation

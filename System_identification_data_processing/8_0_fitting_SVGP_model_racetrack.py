@@ -27,7 +27,7 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 5 # epochs for training the SVGP
+epochs = 1 # epochs for training the SVGP
 learning_rate = 0.01
 # generate data in tensor form for torch
 # 0 = no time delay fitting
@@ -43,7 +43,7 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 
 # process data
 
-steps_shift = 2 # decide to filter more or less the vicon data
+steps_shift = 5 # decide to filter more or less the vicon data
 
 
 # check if there is a processed vicon data file already
@@ -80,7 +80,7 @@ else:
 
 
 # cut time up to 66.5 s
-df = df[df['vicon time']>8.5] 
+df = df[df['vicon time']>7.5] 
 df = df[df['vicon time']<66.5]  
 
 
@@ -115,11 +115,8 @@ ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_nump
 
 # train the SVGP model
 n_inducing_points = 100
-
-
-      
-
 n_past_actions = [] # default value
+
 
 
 
@@ -137,27 +134,10 @@ else:
 
     train_x = torch.cat((train_x_states,train_x_throttle,train_x_steering),1) # concatenate
 
-
 # produce y lables
 train_y_vx = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda()
 train_y_vy = torch.unsqueeze(torch.tensor(df['ay body'].to_numpy()),1).cuda()
 train_y_w  = torch.unsqueeze(torch.tensor(df['acc_w'].to_numpy()),1).cuda()
-
-#cast to float to avoid issues with data types
-# add some state noise to stabilize predictions in the long term
-# Define different standard deviations for each column
-std_devs = [0.0, 0.0, 0.0]  
-
-# Generate noise for each column with the specified standard deviations
-noise1 = torch.randn(train_x.size(0)) * std_devs[0]
-noise2 = torch.randn(train_x.size(0)) * std_devs[1]
-noise3 = torch.randn(train_x.size(0)) * std_devs[2]
-
-# Add the noise to the first three columns
-train_x[:, 0] += noise1.cuda()
-train_x[:, 1] += noise2.cuda()
-train_x[:, 2] += noise3.cuda()
-
 
 # convert to float to avoid issues with data types
 train_x = train_x.to(torch.float32)
@@ -167,20 +147,217 @@ train_y_w = train_y_w.to(torch.float32)
 
 
 
+
+
+# active learning
+# select an initial subset of the training data
+import random
+# random selection of initial subset of datapoints
+subset_indexes = random.choices(range(df.shape[0]), k=n_inducing_points)
+#subset_indexes = list(range(0,n_inducing_points)) # get first n_inducing_points
+
+train_x_subset = train_x[subset_indexes,:] # select chosen points
+train_y_vx_subset = train_y_vx[subset_indexes,:]
+train_y_vy_subset = train_y_vy[subset_indexes,:]
+train_y_w_subset = train_y_w[subset_indexes,:]
+
+# set inducing points to be the data since you now have exactly this amount of data points
+inducing_points = train_x_subset.to(torch.float32)
+
+
+
+
+#cast to float to avoid issues with data types
+# add some state noise to stabilize predictions in the long term
+# Define different standard deviations for each column
+# std_devs = [0.0, 0.0, 0.0]  
+
+# # Generate noise for each column with the specified standard deviations
+# noise1 = torch.randn(train_x.size(0)) * std_devs[0]
+# noise2 = torch.randn(train_x.size(0)) * std_devs[1]
+# noise3 = torch.randn(train_x.size(0)) * std_devs[2]
+
+# # Add the noise to the first three columns
+# train_x[:, 0] += noise1.cuda()
+# train_x[:, 1] += noise2.cuda()
+# train_x[:, 2] += noise3.cuda()
+
 dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
-model_vx, model_vy, model_w,\
-likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs,
-                                                              train_x,
-                                                              train_y_vx,
-                                                              train_y_vy,
-                                                              train_y_w,
-                                                              n_inducing_points,
-                                                              actuator_time_delay_fitting_tag,
-                                                              n_past_actions,dt)
+
+#initialize models
+model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+
+
+# define likelyhood and optimizer objects
+likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate)
+likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate)
+likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate)
 
 
 
-# show linear layer weights
+# start training loop
+stdd_rateo_threshold = 0.1 # when all points in the dataset have less than this value, the subsampling stops
+max_uncertainty_rateo = 1
+# for plotting
+plt.ion()
+
+while max_uncertainty_rateo > stdd_rateo_threshold:
+
+    model_vx, model_vy, model_w,\
+    likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs,
+                                                                train_x_subset,
+                                                                train_y_vx_subset,
+                                                                train_y_vy_subset,
+                                                                train_y_w_subset,
+                                                                inducing_points,
+                                                                actuator_time_delay_fitting_tag,
+                                                                n_past_actions,dt,
+                                                                model_vx,model_vy,model_w,
+                                                                likelihood_vx,likelihood_vy,likelihood_w,
+                                                                optimizer_vx,optimizer_vy,optimizer_w)
+    
+
+
+    # get prior distribution stddev
+    prior_stdd_x = np.sqrt(model_vx.covar_module.outputscale.item())
+    prior_stdd_y = np.sqrt(model_vy.covar_module.outputscale.item())
+    prior_stdd_w = np.sqrt(model_w.covar_module.outputscale.item())
+
+
+    # add the point with the most uncertainty to the inducing points
+    # Find the index of the maximum uncertainty
+    preds_ax = model_vx(train_x)
+    preds_ay = model_vy(train_x)
+    preds_aw = model_w(train_x)
+
+    max_stdd_x = torch.max(preds_ax.variance).item()**0.5
+    max_stdd_y = torch.max(preds_ay.variance).item()**0.5
+    max_stdd_w = torch.max(preds_aw.variance).item()**0.5
+
+    # evalaute max rateo
+    stdd_rateo_x = max_stdd_x/prior_stdd_x 
+    stdd_rateo_y = max_stdd_y/prior_stdd_y
+    stdd_rateo_w = max_stdd_w/prior_stdd_w
+
+    # find index of the maximum rateo
+    max_uncertainty_rateo_dimension = torch.argmax(torch.tensor([stdd_rateo_x,stdd_rateo_y,stdd_rateo_w])).item()
+    max_uncertainty_rateo = torch.max(torch.tensor([stdd_rateo_x,stdd_rateo_y,stdd_rateo_w])).item()
+
+    if max_uncertainty_rateo_dimension == 0:
+        max_uncertainty_idx = torch.argmax(preds_ax.variance).item()
+    elif max_uncertainty_rateo_dimension == 1:
+        max_uncertainty_idx = torch.argmax(preds_ay.variance).item()
+    elif max_uncertainty_rateo_dimension == 2:
+        max_uncertainty_idx = torch.argmax(preds_aw.variance).item()
+    
+
+    if max_uncertainty_idx not in subset_indexes:
+        subset_indexes.append(max_uncertainty_idx)
+        epochs = 1
+    else:
+        print(f"Index {max_uncertainty_idx} is already in the subset_indexes list.")
+        # use maximum distance between data and predictive mean
+        max_abs_error_x = torch.max(torch.abs(train_y_vx - preds_ax.mean)).item()
+        max_abs_error_y = torch.max(torch.abs(train_y_vy - preds_ay.mean)).item()
+        max_abs_error_w = torch.max(torch.abs(train_y_w - preds_aw.mean)).item()
+        max_abs_error_dimension = torch.argmax(torch.tensor([max_abs_error_x,max_abs_error_y,max_abs_error_w])).item()
+
+        if max_abs_error_dimension == 0:
+            error_x = torch.abs(torch.squeeze(train_y_vx) - preds_ax.mean) / (torch.max(train_y_vx).item()-torch.min(train_y_vx).item())
+            max_uncertainty_idx_mean = torch.argmax(error_x).item()
+        elif max_abs_error_dimension == 1:
+            error_y = torch.abs(torch.squeeze(train_y_vy) - preds_ay.mean) / (torch.max(train_y_vy).item()-torch.min(train_y_vy).item())
+            max_uncertainty_idx_mean = torch.argmax(error_y).item()
+        elif max_abs_error_dimension == 2:
+            error_w = torch.abs(torch.squeeze(train_y_w) - preds_aw.mean) / (torch.max(train_y_w).item()-torch.min(train_y_w).item())
+            max_uncertainty_idx_mean = torch.argmax(error_w).item()
+
+        if max_uncertainty_idx_mean not in subset_indexes:
+            subset_indexes.append(max_uncertainty_idx_mean)
+            epochs = 1 
+        else:
+            print(f"Index {max_uncertainty_idx_mean} is AGAIN in the subset_indexes list.")
+            epochs = 20
+
+        
+
+
+    #update the subset of data
+    train_x_subset = train_x[subset_indexes,:] # select chosen points
+    train_y_vx_subset = train_y_vx[subset_indexes,:]
+    train_y_vy_subset = train_y_vy[subset_indexes,:]
+    train_y_w_subset = train_y_w[subset_indexes,:]
+
+
+
+
+    # plotting
+
+
+    lower_x, upper_x = preds_ax.confidence_region()
+    lower_y, upper_y = preds_ay.confidence_region()
+    lower_w, upper_w = preds_aw.confidence_region()
+
+    # plot fitting results
+    ax_x.cla()  # Clear the axis
+    ax_y.cla()  # Clear the axis
+    ax_w.cla()  # Clear the axis
+
+    # add accelerations
+    ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+    ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
+    ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
+    # add inputs
+    ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
+    ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+    ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+
+
+
+    ax_x.set_title('ax in body frame')
+    ax_plot_mean = ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
+    aax_plot_confidence = ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+    ax_x.legend()
+
+    ax_y.set_title('ay in body frame')
+    ax_y.plot(df['vicon time'].to_numpy(),preds_ay.mean.detach().cpu().numpy(),color='k',label='model prediction')
+    ax_y.fill_between(df['vicon time'].to_numpy(), lower_y.detach().cpu().numpy(), upper_y.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+    ax_y.legend()
+
+    ax_w.set_title('aw in body frame')
+    ax_w.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color='k',label='model prediction')
+    ax_w.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+    ax_w.legend()
+
+    # add veritcal lines where the subset of data is
+    for kk in range(0,len(subset_indexes)):
+        if kk <100:
+            alpha = 0.3
+            color ='gray'
+        else:
+            alpha = 1
+            color = 'r'
+        
+        ax_x.axvline(df['vicon time'].iloc[subset_indexes[kk]], color=color, linestyle='--', label='subsampled points',alpha=alpha)
+        ax_y.axvline(df['vicon time'].iloc[subset_indexes[kk]], color=color, linestyle='--', label='subsampled points',alpha=alpha)
+        ax_w.axvline(df['vicon time'].iloc[subset_indexes[kk]], color=color, linestyle='--', label='subsampled points',alpha=alpha)
+
+    #print('max uncertainty rateo dim (0=x,1=y,2=w) = ', max_uncertainty_rateo_dimension)
+    print(f'added point {max_uncertainty_idx} with uncertainty {max_uncertainty_rateo}')
+    plt.pause(0.1)  # Pause to allow the plot to refresh
+
+plt.ioff()
+
+
+
+
+
+
+
+
+    # show linear layer weights
 if actuator_time_delay_fitting_tag != 0:
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
     # x
@@ -246,36 +423,12 @@ model_vx.eval()
 model_vy.eval()
 model_w.eval()
 
-#evaluate model on training dataset
-preds_ax = model_vx(train_x)
-preds_ay = model_vy(train_x)
-preds_aw = model_w(train_x)
-
-lower_x, upper_x = preds_ax.confidence_region()
-lower_y, upper_y = preds_ay.confidence_region()
-lower_w, upper_w = preds_aw.confidence_region()
 
 
 
 
 
 
-
-# plot fitting results
-ax_x.set_title('ax in body frame')
-ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax_x.legend()
-
-ax_y.set_title('ay in body frame')
-ax_y.plot(df['vicon time'].to_numpy(),preds_ay.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax_y.fill_between(df['vicon time'].to_numpy(), lower_y.detach().cpu().numpy(), upper_y.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax_y.legend()
-
-ax_w.set_title('aw in body frame')
-ax_w.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax_w.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax_w.legend()
 
 
 
@@ -396,92 +549,92 @@ if over_write_saved_parameters:
 
 
 
-# create a subset of the data to speed up future taining runs
-sigma_threshold = 0.2 # when all points in the dataset have less than this value, the subsampling stops
-indexes_to_keep = []
-updated_model = SVGPModel_actuator_dynamics(model_vx.variational_strategy.inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt).cuda()
-updated_model.covar_module.base_kernel.raw_lengthscale = model_vx.covar_module.base_kernel.raw_lengthscale
-updated_model.covar_module.raw_outputscale = model_vx.covar_module.raw_outputscale
+# # create a subset of the data to speed up future taining runs
+# sigma_threshold = 0.2 # when all points in the dataset have less than this value, the subsampling stops
+# indexes_to_keep = []
+# updated_model = SVGPModel_actuator_dynamics(model_vx.variational_strategy.inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt).cuda()
+# updated_model.covar_module.base_kernel.raw_lengthscale = model_vx.covar_module.base_kernel.raw_lengthscale
+# updated_model.covar_module.raw_outputscale = model_vx.covar_module.raw_outputscale
 
-# for visualization purposes
-plt.ion()
-fig, ax_x = plt.subplots(1, 1, figsize=(10, 6), sharex=True)
-fig.subplots_adjust(top=0.96,
-bottom=0.055,
-left=0.05,
-right=0.995,
-hspace=0.345,
-wspace=0.2)
+# # for visualization purposes
+# plt.ion()
+# fig, ax_x = plt.subplots(1, 1, figsize=(10, 6), sharex=True)
+# fig.subplots_adjust(top=0.96,
+# bottom=0.055,
+# left=0.05,
+# right=0.995,
+# hspace=0.345,
+# wspace=0.2)
 
-# add accelerations
-ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-ax_x.set_title('ax in body frame')
-ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
-ax_x.legend()
+# # add accelerations
+# ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+# ax_x.set_title('ax in body frame')
+# ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
+# ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence')
+# ax_x.legend()
 
-import gpytorch
-from torch.utils.data import TensorDataset, DataLoader
-train_dataset_subsampling = TensorDataset(train_x, train_y_vx)
-train_loader_subsampling = DataLoader(train_dataset_subsampling, batch_size=250, shuffle=True)
+# import gpytorch
+# from torch.utils.data import TensorDataset, DataLoader
+# train_dataset_subsampling = TensorDataset(train_x, train_y_vx)
+# train_loader_subsampling = DataLoader(train_dataset_subsampling, batch_size=250, shuffle=True)
 
 
-max_sigma = sigma_threshold + 1 # initial value must be higher than the threshold
-while max_sigma > sigma_threshold:
-    preds_ax = updated_model(train_x)
-    lower_x, upper_x = preds_ax.confidence_region()  # use variance
-    uncertainty_x = (upper_x - lower_x) / 2
+# max_sigma = sigma_threshold + 1 # initial value must be higher than the threshold
+# while max_sigma > sigma_threshold:
+#     preds_ax = updated_model(train_x)
+#     lower_x, upper_x = preds_ax.confidence_region()  # use variance
+#     uncertainty_x = (upper_x - lower_x) / 2
 
-    # add the point with the most uncertainty to the inducing points
-    # Find the index of the maximum uncertainty
-    max_uncertainty_idx = torch.argmax(uncertainty_x)
-    max_sigma = torch.max(uncertainty_x)
+#     # add the point with the most uncertainty to the inducing points
+#     # Find the index of the maximum uncertainty
+#     max_uncertainty_idx = torch.argmax(uncertainty_x)
+#     max_sigma = torch.max(uncertainty_x)
 
-    # Retrieve the point in train_x with the highest uncertainty
-    most_uncertain_point = train_x[max_uncertainty_idx]
-    indexes_to_keep.append(max_uncertainty_idx.item())
+#     # Retrieve the point in train_x with the highest uncertainty
+#     most_uncertain_point = train_x[max_uncertainty_idx]
+#     indexes_to_keep.append(max_uncertainty_idx.item())
 
-    # Append this point to the inducing points
-    new_inducing_points = torch.cat([updated_model.variational_strategy.inducing_points, most_uncertain_point.unsqueeze(0)], dim=0)
+#     # Append this point to the inducing points
+#     new_inducing_points = torch.cat([updated_model.variational_strategy.inducing_points, most_uncertain_point.unsqueeze(0)], dim=0)
 
-    # update the model with the new inducing point
-    updated_model = SVGPModel_actuator_dynamics(new_inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt).cuda()
-    updated_model.covar_module.base_kernel.lengthscale = model_vx.covar_module.base_kernel.lengthscale
-    updated_model.covar_module.outputscale = model_vx.covar_module.outputscale
-    # run 1 epoch of training
-    likelihood_subsampling,optimizer_subsampling = updated_model.return_likelyhood_optimizer_objects(learning_rate)
-    likelihood_subsampling.cuda()
-    mll_subsampling = gpytorch.mlls.VariationalELBO(likelihood_subsampling, updated_model, num_data=train_y_vx.size(0))
+#     # update the model with the new inducing point
+#     updated_model = SVGPModel_actuator_dynamics(new_inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt).cuda()
+#     updated_model.covar_module.base_kernel.lengthscale = model_vx.covar_module.base_kernel.lengthscale
+#     updated_model.covar_module.outputscale = model_vx.covar_module.outputscale
+#     # run 1 epoch of training
+#     likelihood_subsampling,optimizer_subsampling = updated_model.return_likelyhood_optimizer_objects(learning_rate)
+#     likelihood_subsampling.cuda()
+#     mll_subsampling = gpytorch.mlls.VariationalELBO(likelihood_subsampling, updated_model, num_data=train_y_vx.size(0))
 
-    minibatch_iter_subsampling = tqdm.tqdm(train_loader_subsampling, desc="Minibatch subsampling", leave=False, disable=True)
-    for x_batch_subsampling, y_batch_subsampling in minibatch_iter_subsampling:
-        optimizer_subsampling.zero_grad()
-        output_subsampling = updated_model(x_batch_subsampling)
-        loss_subsampling = -mll_subsampling(output_subsampling, y_batch_subsampling[:,0])
-        minibatch_iter_subsampling.set_postfix(loss=loss_subsampling.item())
-        loss_subsampling.backward()
-        optimizer_subsampling.step()
+#     minibatch_iter_subsampling = tqdm.tqdm(train_loader_subsampling, desc="Minibatch subsampling", leave=False, disable=True)
+#     for x_batch_subsampling, y_batch_subsampling in minibatch_iter_subsampling:
+#         optimizer_subsampling.zero_grad()
+#         output_subsampling = updated_model(x_batch_subsampling)
+#         loss_subsampling = -mll_subsampling(output_subsampling, y_batch_subsampling[:,0])
+#         minibatch_iter_subsampling.set_postfix(loss=loss_subsampling.item())
+#         loss_subsampling.backward()
+#         optimizer_subsampling.step()
 
     
-    print(f'added point {max_uncertainty_idx} with uncertainty {max_sigma.item()}') 
+#     print(f'added point {max_uncertainty_idx} with uncertainty {max_sigma.item()}') 
 
-    # add visuals
-    # Allow the plot to update
-    ax_x.clear()
-    ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-    ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
-    ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-    for kk in range(0,len(indexes_to_keep)):
-        ax_x.axvline(df['vicon time'].iloc[indexes_to_keep[kk]], color='r', linestyle='--', label='subsampled points')
-    ax_x.legend()
-    plt.pause(0.1)  # Pause to allow the plot to refresh
+#     # add visuals
+#     # Allow the plot to update
+#     ax_x.clear()
+#     ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+#     ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
+#     ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+#     for kk in range(0,len(indexes_to_keep)):
+#         ax_x.axvline(df['vicon time'].iloc[indexes_to_keep[kk]], color='r', linestyle='--', label='subsampled points')
+#     ax_x.legend()
+#     plt.pause(0.1)  # Pause to allow the plot to refresh
 
-plt.ioff()  # Disable interactive mode
+# plt.ioff()  # Disable interactive mode
 
-# when subsampling is finished take a subset of the data and save it as a new pandas dataframe
-df_subset = df.iloc[indexes_to_keep]
-subset_file_path = os.path.join(folder_path, 'active_learning_df_subset.csv')
-df_subset.to_csv(subset_file_path, index=False)
+# # when subsampling is finished take a subset of the data and save it as a new pandas dataframe
+# df_subset = df.iloc[indexes_to_keep]
+# subset_file_path = os.path.join(folder_path, 'active_learning_df_subset.csv')
+# df_subset.to_csv(subset_file_path, index=False)
 
 
 
