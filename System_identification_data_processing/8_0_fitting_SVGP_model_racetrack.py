@@ -226,7 +226,7 @@ while max_uncertainty_rateo > stdd_rateo_threshold:
     prior_stdd_w = np.sqrt(model_w.covar_module.outputscale.item())
 
 
-    # add the point with the most uncertainty to the inducing points
+    # add the point with the most uncertainty to the dataset
     # Find the index of the maximum uncertainty
     preds_ax = model_vx(train_x)
     preds_ay = model_vy(train_x)
@@ -255,7 +255,7 @@ while max_uncertainty_rateo > stdd_rateo_threshold:
 
     if max_uncertainty_idx not in subset_indexes:
         subset_indexes.append(max_uncertainty_idx)
-        epochs = 1
+        epochs = 20
     else:
         print(f"Index {max_uncertainty_idx} is already in the subset_indexes list.")
         # use maximum distance between data and predictive mean
@@ -276,7 +276,7 @@ while max_uncertainty_rateo > stdd_rateo_threshold:
 
         if max_uncertainty_idx_mean not in subset_indexes:
             subset_indexes.append(max_uncertainty_idx_mean)
-            epochs = 1 
+            epochs = 20 
         else:
             print(f"Index {max_uncertainty_idx_mean} is AGAIN in the subset_indexes list.")
             epochs = 20
@@ -291,11 +291,38 @@ while max_uncertainty_rateo > stdd_rateo_threshold:
     train_y_w_subset = train_y_w[subset_indexes,:]
 
 
+    # !! also update the inducing points !!
+
+    # identify the least informative inducing point
+    inducing_points_x = model_vx.variational_strategy.inducing_points
+    inducing_points_y = model_vy.variational_strategy.inducing_points
+    inducing_points_w = model_w.variational_strategy.inducing_points
+
+    # evaluate kernel matrix
+    KZZ_x = model_vx.covar_module(inducing_points_x)
+    KZZ_y = model_vy.covar_module(inducing_points_y)
+    KZZ_w = model_w.covar_module(inducing_points_w)
+
+    # select row with the highest sum
+    sum_KZZ_x = torch.sum(KZZ_x,1)
+    sum_KZZ_y = torch.sum(KZZ_y,1)
+    sum_KZZ_w = torch.sum(KZZ_w,1)
+
+    # find the index of the least informative inducing point
+    least_informative_idx_x = torch.argmax(sum_KZZ_x).item()
+    least_informative_idx_y = torch.argmax(sum_KZZ_y).item()
+    least_informative_idx_w = torch.argmax(sum_KZZ_w).item()
+
+    # replace the least informative inducing point with the new data point
+    with torch.no_grad():
+        inducing_points_x[least_informative_idx_x,:] = train_x[max_uncertainty_idx,:]
+        inducing_points_y[least_informative_idx_y,:] = train_x[max_uncertainty_idx,:]
+        inducing_points_w[least_informative_idx_w,:] = train_x[max_uncertainty_idx,:]
+
+
 
 
     # plotting
-
-
     lower_x, upper_x = preds_ax.confidence_region()
     lower_y, upper_y = preds_ay.confidence_region()
     lower_w, upper_w = preds_aw.confidence_region()
