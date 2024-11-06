@@ -225,7 +225,6 @@ while max_uncertainty_rateo > stdd_rateo_threshold:
     prior_stdd_y = np.sqrt(model_vy.covar_module.outputscale.item())
     prior_stdd_w = np.sqrt(model_w.covar_module.outputscale.item())
 
-
     # add the point with the most uncertainty to the dataset
     # Find the index of the maximum uncertainty
     preds_ax = model_vx(train_x)
