@@ -231,10 +231,10 @@ while max_stdd_rateo > stdd_rateo_threshold * acceptable_rateo_increase:
     plt.pause(0.1)
 
 
-    a = 1
     # replace the least informative inducing point with the new data point
     with torch.no_grad():
         inducing_points[least_informative_idx] = x.clone()[max_uncertainty_idx]
+        model.variational_strategy._variational_distribution.variational_mean.data[least_informative_idx] = y.clone()[max_uncertainty_idx]
     #   model.variational_strategy.inducing_points[least_informative_idx] = x[max_uncertainty_idx]
 
 
