@@ -2005,9 +2005,13 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         # Apply the weights to the input
         return normalized_weights
 
-    def return_likelyhood_optimizer_objects(self,learning_rate):
+    def return_likelyhood_optimizer_objects(self,learning_rate,fit_likelihood_noise_tag,raw_likelihood_noise):
         likelihood = gpytorch.likelihoods.GaussianLikelihood() # gaussian likelihood
-        optimizer = torch.optim.AdamW([{'params': self.parameters()}, {'params': likelihood.parameters()},], lr=learning_rate)
+        if fit_likelihood_noise_tag:
+            optimizer = torch.optim.AdamW([{'params': self.parameters()}, {'params': likelihood.parameters()},], lr=learning_rate)
+        else:
+            likelihood.noise_covar.raw_noise.data = torch.tensor([raw_likelihood_noise]).cuda()
+            optimizer = torch.optim.AdamW([{'params': self.parameters()}], lr=learning_rate)
         return likelihood, optimizer
 
 
@@ -2040,6 +2044,53 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
+# simple SVGP model 
+class SVGPModel(ApproximateGP):
+    def __init__(self,inducing_points):
+        variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
+        variational_strategy = VariationalStrategy(self, inducing_points, variational_distribution, learn_inducing_locations=True)
+        super(SVGPModel, self).__init__(variational_strategy)
+        self.mean_module = gpytorch.means.ZeroMean()
+        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=5))
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+# plot simple SVGP output
+def plot_GP(ax,x,y,subset_indexes,model,likelihood,resolution,df):
+    resolution = resolution * 0.99
+    # move to cpu
+    x = x.cpu()
+    y = y.cpu()
+    model = model.cpu()
+    likelihood = likelihood.cpu()
+
+    # plot subset with an orange circle
+    ax.plot(df['vicon time'].to_numpy()[subset_indexes], y[subset_indexes].cpu().numpy(), 'o', color='orange',alpha=0.5,markersize=3)
+
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        observed_pred_likelyhood = likelihood(model(x))
+        lower_likelyhood, upper_likelyhood = observed_pred_likelyhood.confidence_region()
+        ax.plot(df['vicon time'].to_numpy(), observed_pred_likelyhood.mean.cpu().numpy(), 'k')
+        ax.fill_between(df['vicon time'].to_numpy(), lower_likelyhood.cpu().numpy(), upper_likelyhood.cpu().numpy(), alpha=0.3)
+
+        # obseved pred epistemic uncertainty
+        observed_pred_model = model(x)
+        lower_model, upper_model = observed_pred_model.confidence_region()
+        ax.fill_between(df['vicon time'].to_numpy(), lower_model.cpu().numpy(), upper_model.cpu().numpy(), alpha=0.3, color='k')
+
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Training Data')
+
+    #move back to gpu
+    x = x.cuda()
+    y = y.cuda()
+    model = model.cuda()
+    likelihood = likelihood.cuda()
 
 
 def train_SVGP_model(learning_rate,num_epochs,
@@ -2145,8 +2196,8 @@ def train_SVGP_model(learning_rate,num_epochs,
     minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False, disable=True)
     
     # start training (tqdm is just to show the loading bar)
-    #epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
-    for i in range(num_epochs): # epochs_iter
+    epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
+    for i in epochs_iter: #range(num_epochs):
         # Within each iteration, we will go over each minibatch of data
 
 

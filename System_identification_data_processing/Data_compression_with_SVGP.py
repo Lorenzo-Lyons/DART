@@ -44,12 +44,9 @@ else:
     df = pd.read_csv(file_path)
 
 
-# cut time up to 66.5 s
-# df = df[df['vicon time']>7.5] 
-# df = df[df['vicon time']<66.5]  
 
-# df = df[df['vicon time']>34] 
-# df = df[df['vicon time']<36.5] 
+
+
 
 
 # plotting body frame accelerations and data fitting results 
@@ -154,12 +151,12 @@ subset_indexes_initnial_fit = random.sample(range(x.size(0)), n_inducing) # to g
 inducing_points = x[subset_indexes_initnial_fit,:] # first n datapoints
 # here you can test the algorithm by giving the first data samples as inducing points
 #subset_indexes = random.sample(range(x.size(0)), n_inducing)
-subset_indexes = list(range(n_inducing))
+subset_indexes = subset_indexes_initnial_fit.copy() #list(range(n_inducing))
 x_subset = x.clone()[subset_indexes]
 y_subset = y.clone()[subset_indexes]
 
 
-training_iterations = 60
+training_iterations = 100
 training_iterations_retraining = 60
 # plot training data and inducing points
 
@@ -174,8 +171,8 @@ likelihood = gpytorch.likelihoods.GaussianLikelihood()
 likelihood.train()
 likelihood = likelihood.cuda()
 # assign the likelihood noise that was fitted previously on a static input-output point (i.e. we have measured the noise in the y data)
-raw_likely_hood_noise_from_noise_measurement = -4.736683
-likelihood.noise_covar.raw_noise.data = torch.tensor([raw_likely_hood_noise_from_noise_measurement]).cuda()
+raw_likely_hood_noise_from_noise_measurement_x = 5.675664 #-4.736683
+likelihood.noise_covar.raw_noise.data = torch.tensor([raw_likely_hood_noise_from_noise_measurement_x]).cuda()
 
 
 optimizer = torch.optim.Adam([
@@ -248,13 +245,7 @@ max_stdd = torch.max(preds.variance).item()**0.5 # evaluate max uncertainty
 
 # evalaute max rateo
 stdd_rateo_threshold = max_stdd/prior_stdd 
-acceptable_rateo_increase = 1.0 #we allow 10% increase in the rateo
-
-
-
-#initially assign the x subset to the inducing points
-# x_subset = x_subset.detach()  # Detach to avoid any gradient tracking
-# model.variational_strategy.inducing_points.data = x_subset
+acceptable_rateo_increase = 1 #we allow 10% increase in the rateo  # TESTING!!!! JUST TO TO SET UP Y DATA PART TOO
 
 
 # start training loop
@@ -278,9 +269,8 @@ while max_stdd_rateo > stdd_rateo_threshold * acceptable_rateo_increase:
     # now just optimize the inducing points locations
     # Only optimize the inducing points
 
-
     # Use the adam optimizer
-    #mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=y_subset.size(0))
+    mll = gpytorch.mlls.VariationalELBO(likelihood, model, num_data=y_subset.size(0))
 
     # update the training data loader
     train_dataset_retrain = TensorDataset(x_subset, y_subset)
@@ -346,11 +336,7 @@ while max_stdd_rateo > stdd_rateo_threshold * acceptable_rateo_increase:
     else:
         print("All high-uncertainty points are already in the subset.")
 
-
-
-
-
-    print(f"max_stdd_rateo = {max_stdd_rateo:.4f}, stdd_rateo_threshold = {stdd_rateo_threshold:.4f}")
+    print(f"max_stdd_rateo = {max_stdd_rateo:.4f}, stdd_rateo_threshold = {stdd_rateo_threshold*acceptable_rateo_increase:.4f}")
 
 
     #update the subset of data
@@ -382,7 +368,412 @@ while max_stdd_rateo > stdd_rateo_threshold * acceptable_rateo_increase:
         model.variational_strategy._variational_distribution.variational_mean.data[least_informative_idx] = y.clone()[max_uncertainty_idx] # update the first guess variational mean
         model.variational_strategy.inducing_points.data[least_informative_idx,:] = x[max_uncertainty_idx,:]
         
-    a = 1 # just to put a debugger stop point here
+
+
+
+
+
+
+
+
+
+# ---  now repeat for the y data  ---
+
+# ok now we repeat the process with the vy and W data, addin gnew data points to the subset
+# produce y fitting data
+y_y = torch.tensor(df['ay body'].to_numpy()).cuda()
+
+# convert to float32
+y_y = y_y.to(torch.float32)
+
+# pick a rondom subset of the subsetdata
+inducing_points_initial_values_y_indexes = random.sample(range(len(subset_indexes)), n_inducing)
+inducing_points_y = y_y.clone()[inducing_points_initial_values_y_indexes]
+
+# intialize SVGP model
+model_y = SVGPModel(inducing_points_y)
+model_y.train()
+model_y = model.cuda()
+
+# initialize likelihood
+likelihood_y = gpytorch.likelihoods.GaussianLikelihood()
+likelihood_y.train()
+likelihood_y = likelihood_y.cuda()
+
+# assign the likelihood noise that was fitted previously on a static input-output point (i.e. we have measured the noise in the y data)
+raw_likely_hood_noise_from_noise_measurement_y = 0.035466 #-4.736683
+likelihood_y.noise_covar.raw_noise.data = torch.tensor([raw_likely_hood_noise_from_noise_measurement_y]).cuda()
+
+
+optimizer_y = torch.optim.Adam([
+{'params': model_y.parameters()},
+], lr=0.03)
+
+# {'params': likelihood_y.parameters()} $ removed likelihood parameters from the optimizer cause we previously fitted the noise
+
+# Use the adam optimizer
+mll_y = gpytorch.mlls.VariationalELBO(likelihood_y, model_y, num_data=y_y.size(0))
+
+# define data loader to hadle large data in the GPU
+from torch.utils.data import TensorDataset, DataLoader
+train_dataset_y = TensorDataset(x, y_y)
+train_loader_y = DataLoader(train_dataset_y, batch_size=2500, shuffle=True)
+
+# add a progress bar
+print('training SVGP model on the full dataset') 
+minibatch_iter_y = tqdm.tqdm(train_loader_y, desc="Minibatch", leave=False, disable=True)
+# Initialize a list to store loss values
+loss_values = []
+epochs_iter_y = tqdm.tqdm(range(training_iterations), desc="Epoch")
+for i in epochs_iter_y:
+    for x_batch, y_batch in minibatch_iter_y:
+        optimizer_y.zero_grad()
+        output_y = model(x_batch)
+        loss_y = -mll_y(output_y, y_batch)
+        loss_y.backward()
+        optimizer_y.step()
+        # Store the loss value for plot
+    loss_values.append(loss_y.item())
+
+
+# plot loss function
+ax_loss.clear()
+ax_loss.plot(loss_values, label='Training Loss')
+ax_loss.set_xlabel('Iteration')
+ax_loss.set_ylabel('Loss')
+ax_loss.set_title('Loss Function During Training Y')
+ax_loss.legend()
+ax_loss.grid(True)
+
+
+plot_GP(ax_y,x,y_y,subset_indexes,model_y,likelihood_y,resolution,df)
+
+
+# evalaute max uncertainty rateo
+prior_stdd_y = np.sqrt(model_y.covar_module.outputscale.item())
+preds_y = model_y(x) # evaluate predictive posterior on full dataset
+max_stdd_y = torch.max(preds_y.variance).item()**0.5 # evaluate max uncertainty
+
+# evalaute max rateo
+stdd_rateo_threshold_y = max_stdd_y/prior_stdd_y
+
+# start training loop
+max_stdd_rateo_y = 1 + stdd_rateo_threshold_y # set to high value to start the loop
+
+
+
+optimizer_retrain_y = torch.optim.Adam([
+    {'params': [param for name, param in model_y.named_parameters()
+                if 'raw_lengthscale' not in name and 'outputscale' not in name]}
+], lr=0.03)
+
+
+
+
+plt.ion()
+while max_stdd_rateo_y > stdd_rateo_threshold_y * acceptable_rateo_increase:
+    # now just optimize the inducing points locations
+    # Only optimize the inducing points
+
+    # Use the adam optimizer
+    mll_y = gpytorch.mlls.VariationalELBO(likelihood_y, model_y, num_data=y_subset.size(0))
+
+    # update the training data loader
+    train_dataset_retrain_y = TensorDataset(x_subset, y_subset)
+    train_loader_retrain = DataLoader(train_dataset_retrain_y, batch_size=2500, shuffle=True)
+    minibatch_iter_retrain_y = tqdm.tqdm(train_loader_retrain, desc="Minibatch retrain", leave=False, disable=True)
+    loss_values = []
+    for i in epochs_iter:
+        for x_batch_retrain_y, y_batch_retrain_y in minibatch_iter_retrain_y:
+            optimizer_retrain_y.zero_grad()
+            output_y = model_y(x_batch_retrain_y)
+            loss_y = -mll(output_y, y_batch_retrain_y)
+            loss_y.backward()
+            optimizer_retrain_y.step()
+            loss_values.append(loss_y.item())
+
+    # plot loss function
+    ax_loss.clear()
+    ax_loss.plot(loss_values, label='Training Loss')
+    ax_loss.set_xlabel('Iteration')
+    ax_loss.set_ylabel('Loss')
+    ax_loss.set_title('Loss Function During Training')
+    ax_loss.legend()
+    ax_loss.grid(True)
+
+
+    # plotting results
+    ax_y.clear()
+    ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered') # plot orginal data
+    plot_GP(ax_y,x,y_y,subset_indexes,model_y,likelihood_y,resolution,df)
+    # --- finished plotting ---
+
+    # update points in dataset and inducing points
+
+    # evaluate maximum uncertainty
+    prior_stdd_y = np.sqrt(model_y.covar_module.outputscale.item())
+
+    # move to cpu
+    x = x.cpu()
+    model_y = model_y.cpu()
+
+    preds_y = model_y(x)
+
+    #move back to gpu
+    x = x.cuda()
+    model_y = model_y.cuda()
+
+    stdd_y = preds_y.variance.sqrt()  # Get standard deviations
+
+    # Sort uncertainties in descending order and get the indices
+    sorted_indices_y = torch.argsort(stdd_y, descending=True)
+
+    # Find the first index with the highest uncertainty that is not in subset_indexes
+    for idx in sorted_indices_y:
+        if idx.item() not in subset_indexes:
+            max_uncertainty_idx = idx.item()
+            max_stdd_y = stdd_y[max_uncertainty_idx].item()
+            max_stdd_rateo_y = max_stdd_y/prior_stdd_y
+            subset_indexes.append(max_uncertainty_idx)
+            break
+    else:
+        print("All high-uncertainty points are already in the subset.")
+
+    print(f"max_stdd_rateo y = {max_stdd_rateo_y:.4f}, stdd_rateo_threshold y = {stdd_rateo_threshold_y*acceptable_rateo_increase:.4f}")
+
+
+    #update the subset of data
+    x_subset = x.clone()[subset_indexes] # select chosen points
+    y_subset = y.clone()[subset_indexes]
+
+
+    # !! also update the inducing points !!
+    # identify the least informative inducing point
+    # evaluate kernel matrix
+    KZZ = model_y.covar_module(model_y.variational_strategy.inducing_points)
+
+    # select row with the highest sum
+    sum_KZZ = torch.sum(KZZ,1)
+
+    # find the index of the least informative inducing point
+    least_informative_idx = torch.argmax(sum_KZZ).item()
+
+
+    # add line to plot the next data point to be added
+    ax_y.axvline(df['vicon time'].to_numpy()[max_uncertainty_idx].item(), color='g',alpha=0.3)
+    # add dashed line on the inducing point that will be eliminated
+    #ax_x.axvline(model.variational_strategy.inducing_points[least_informative_idx].item(), color='k',linestyle='--',alpha=0.3)
+    plt.pause(0.1)
+
+    # replace the least informative inducing point with the new data point
+    with torch.no_grad():
+        #inducing_points[least_informative_idx] = x.clone()[max_uncertainty_idx]
+        model_y.variational_strategy._variational_distribution.variational_mean.data[least_informative_idx] = y_y.clone()[max_uncertainty_idx] # update the first guess variational mean
+        model_y.variational_strategy.inducing_points.data[least_informative_idx,:] = x[max_uncertainty_idx,:]
+        
+
+
+
+
+# now repeat for the w data
+# produce w fitting data
+y_w = torch.tensor(df['acc_w'].to_numpy()).cuda()
+
+# convert to float32
+y_w = y_w.to(torch.float32)
+
+# pick a rondom subset of the subsetdata
+inducing_points_initial_values_w_indexes = random.sample(range(len(subset_indexes)), n_inducing)
+inducing_points_w = y_w.clone()[inducing_points_initial_values_w_indexes]
+
+# intialize SVGP model
+model_w = SVGPModel(inducing_points_w)
+model_w.train()
+model_w = model.cuda()
+
+# initialize likelihood
+likelihood_w = gpytorch.likelihoods.GaussianLikelihood()
+likelihood_w.train()
+likelihood_w = likelihood_w.cuda()
+
+# assign the likelihood noise that was fitted previously on a static input-output point (i.e. we have measured the noise in the y data)
+raw_likely_hood_noise_from_noise_measurement_w = 32.327175 
+likelihood_w.noise_covar.raw_noise.data = torch.tensor([raw_likely_hood_noise_from_noise_measurement_w]).cuda()
+
+
+optimizer_w = torch.optim.Adam([
+{'params': model_w.parameters()},
+{'params': likelihood.parameters()}
+], lr=0.1)
+# {'params': likelihood.parameters()} $ removed likelihood parameters from the optimizer cause we previously
+
+
+# Use the adam optimizer
+mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=y_w.size(0))
+
+# define data loader to hadle large data in the GPU
+train_dataset_w = TensorDataset(x, y_w)
+train_loader_w = DataLoader(train_dataset_w, batch_size=2500, shuffle=True)
+
+# add a progress bar
+
+minibatch_iter_w = tqdm.tqdm(train_loader_w, desc="Minibatch", leave=False, disable=True)
+# Initialize a list to store loss values
+loss_values = []
+training_iterations = 200
+epochs_iter_w = tqdm.tqdm(range(training_iterations), desc="Epoch")
+for i in epochs_iter_w:
+    for x_batch, y_batch in minibatch_iter_w:
+        optimizer_w.zero_grad()
+        output_w = model_w(x_batch)
+        loss_w = -mll_w(output_w, y_batch)
+        loss_w.backward()
+        optimizer_w.step()
+        # Store the loss value for plot
+    loss_values.append(loss_w.item())
+
+
+# plot loss function
+ax_loss.clear()
+ax_loss.plot(loss_values, label='Training Loss')
+ax_loss.set_xlabel('Iteration')
+ax_loss.set_ylabel('Loss')
+ax_loss.set_title('Loss Function During Training W')
+ax_loss.legend()
+ax_loss.grid(True)
+
+
+plot_GP(ax_w,x,y_w,subset_indexes,model_w,likelihood_w,resolution,df)
+
+
+# evalaute max uncertainty rateo
+prior_stdd_w = np.sqrt(model_w.covar_module.outputscale.item())
+preds_w = model_w(x) # evaluate predictive posterior on full dataset
+max_stdd_w = torch.max(preds_w.variance).item()**0.5 # evaluate
+# evalaute max rateo
+stdd_rateo_threshold_w = max_stdd_w/prior_stdd_w
+
+# start training loop
+max_stdd_rateo_w = 1 + stdd_rateo_threshold_w # set to high value to start the loop
+
+optimizer_retrain_w = torch.optim.Adam([
+    {'params': [param for name, param in model_w.named_parameters()
+                if 'raw_lengthscale' not in name and 'outputscale' not in name]}
+], lr=0.03)
+
+
+#acceptable_rateo_increase = 1 # TEMPOARY TESTING!!!!
+
+while max_stdd_rateo_w > stdd_rateo_threshold_w * acceptable_rateo_increase:
+    # now just optimize the inducing points locations
+    # Only optimize the inducing points
+
+    # Use the adam optimizer
+    mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=y_subset.size(0))
+
+    # update the training data loader
+    train_dataset_retrain_w = TensorDataset(x_subset, y_subset)
+    train_loader_retrain = DataLoader(train_dataset_retrain_w, batch_size=2500, shuffle=True)
+    minibatch_iter_retrain_w = tqdm.tqdm(train_loader_retrain, desc="Minibatch retrain", leave=False, disable=True)
+    loss_values = []
+    for i in epochs_iter:
+        for x_batch_retrain_w, y_batch_retrain_w in minibatch_iter_retrain_w:
+            optimizer_retrain_w.zero_grad()
+            output_w = model_w(x_batch_retrain_w)
+            loss_w = -mll(output_w, y_batch_retrain_w)
+            loss_w.backward()
+            optimizer_retrain_w.step()
+            loss_values.append(loss_w.item())
+
+    # plot loss function
+    ax_loss.clear()
+    ax_loss.plot(loss_values, label='Training Loss')
+    ax_loss.set_xlabel('Iteration')
+    ax_loss.set_ylabel('Loss')
+    ax_loss.set_title('Loss Function During Training')
+    ax_loss.legend()
+    ax_loss.grid(True)
+
+
+    # plotting results
+    ax_w.clear()
+    ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid') # plot orginal data
+    plot_GP(ax_w,x,y_w,subset_indexes,model_w,likelihood_w,resolution,df)
+    # --- finished plotting ---
+
+    # update points in dataset and inducing points
+
+    # evaluate maximum uncertainty
+    prior_stdd_w = np.sqrt(model_w.covar_module.outputscale.item())
+
+    # move to cpu
+    x = x.cpu()
+    model_w = model_w.cpu()
+
+    preds_w = model_w(x)
+
+    #move back to gpu
+    x = x.cuda()
+    model_w = model_w.cuda()
+
+    stdd_w = preds_w.variance.sqrt()  # Get standard deviations
+
+    # Sort uncertainties in descending order and get the indices
+    sorted_indices_w = torch.argsort(stdd_w,
+    descending=True)
+
+    # Find the first index with the highest uncertainty that is not in subset_indexes
+    for idx in sorted_indices_w:
+        if idx.item() not in subset_indexes:
+            max_uncertainty_idx = idx.item()
+            max_stdd_w = stdd_w[max_uncertainty_idx].item()
+            max_stdd_rateo_w = max_stdd_w/prior_stdd_w
+            subset_indexes.append(max_uncertainty_idx)
+            break
+    else:
+        print("All high-uncertainty points are already in the subset.")
+
+    print(f"max_stdd_rateo w = {max_stdd_rateo_w:.4f}, stdd_rateo_threshold w = {stdd_rateo_threshold_w * acceptable_rateo_increase:.4f}")
+
+    #update the subset of data
+    x_subset = x.clone()[subset_indexes] # select chosen points
+    y_subset = y.clone()[subset_indexes]
+
+
+    # !! also update the inducing points !!
+    # identify the least informative inducing point
+    # evaluate kernel matrix
+    KZZ = model_w.covar_module(model_w.variational_strategy.inducing_points)
+    
+    # select row with the highest sum
+    sum_KZZ = torch.sum(KZZ,1)
+    
+    # find the index of the least informative inducing point
+
+
+    least_informative_idx = torch.argmax(sum_KZZ).item()
+
+    # add line to plot the next data point to be added
+    ax_w.axvline(df['vicon time'].to_numpy()[max_uncertainty_idx].item(), color='g',alpha=0.3)
+    # add dashed line on the inducing point that will be eliminated
+    #ax_x.axvline(model.variational_strategy.inducing_points[least_informative_idx].item(), color='k',linestyle='--',alpha=0.3)
+    plt.pause(0.1)
+
+    # replace the least informative inducing point with the new data point
+
+    with torch.no_grad():
+        
+        #inducing_points[least_informative_idx] = x.clone()[max_uncertainty_idx]
+        model_w.variational_strategy._variational_distribution.variational_mean.data[least_informative_idx] = y_w.clone()[max_uncertainty_idx]
+        # update the first guess variational mean
+        model_w.variational_strategy.inducing_points.data[least_informative_idx,:] = x[max_uncertainty_idx,:]
+
+
+
+
+# save the subset of indexes as a numpy array
+name = folder_path + '/subset_indexes.npy'
+np.save(name,np.array(subset_indexes))
 
 
 plt.ioff()
