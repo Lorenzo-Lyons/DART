@@ -23,7 +23,7 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 20 # epochs for training the SVGP
+epochs = 30 # epochs for training the SVGP
 learning_rate = 0.01
 # generate data in tensor form for torch
 # 0 = no time delay fitting
@@ -32,7 +32,7 @@ learning_rate = 0.01
 actuator_time_delay_fitting_tag = 0
 
 # fit likelihood noise?
-fit_likelihood_noise_tag = True
+fit_likelihood_noise_tag = False  # this doesn't really make much difference
 
 # fit on subsampled dataset?
 fit_on_subsampled_dataset_tag = False
@@ -90,6 +90,7 @@ except:
 # load subset of indexes
 try:
     subset_indexes = np.load(folder_path + '/subset_indexes.npy')
+    subset_indexes = subset_indexes.tolist()
 except:
     print('missing subset indexes file')
 
@@ -128,7 +129,7 @@ ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_nump
 
 # train the SVGP model
 n_inducing_points = 500
-n_past_actions = [] # default value
+n_past_actions = 0 # default value
 
 
 
@@ -179,7 +180,7 @@ else:
 # select an initial subset of the training data
 import random
 # random selection of initial subset of datapoints
-initial_inducing_points_indexes = random.choices(range(df.shape[0]), k=n_inducing_points)
+initial_inducing_points_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
 inducing_points = train_x[initial_inducing_points_indexes,:].to(torch.float32)
 
 
@@ -203,10 +204,14 @@ inducing_points = train_x[initial_inducing_points_indexes,:].to(torch.float32)
 dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
 
 #initialize models
-model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
+model_vx = SVGPModel_actuator_dynamics(inducing_points)
+model_vy = SVGPModel_actuator_dynamics(inducing_points)
+model_w  = SVGPModel_actuator_dynamics(inducing_points)
 
+# set up time filtering
+model_vx.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
+model_vy.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
+model_w.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
 
 # define likelyhood and optimizer objects
 likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[0])
@@ -237,12 +242,12 @@ model_vx = model_vx.cpu()
 model_vy = model_vy.cpu()
 model_w = model_w.cpu()
 
-train_x = train_x.cpu()
+train_x_full_dataset = train_x_full_dataset.cpu()
 
 
-preds_ax = model_vx(train_x)
-preds_ay = model_vy(train_x)
-preds_aw = model_w(train_x)
+preds_ax = model_vx(train_x_full_dataset)
+preds_ay = model_vy(train_x_full_dataset)
+preds_aw = model_w(train_x_full_dataset)
 
 
 # plotting
@@ -263,6 +268,13 @@ ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='o
 ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
 ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
 ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+
+# add subsampled points as orange dots
+if fit_on_subsampled_dataset_tag:
+    for kk in range(0,len(subset_indexes)):
+        ax_x.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ax body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
+        ax_y.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ay body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
+        ax_w.plot(df['vicon time'].iloc[subset_indexes[kk]],df['acc_w'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
 
 
 
@@ -440,31 +452,50 @@ middle_w = S_w - np.eye(n_inducing_points)
 
 if over_write_saved_parameters:
     # save quantities to use them later in a solver
-    folder_path = 'System_identification_data_processing/SVGP_saved_parameters/'
-    np.save(folder_path+'m_x.npy', m_x)
-    np.save(folder_path+'middle_x.npy', middle_x)
-    np.save(folder_path+'L_inv_x.npy', L_inv_x)
-    np.save(folder_path+'right_vec_x.npy', right_vec_x)
-    np.save(folder_path+'inducing_locations_x.npy', inducing_locations_x)
-    np.save(folder_path+'outputscale_x.npy', outputscale_x)
-    np.save(folder_path+'lengthscale_x.npy', lengthscale_x)
+    folder_path_SVGP_params = folder_path + '/SVGP_saved_parameters/'
+    np.save(folder_path_SVGP_params+'m_x.npy', m_x)
+    np.save(folder_path_SVGP_params+'middle_x.npy', middle_x)
+    np.save(folder_path_SVGP_params+'L_inv_x.npy', L_inv_x)
+    np.save(folder_path_SVGP_params+'right_vec_x.npy', right_vec_x)
+    np.save(folder_path_SVGP_params+'inducing_locations_x.npy', inducing_locations_x)
+    np.save(folder_path_SVGP_params+'outputscale_x.npy', outputscale_x)
+    np.save(folder_path_SVGP_params+'lengthscale_x.npy', lengthscale_x)
 
-    np.save(folder_path+'m_y.npy', m_y)
-    np.save(folder_path+'middle_y.npy', middle_y)
-    np.save(folder_path+'L_inv_y.npy', L_inv_y)
-    np.save(folder_path+'right_vec_y.npy', right_vec_y)
-    np.save(folder_path+'inducing_locations_y.npy', inducing_locations_y)
-    np.save(folder_path+'outputscale_y.npy', outputscale_y)
-    np.save(folder_path+'lengthscale_y.npy', lengthscale_y)
+    np.save(folder_path_SVGP_params+'m_y.npy', m_y)
+    np.save(folder_path_SVGP_params+'middle_y.npy', middle_y)
+    np.save(folder_path_SVGP_params+'L_inv_y.npy', L_inv_y)
+    np.save(folder_path_SVGP_params+'right_vec_y.npy', right_vec_y)
+    np.save(folder_path_SVGP_params+'inducing_locations_y.npy', inducing_locations_y)
+    np.save(folder_path_SVGP_params+'outputscale_y.npy', outputscale_y)
+    np.save(folder_path_SVGP_params+'lengthscale_y.npy', lengthscale_y)
 
-    np.save(folder_path+'m_w.npy', m_w)
-    np.save(folder_path+'middle_w.npy', middle_w)
-    np.save(folder_path+'L_inv_w.npy', L_inv_w)
-    np.save(folder_path+'right_vec_w.npy', right_vec_w)
-    np.save(folder_path+'inducing_locations_w.npy', inducing_locations_w)
-    np.save(folder_path+'outputscale_w.npy', outputscale_w)
-    np.save(folder_path+'lengthscale_w.npy', lengthscale_w)
+    np.save(folder_path_SVGP_params+'m_w.npy', m_w)
+    np.save(folder_path_SVGP_params+'middle_w.npy', middle_w)
+    np.save(folder_path_SVGP_params+'L_inv_w.npy', L_inv_w)
+    np.save(folder_path_SVGP_params+'right_vec_w.npy', right_vec_w)
+    np.save(folder_path_SVGP_params+'inducing_locations_w.npy', inducing_locations_w)
+    np.save(folder_path_SVGP_params+'outputscale_w.npy', outputscale_w)
+    np.save(folder_path_SVGP_params+'lengthscale_w.npy', lengthscale_w)
 
+    # save SVGP models in torch format
+    # save the time delay realated parameters
+    time_delay_parameters = np.array([actuator_time_delay_fitting_tag,n_past_actions,dt])
+    np.save(folder_path_SVGP_params + 'time_delay_parameters.npy', time_delay_parameters)
+    # vx
+    model_path_vx = folder_path_SVGP_params + 'svgp_model_vx.pth'
+    likelihood_path_vx = folder_path_SVGP_params + 'svgp_likelihood_vx.pth'
+    torch.save(model_vx.state_dict(), model_path_vx)
+    torch.save(likelihood_vx.state_dict(), likelihood_path_vx)
+    # vy
+    model_path_vy = folder_path_SVGP_params + 'svgp_model_vy.pth'
+    likelihood_path_vy = folder_path_SVGP_params + 'svgp_likelihood_vy.pth'
+    torch.save(model_vy.state_dict(), model_path_vy)
+    torch.save(likelihood_vy.state_dict(), likelihood_path_vy)
+    # w
+    model_path_w = folder_path_SVGP_params + 'svgp_model_w.pth'
+    likelihood_path_w = folder_path_SVGP_params + 'svgp_likelihood_w.pth'
+    torch.save(model_w.state_dict(), model_path_w)
+    torch.save(likelihood_w.state_dict(), likelihood_path_w)
 
 
 

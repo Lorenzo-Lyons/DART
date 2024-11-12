@@ -1,6 +1,7 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
-,dyn_model_culomb_tires,produce_long_term_predictions,model_functions,throttle_dynamics_data_processing,\
-    process_vicon_data_kinematics,steering_dynamics_data_processing
+,dyn_model_culomb_tires,produce_long_term_predictions,throttle_dynamics_data_processing,\
+    process_vicon_data_kinematics,steering_dynamics_data_processing,\
+    load_SVGPModel_actuator_dynamics
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -18,24 +19,28 @@ forward_propagate_indexes = [1,2,3,4,5] #[1,2,3] # 1 = vx, 2=vy, 3=w, 4=throttle
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
 #folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
 #folder_path = 'System_identification_data_processing/Data/free_driving_steer_rate_testing_16_sept_2024'
 
 #folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
 #folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
 
-steering_friction_flag = True
-pitch_dynamics_flag = False
 
-# the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
-dynamic_model = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
-
-
-mf = model_functions()
+model_tag = 1 # 0 for physics-based model, 1 for SVGP model
 
 
 
+if model_tag == 0: # pysic-based model
+    steering_friction_flag = True
+    pitch_dynamics_flag = False
+    # the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
+    dynamic_model = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
+
+elif model_tag == 1: # SVGP model
+    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path)
+
+    
 # process data
 
 steps_shift = 5 # decide to filter more or less the vicon data

@@ -1969,14 +1969,16 @@ from gpytorch.variational import VariationalStrategy
 
 # SVGP 
 class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
-    def __init__(self,inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt):
+    def __init__(self,inducing_points):
         n_inputs = 5 # how many inputs will be given to the SVGP after time delay fitting has happened
-
         variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
         variational_strategy = VariationalStrategy(self, inducing_points, variational_distribution, learn_inducing_locations=True)
         super(SVGPModel_actuator_dynamics, self).__init__(variational_strategy)
         self.mean_module = gpytorch.means.ZeroMean()
         self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=n_inputs))
+
+
+    def setup_time_delay_fitting(self,actuator_time_delay_fitting_tag,n_past_actions,dt):
         # time filtering related
         self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
         self.n_past_actions = n_past_actions
@@ -1991,6 +1993,8 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         elif self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
             self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
             self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+
+
     def transform_parameters_norm_2_real(self):
         
         time_C_throttle = self.minmax_scale_hm(0.001,0.1,self.constraint_weights(self.time_C_throttle))
@@ -2042,6 +2046,58 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         mean_x = self.mean_module(x_4_model)
         covar_x = self.covar_module(x_4_model)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+def load_SVGPModel_actuator_dynamics(folder_path):
+    #load model paths
+    model_path_vx = folder_path + '/SVGP_saved_parameters/svgp_model_vx.pth'
+    model_path_vy = folder_path + '/SVGP_saved_parameters/svgp_model_vy.pth'
+    model_path_w = folder_path + '/SVGP_saved_parameters/svgp_model_w.pth'
+
+    #load inducing points
+    inducing_points_vx = folder_path + '/SVGP_saved_parameters/inducing_locations_x.npy'
+    inducing_points_vy = folder_path + '/SVGP_saved_parameters/inducing_locations_y.npy'
+    inducing_points_w = folder_path + '/SVGP_saved_parameters/inducing_locations_w.npy'
+
+    #load nupy arrays
+    inducing_points_vx = np.load(inducing_points_vx)
+    inducing_points_vy = np.load(inducing_points_vy)
+    inducing_points_w = np.load(inducing_points_w)
+
+    # convert to torch tensors
+    inducing_points_vx = torch.from_numpy(inducing_points_vx).float()
+    inducing_points_vy = torch.from_numpy(inducing_points_vy).float()
+    inducing_points_w = torch.from_numpy(inducing_points_w).float()
+
+    # instantiate the models
+    model_vx = SVGPModel_actuator_dynamics(inducing_points_vx)
+    model_vy = SVGPModel_actuator_dynamics(inducing_points_vy)
+    model_w = SVGPModel_actuator_dynamics(inducing_points_w)
+
+    #load time delay parameters
+    time_delay_parameters_path = folder_path + '/SVGP_saved_parameters/time_delay_parameters.npy'
+    time_delay_parameters = np.load(time_delay_parameters_path)
+
+    #set up time delay parameters
+    # set up time filtering
+    actuator_time_delay_fitting_tag = time_delay_parameters[0]
+    n_past_actions = time_delay_parameters[1]
+    dt_svgp = time_delay_parameters[2]
+    model_vx.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt_svgp)
+    model_vy.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt_svgp)
+    model_w.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt_svgp)
+
+    # load state dictionaries
+    model_vx.load_state_dict(torch.load(model_path_vx))
+    model_vy.load_state_dict(torch.load(model_path_vy))
+    model_w.load_state_dict(torch.load(model_path_w))
+
+    # set to evaluation mode
+    model_vx.eval()
+    model_vy.eval()
+    model_w.eval()
+
+    return model_vx,model_vy,model_w
+
 
 
 # simple SVGP model 
@@ -2439,7 +2495,7 @@ def train_decoupled_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, tr
 
 
 
-class dyn_model_SVGP():
+class dyn_model_SVGP_4_long_term_predictions():
     def __init__(self,model_vx,model_vy,model_w):
 
         self.model_vx = model_vx
@@ -2447,13 +2503,19 @@ class dyn_model_SVGP():
         self.model_w = model_w
 
     def forward(self, state_action):
-        input = torch.unsqueeze(torch.Tensor(state_action),0).cuda()
-        ax= self.model_vx(input).mean.detach().cpu().numpy()[0]
-        ay= self.model_vy(input).mean.detach().cpu().numpy()[0]
-        aw= self.model_w(input).mean.detach().cpu().numpy()[0]
+        # input will have both inputs and input commands, so chose the right ones
+        if self.model_vx.actuator_time_delay_fitting_tag == 0:
+            #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+            state_action_base_model = np.array([*state_action[:3],state_action[5],state_action[6]]) 
+            
+        input = torch.unsqueeze(torch.Tensor(state_action_base_model),0).cuda()
+        ax = self.model_vx(input).mean.detach().cpu().numpy()[0]
+        ay = self.model_vy(input).mean.detach().cpu().numpy()[0]
+        aw = self.model_w(input).mean.detach().cpu().numpy()[0]
 
         return np.array([ax,ay,aw])
-    
+
+
 def rebuild_Kxy_RBF_vehicle_dynamics(X,Y,outputscale,lengthscale):
     n = X.shape[0]
     m = Y.shape[0]
