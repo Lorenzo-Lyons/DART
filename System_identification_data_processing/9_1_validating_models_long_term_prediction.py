@@ -1,7 +1,8 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,produce_long_term_predictions,throttle_dynamics_data_processing,\
     process_vicon_data_kinematics,steering_dynamics_data_processing,\
-    load_SVGPModel_actuator_dynamics
+    load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions,\
+    load_SVGPModel_actuator_dynamics_analytic,dyn_model_SVGP_4_long_term_predictions_analytical
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,7 +15,7 @@ import os
 # SIMPLE CULOMB friction tyre model.
 
 # chose what stated to forward propagate (the others will be taken from the data, this can highlight individual parts of the model)
-forward_propagate_indexes = [1,2,3,4,5] #[1,2,3] # 1 = vx, 2=vy, 3=w, 4=throttle, 5=steering
+forward_propagate_indexes = [1,2,3] # [1,2,3,4,5] # # 1 = vx, 2=vy, 3=w, 4=throttle, 5=steering
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'  # the battery was very low for this one
@@ -27,7 +28,7 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 #folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
 
 
-model_tag = 1 # 0 for physics-based model, 1 for SVGP model
+model_tag = 2 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form
 
 
 
@@ -39,10 +40,14 @@ if model_tag == 0: # pysic-based model
 
 elif model_tag == 1: # SVGP model
     model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path)
+    dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
 
+elif model_tag == 2: # SVGP model analytical form
+    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
+    dynamic_model = dyn_model_SVGP_4_long_term_predictions_analytical(model_vx,model_vy,model_w)
     
-# process data
 
+# process data
 steps_shift = 5 # decide to filter more or less the vicon data
 
 
@@ -79,7 +84,6 @@ else:
 
 
 
-
 # # plot raw data
 # ax0,ax1,ax2 = plot_raw_data(df)
 
@@ -100,7 +104,7 @@ n_inputs = 2
 columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
-jumps = 25 #25
+jumps = 300 #25
 long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
 
 

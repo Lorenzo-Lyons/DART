@@ -1,7 +1,8 @@
 from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,\
     process_vicon_data_kinematics,throttle_dynamics_data_processing,steering_dynamics_data_processing,\
-    load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions
+    load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions,\
+    load_SVGPModel_actuator_dynamics_analytic,dyn_model_SVGP_4_long_term_predictions_analytical
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -24,9 +25,8 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 
 
 
-
 # load model
-model_tag = 1 # 0 for physics-based model, 1 for SVGP model
+model_tag = 2 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form
 
 if model_tag == 0: # pysic-based model
     steering_friction_flag = True
@@ -36,9 +36,11 @@ if model_tag == 0: # pysic-based model
 
 elif model_tag == 1: # SVGP model
     model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path)
-    dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
+    #dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
 
-
+elif model_tag == 2: # SVGP model analytical form
+    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
+    dynamic_model = dyn_model_SVGP_4_long_term_predictions_analytical(model_vx,model_vy,model_w)
 
 
 steps_shift = 5 # decide to filter more or less the vicon data
@@ -75,6 +77,8 @@ else:
     df = pd.read_csv(file_path)
 
 
+# cut time to 67 s
+df = df[df['vicon time']<67]
 
 
 if folder_path == 'System_identification_data_processing/Data/circles_27_sept_2024':
@@ -93,10 +97,6 @@ if folder_path == 'System_identification_data_processing/Data/circles_27_sept_20
     #df = df[df['vx body']<2.5]
     df = df[df['ax body']<2]
     df = df[df['ax body']>-1]
-
-
-
-
 
 
 
@@ -127,16 +127,26 @@ if model_tag == 0:
         acc_x_model[i] = acc[0]
         acc_y_model[i] = acc[1]
         acc_w_model[i] = acc[2]
+
 elif model_tag == 1:
     import torch
     if model_vx.actuator_time_delay_fitting_tag == 0:
         #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
-        #state_action_base_model = np.array([*input_data[:,:3],input_data[:,5],input_data[:,6]])
         state_action_base_model = np.column_stack((input_data[:, :3], input_data[:, 5], input_data[:, 6]))
     test_x = torch.Tensor(state_action_base_model)
     acc_x_model = model_vx(test_x).mean.detach().numpy()
     acc_y_model = model_vy(test_x).mean.detach().numpy()
     acc_w_model = model_w(test_x).mean.detach().numpy()
+
+elif model_tag == 2:
+    # add tqdm bar
+    from tqdm import tqdm
+    for i in tqdm(range(0,df.shape[0])):
+        acc = dynamic_model.forward(input_data[i,:])
+        acc_x_model[i] = acc[0]
+        acc_y_model[i] = acc[1]
+        acc_w_model[i] = acc[2]
+
 
 
 # plot model putputs

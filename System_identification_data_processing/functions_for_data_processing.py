@@ -2047,6 +2047,7 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         covar_x = self.covar_module(x_4_model)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
+
 def load_SVGPModel_actuator_dynamics(folder_path):
     #load model paths
     model_path_vx = folder_path + '/SVGP_saved_parameters/svgp_model_vx.pth'
@@ -2099,6 +2100,68 @@ def load_SVGPModel_actuator_dynamics(folder_path):
     return model_vx,model_vy,model_w
 
 
+
+def load_SVGPModel_actuator_dynamics_analytic(folder_path):
+    svgp_params_path = folder_path + '/SVGP_saved_parameters/'
+
+    # Define the parameter names for each dimension (x, y, w)
+    param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale']
+    dimensions = ['x', 'y', 'w']
+
+    # Initialize an empty dictionary to store all parameters
+    svgp_params = {}
+
+    # Loop through each dimension and parameter name to load the .npy files
+    for dim in dimensions:
+        svgp_params[dim] = {}
+        for param in param_names:
+            file_path = os.path.join(svgp_params_path, f"{param}_{dim}.npy")
+            if os.path.exists(file_path):
+                svgp_params[dim][param] = np.load(file_path)
+                #print(f"Loaded {param}_{dim}: shape {svgp_params[dim][param].shape}")
+            else:
+                print(f"Warning: {param}_{dim}.npy not found in {svgp_params_path}")
+
+    # load time delay parameters
+    time_delay_parameters_path = folder_path + '/SVGP_saved_parameters/time_delay_parameters.npy'
+    time_delay_parameters = np.load(time_delay_parameters_path)
+    actuator_time_delay_fitting_tag = time_delay_parameters[0]
+    n_past_actions = time_delay_parameters[1]
+    dt_svgp = time_delay_parameters[2]
+
+    evalaute_cov_tag = False # dont evaluate covariance for now
+    # now build the models
+    model_vx = SVGP_analytic(svgp_params['x']['outputscale'],
+                             svgp_params['x']['lengthscale'],
+                             svgp_params['x']['inducing_locations'],
+                             svgp_params['x']['right_vec'],
+                             svgp_params['x']['L_inv'],
+                             evalaute_cov_tag)
+    model_vx.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+    model_vx.n_past_actions = n_past_actions
+    model_vx.dt = dt_svgp
+
+    model_vy = SVGP_analytic(svgp_params['y']['outputscale'],
+                                svgp_params['y']['lengthscale'],
+                                svgp_params['y']['inducing_locations'],
+                                svgp_params['y']['right_vec'],
+                                svgp_params['y']['L_inv'],
+                                evalaute_cov_tag)
+    model_vy.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+    model_vy.n_past_actions = n_past_actions
+    model_vy.dt = dt_svgp
+    
+    model_w = SVGP_analytic(svgp_params['w']['outputscale'],
+                                svgp_params['w']['lengthscale'],
+                                svgp_params['w']['inducing_locations'],
+                                svgp_params['w']['right_vec'],
+                                svgp_params['w']['L_inv'],
+                                evalaute_cov_tag)
+    model_w.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+    model_w.n_past_actions = n_past_actions
+    model_w.dt = dt_svgp
+
+    return model_vx,model_vy,model_w
 
 # simple SVGP model 
 class SVGPModel(ApproximateGP):
@@ -2506,15 +2569,70 @@ class dyn_model_SVGP_4_long_term_predictions():
         # input will have both inputs and input commands, so chose the right ones
         if self.model_vx.actuator_time_delay_fitting_tag == 0:
             #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
-            state_action_base_model = np.array([*state_action[:3],state_action[5],state_action[6]]) 
+            state_action_base_model = np.array([*state_action[:3],state_action[5],state_action[6]])
+            throttle_dot = 0
+            steering_dot = 0
             
-        input = torch.unsqueeze(torch.Tensor(state_action_base_model),0).cuda()
+        input = torch.unsqueeze(torch.Tensor(state_action_base_model),0)
         ax = self.model_vx(input).mean.detach().cpu().numpy()[0]
         ay = self.model_vy(input).mean.detach().cpu().numpy()[0]
         aw = self.model_w(input).mean.detach().cpu().numpy()[0]
 
-        return np.array([ax,ay,aw])
+        return np.array([ax,ay,aw,throttle_dot,steering_dot])
 
+
+
+
+class dyn_model_SVGP_4_long_term_predictions_analytical():
+    def __init__(self,model_vx,model_vy,model_w):
+
+        self.model_vx = model_vx
+        self.model_vy = model_vy
+        self.model_w = model_w
+
+    def forward(self, state_action):
+        # input will have both inputs and input commands, so chose the right ones
+        if self.model_vx.actuator_time_delay_fitting_tag == 0:
+            #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+            state_action_base_model = np.array([*state_action[:3],state_action[5],state_action[6]])
+            throttle_dot = 0
+            steering_dot = 0
+            
+        ax, cov_x = self.model_vx.forward(state_action_base_model)
+        ay, cov_y = self.model_vy.forward(state_action_base_model)
+        aw, cov_w = self.model_w.forward(state_action_base_model)
+
+
+        return np.array([ax,ay,aw,throttle_dot,steering_dot])
+
+
+class SVGP_analytic():
+    def __init__(self,outputscale,lengthscale,inducing_locations,right_vec,L_inv,evalaute_cov_tag):
+
+        self.outputscale = outputscale
+        self.lengthscale = lengthscale
+        self.inducing_locations = inducing_locations
+        self.right_vec = right_vec
+        self.L_inv = L_inv
+        self.evalaute_cov_tag = evalaute_cov_tag
+
+    def forward(self, x_star):
+        #make x_star into a 5 x 1 array
+        x_star = np.expand_dims(x_star, axis=0)
+        kXZ = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations),self.outputscale,self.lengthscale)
+
+        # calculate mean and covariance for x
+        mean = kXZ @ self.right_vec
+        if self.evalaute_cov_tag:
+            # calculate covariance
+            X = self.L_inv @ kXZ.T
+            KXX = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale,self.lengthscale)
+            cov = KXX + X.T @ self.middle @ X
+        else:
+            cov = 0
+
+        return mean[0], cov
+    
 
 def rebuild_Kxy_RBF_vehicle_dynamics(X,Y,outputscale,lengthscale):
     n = X.shape[0]
@@ -2524,6 +2642,7 @@ def rebuild_Kxy_RBF_vehicle_dynamics(X,Y,outputscale,lengthscale):
         for j in range(m):
             KXY[i,j] = RBF_kernel_rewritten(X[i,:],Y[j,:],outputscale,lengthscale)
     return KXY
+
 
 def RBF_kernel_rewritten(x,y,outputscale,lengthscale):
     exp_arg = np.zeros(len(lengthscale))
