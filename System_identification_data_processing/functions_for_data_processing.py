@@ -1458,41 +1458,6 @@ class steering_friction_model(torch.nn.Sequential,model_functions):
         self.register_parameter(name='e_stfr', param=torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
 
 
-        # #self.m = m
-        # self.m_front_wheel = m_front_wheel
-        # self.m_rear_wheel = m_rear_wheel
-        # self.l_COM = l_COM
-        # self.lr = lr
-        # self.lf = lf
-        # self.Jz = Jz
-
-        # # Tire model 
-        # # front tire
-        # self.d_t_f = d_t_f
-        # self.c_t_f = c_t_f
-        # self.b_t_f = b_t_f
-
-        # # rear tire
-        # self.d_t_r = d_t_r
-        # self.c_t_r = c_t_r
-        # self.b_t_r = b_t_r
-
-        # # Motor curve
-        # self.a_m =  a_m
-        # self.b_m =  b_m
-        # self.c_m =  c_m
-
-        # #Friction curve
-        # self.a_f =  a_f
-        # self.b_f =  b_f
-        # self.c_f =  c_f
-        # self.d_f =  d_f
-
-
-
-
-
-
 
     def transform_parameters_norm_2_real(self):
         # Normalizing the fitting parameters is necessary to handle parameters that have different orders of magnitude.
@@ -2239,24 +2204,6 @@ def train_SVGP_model(num_epochs,
     train_loader_vy = DataLoader(train_dataset_vy, batch_size=250, shuffle=True)
     train_loader_w = DataLoader(train_dataset_w, batch_size=250, shuffle=True)
 
-    #choosing initial guess inducing points as a random subset of the training data
-    # random.seed(10) # set the seed so to have same points for every run
-    # # random selection of inducing points
-    # random_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
-    # inducing_points = train_x[random_indexes, :]
-
-    #inducing_points = inducing_points.to(torch.float32)
-
-    #initialize models
-    # model_vx = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-    # model_vy = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-    # model_w  = SVGPModel_actuator_dynamics(inducing_points,actuator_time_delay_fitting_tag,n_past_actions,dt)
-
-
-    # assign first guess lengthscales                                                            vx, vy ,w, throttle,steer
-    # model_vx.covar_module.base_kernel.lengthscale = torch.tensor([0.1,1,10,  0.1,    1])
-    # model_vy.covar_module.base_kernel.lengthscale = torch.tensor([1,1,10,10,1])
-    # model_w.covar_module.base_kernel.lengthscale =  torch.tensor([2,2,2,2,2])
 
 
     # Assign training data to models just to have it all together for later plotting
@@ -2269,15 +2216,6 @@ def train_SVGP_model(num_epochs,
     model_w.train_x = train_x 
     model_w.train_y_w = train_y_w
 
-    # define likelyhood and optimizer objects
-    # likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate)
-    # likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate)
-    # likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate)
-
-
-    
-
- 
 
 
     #move to GPU for faster fitting
@@ -2374,8 +2312,7 @@ def train_SVGP_model(num_epochs,
 #define orthogonally decoupled SVGP model
 # Orthogonally decoupled SVGP
 def make_orthogonal_vs(model,mean_inducing_points,covar_inducing_points):
-    # mean_inducing_points = torch.randn(1000, train_x.size(-1), dtype=train_x.dtype, device=train_x.device)
-    # covar_inducing_points = torch.randn(100, train_x.size(-1), dtype=train_x.dtype, device=train_x.device)
+
 
     covar_variational_strategy = gpytorch.variational.VariationalStrategy(
         model, covar_inducing_points,
@@ -2438,14 +2375,6 @@ def train_decoupled_SVGP_model(learning_rate,num_epochs, train_x, train_y_vx, tr
     model_vx = OrthDecoupledApproximateGP(inducing_points_mean,inducing_points_cov)
     model_vy = OrthDecoupledApproximateGP(inducing_points_mean,inducing_points_cov)
     model_w = OrthDecoupledApproximateGP(inducing_points_mean,inducing_points_cov)
-
-
-    # assign first guess lengthscales
-    #                                                            vx, vy ,w, throttle,steer
-    # model_vx.covar_module.base_kernel.lengthscale = torch.tensor([0.1,1,10,  0.1,    1])
-    # model_vy.covar_module.base_kernel.lengthscale = torch.tensor([1,1,10,10,1])
-    # model_w.covar_module.base_kernel.lengthscale =  torch.tensor([2,2,2,2,2])
-
 
     # Assign training data to models just to have it all together for later plotting
     model_vx.train_x = train_x 

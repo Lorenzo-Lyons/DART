@@ -13,73 +13,11 @@ from dart_simulator_pkg.cfg import dart_simulator_guiConfig
 from tf.transformations import quaternion_from_euler
 
 
-# define dynamic models
-# hard coded vehicle parameters
-l = 0.175
-l_r = 0.54*l # the reference point taken by the data is not exaclty in the center of the vehicle
-#lr = 0.06 # reference position from rear axel
-l_f = l-l_r
 
-m = 1.67
-Jz = 0.006513 # uniform rectangle of shape 0.18 x 0.12
+from function_definitions import model_functions,load_SVGPModel_actuator_dynamics_analytic
 
-def steer_angle(steering_command):
-    a =  1.6379064321517944
-    b =  0.3301370143890381
-    c =  0.019644200801849365
-    d =  0.37879398465156555
-    e =  1.6578725576400757
-
-    w = 0.5 * (np.tanh(30*(steering_command+c))+1)
-    steering_angle1 = b * np.tanh(a * (steering_command + c)) 
-    steering_angle2 = d * np.tanh(e * (steering_command + c))
-    steering_angle = (w)*steering_angle1+(1-w)*steering_angle2 
-
-    return steering_angle
-
-def motor_force(th,v):
-    a =  28.887779235839844
-    b =  5.986172199249268
-    c =  -0.15045104920864105
-    w = 0.5 * (np.tanh(100*(th+c))+1)
-    Fm =  (a - v * b) * w * (th+c)
-    return Fm
-
-def friction(v):
-    a =  1.7194761037826538
-    b =  13.312559127807617
-    c =  0.289848655462265
-    Ff = - a * np.tanh(b  * v) - v * c
-    return Ff
-def slip_angles(vx,vy,w,steering_angle):
-    # evaluate slip angles
-    Vy_wheel_r = vy - l_r * w # lateral velocity of the rear wheel
-    Vx_wheel_r = vx 
-    Vx_correction_term_r = 0.1*np.exp(-100*Vx_wheel_r**2) # this avoids the vx term being 0 and having undefined angles for small velocities
-    # note that it will be negligible outside the vx = [-0.2,0.2] m/s interval.
-    Vx_wheel_r = Vx_wheel_r + Vx_correction_term_r
-    alpha_r = - np.arctan(Vy_wheel_r/ Vx_wheel_r) / np.pi * 180  #converting alpha into degrees
-                
-    # front slip angle
-    Vy_wheel_f = (vy + w * l_f) #* np.cos(steering_angle) - vx * np.sin(steering_angle)
-    Vx_wheel_f =  vx
-    Vx_correction_term_f = 0.1*np.exp(-100*Vx_wheel_f**2)
-    Vx_wheel_f = Vx_wheel_f + Vx_correction_term_f
-    alpha_f = -( -steering_angle + np.arctan2(Vy_wheel_f, Vx_wheel_f)) / np.pi * 180  #converting alpha into degrees
-    return alpha_f, alpha_r
-
-def lateral_tire_forces(alpha_f,alpha_r):
-    #front tire Pacejka tire model
-    d =  2.9751534461975098
-    c =  0.6866822242736816
-    b =  0.29280123114585876
-    e =  -3.0720443725585938
-    #rear tire linear model
-    c_r = 0.38921865820884705
-
-    F_y_f = d * np.sin(c * np.arctan(b * alpha_f - e * (b * alpha_f -np.arctan(b * alpha_f))))
-    F_y_r = c_r * alpha_r
-    return F_y_f, F_y_r
+# instantiate the model functions
+mf = model_functions()
 
 
 
@@ -89,26 +27,28 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     u = z[0:2]
     x = z[2:]
     th = u[0]
+    st = u[1]
     vx = x[3]
     vy = x[4]
     w = x[5]
 
     #evaluate steering angle 
-    steering_angle = steer_angle(u[1])
+    steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
-    #evaluate forward force
-    Fx = motor_force(th,vx) + friction(vx)
+    # evaluate longitudinal forces
+    Fx = + mf.motor_force(th,vx,mf.a_m_self,mf.b_m_self,mf.c_m_self)\
+                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)
 
-    acc_x =  Fx / m # acceleration in the longitudinal direction
+    acc_x =  Fx / mf.m_self # acceleration in the longitudinal direction
 
-    #simple bycicle nominal model - using centre of vehicle as reference point
-    w = vx * np.tan(steering_angle) / l
-    vy = l_r * w
+    #simple bycicle nominal model - using centre of mass as reference point
+    w = vx * np.tan(steering_angle) / (mf.lr_self + mf.lf_self) # angular velocity
+    vy = mf.l_COM_self * w
 
     xdot1 = vx * np.cos(x[2]) - vy * np.sin(x[2])
     xdot2 = vx * np.sin(x[2]) + vy * np.cos(x[2])
     xdot3 = w
-    xdot4 =  acc_x  
+    xdot4 = acc_x  
     xdot5 = 0  # vy dot is not used
     xdot6 = 0  # w dot is not used
 
@@ -121,41 +61,38 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
     u = z[0:2]
     x = z[2:]
     th = u[0]
+    st = u[1]
     vx = x[3]
     vy = x[4]
-    w = x[5]
+    w  = x[5]
 
-    # evaluate steering angle 
-    steering_angle = steer_angle(u[1])
+    #evaluate steering angle 
+    steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
-    # evaluare slip angles
-    alpha_f,alpha_r =slip_angles(vx,vy,w,steering_angle)
 
-    #evaluate forward force
-    Fx_wheels = motor_force(th,vx) + friction(vx)
-    # assuming equally shared force among wheels
-    Fx_f = Fx_wheels/2
-    Fx_r = Fx_wheels/2
+    # # evaluate longitudinal forces
+    Fx_wheels = + mf.motor_force(th,vx,mf.a_m_self,mf.b_m_self,mf.c_m_self)\
+                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)
+    
+    # add extra friction due to steering
+    Fx_wheels += mf.F_friction_due_to_steering(steering_angle,vx,mf.a_stfr_self,mf.b_stfr_self,mf.d_stfr_self,mf.e_stfr_self)
 
-    # evaluate lateral tire forces
-    F_y_f, F_y_r = lateral_tire_forces(alpha_f,alpha_r)
 
-    # solve equations of motion for the rigid body
-    A = np.array([[+np.cos(steering_angle),1,-np.sin(steering_angle),0],
-                  [+np.sin(steering_angle),0, np.cos(steering_angle),1],
-                  [l_f*np.sin(steering_angle),0             ,l_f     ,-l_r]])
+    c_front = (mf.m_front_wheel_self)/mf.m_self
+    c_rear = (mf.m_rear_wheel_self)/mf.m_self
 
-    b = np.array([Fx_f,
-                  Fx_r,
-                  F_y_f,
-                  F_y_r])
+    # redistribute Fx to front and rear wheels according to normal load
+    Fx_front = Fx_wheels * c_front
+    Fx_rear = Fx_wheels * c_rear
 
-    [Fx, Fy, M] = A @ b
+    #evaluate slip angles
+    alpha_f,alpha_r = mf.evaluate_slip_angles(vx,vy,w,mf.lf_self,mf.lr_self,steering_angle)
 
-    acc_x =  Fx / m  + w * vy# acceleration in the longitudinal direction
-    acc_y =  Fy / m  - w * vx# acceleration in the latera direction
-    acc_w =  M / Jz # acceleration yaw
+    #lateral forces
+    Fy_wheel_f = mf.lateral_tire_force(alpha_f,mf.d_t_f_self,mf.c_t_f_self,mf.b_t_f_self,mf.m_front_wheel_self)
+    Fy_wheel_r = mf.lateral_tire_force(alpha_r,mf.d_t_r_self,mf.c_t_r_self,mf.b_t_r_self,mf.m_rear_wheel_self)
 
+    acc_x,acc_y,acc_w = mf.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,mf.lf_self,mf.lr_self,mf.m_self,mf.Jz_self)
 
     xdot1 = vx * np.cos(x[2]) - vy * np.sin(x[2])
     xdot2 = vx * np.sin(x[2]) + vy * np.cos(x[2])
@@ -167,6 +104,51 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
     # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
     zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
     return zdot
+
+
+
+
+#get current folder path
+import os
+folder_path = os.path.dirname(os.path.realpath(__file__))
+evalaute_cov_tag = False # only using the mean for now
+model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag)
+
+def SVGP(t,z):  # RK4 wants a function that takes as input time and state
+    #z = throttle delta x y theta vx vy w
+    u = z[0:2]
+    x = z[2:]
+    th = u[0]
+    st = u[1]
+    vx = x[3]
+    vy = x[4]
+    w  = x[5]
+
+    #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+    state_action_base_model = np.array([vx,vy,w,th,st])
+
+    acc_x, cov_x = model_vx.forward(state_action_base_model)
+    acc_y, cov_y = model_vy.forward(state_action_base_model)
+    acc_w, cov_w = model_w.forward(state_action_base_model)
+    
+
+    xdot1 = vx * np.cos(x[2]) - vy * np.sin(x[2])
+    xdot2 = vx * np.sin(x[2]) + vy * np.cos(x[2])
+    xdot3 = w
+    xdot4 = acc_x  
+    xdot5 = acc_y  
+    xdot6 = acc_w  
+
+    # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
+    zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
+    return zdot
+
+
+
+
+
+
+
 
 
 
@@ -188,6 +170,9 @@ class Forward_intergrate_GUI_manager:
             vehicle_model_choice = config['dynamic_model_choice']
 
             for i in range(len(self.vehicles_list)):
+
+                self.vehicles_list[i].actuator_dynamics = config['actuator_dynamics']
+
                 if vehicle_model_choice == 1:
                     print('vehicle model set to kinematic bicycle')
                     self.vehicles_list[i].vehicle_model = kinematic_bicycle
@@ -195,6 +180,10 @@ class Forward_intergrate_GUI_manager:
                 elif vehicle_model_choice == 2:
                     print('vehicle model set to dynamic bicycle')
                     self.vehicles_list[i].vehicle_model = dynamic_bicycle
+
+                elif vehicle_model_choice == 3:
+                    print('vehicle model set to SVGP')
+                    self.vehicles_list[i].vehicle_model = SVGP
 
 
             reset_state_x = config['reset_state_x']
@@ -211,8 +200,8 @@ class Forward_intergrate_GUI_manager:
 
 
 
-class Forward_intergrate_vehicle:
-    def __init__(self, car_number, vehicle_model, initial_state, dt_int):
+class Forward_intergrate_vehicle(model_functions):
+    def __init__(self, car_number, vehicle_model, initial_state, dt_int,actuator_dynamics):
         print("Starting vehicle integrator " + str(car_number))
         # set up ros nodes for this vehicle
         print("setting ros topics and node")
@@ -227,6 +216,11 @@ class Forward_intergrate_vehicle:
         self.reset_state = False
         self.car_number = car_number
         self.initial_time = rospy.Time.now()
+        self.actuator_dynamics = actuator_dynamics
+
+        # internal states for actuator dynamics
+        self.throttle_state = 0.0
+        self.steering_state = 0.0
 
 
         
@@ -259,29 +253,50 @@ class Forward_intergrate_vehicle:
             self.throttle = 0.0
 
 
-    def forward_integrate_1_timestep(self):
+    def forward_integrate_1_timestep(self,rostime_begin_loop,dt_int):
 
         # perform forwards integration
-        t0 = 0
+        t0 = rostime_begin_loop.to_sec()
         t_bound = self.dt_int
 
         # only activates if safety is off
-        y0 = np.array([self.throttle, self.steering] + self.state)
+        if self.actuator_dynamics:
+            y0 = np.array([self.throttle_state, self.steering_state] + self.state) # use integrated throttle and steering
+        else:
+            y0 = np.array([self.throttle, self.steering] + self.state)
 
-        # forwards integrate using RK4
-        RK45_output = integrate.RK45(self.vehicle_model, t0, y0, t_bound)
-        while RK45_output.status != 'finished':
-            RK45_output.step()
+        # using forward euler
+        zdot = self.vehicle_model(t0,y0)
+        # evaluate elapsed time
+        rostime_stop = rospy.get_rostime()
+        #evalaute time needed to do the loop and print
+        elapsed_dt = rostime_stop - rostime_begin_loop
+        elapsed_dt = elapsed_dt.to_sec()
 
-        # z = throttle delta x y theta vx vy w
-        z_next = RK45_output.y
+        if elapsed_dt > dt_int:
+            dt_step = elapsed_dt
+        else:
+            dt_step = dt_int
+        # step state
+        z_next = y0 + zdot * dt_step
         self.state = z_next[2:].tolist()
+
+        # now step internal states for actuators if needed
+        if self.actuator_dynamics:
+            throttle_dot = self.continuous_time_1st_order_dynamics(self.throttle_state,self.throttle,self.d_m_self)
+            steering_dot = self.continuous_time_1st_order_dynamics(self.steering_state,self.steering,self.k_stdn_self)
+            self.throttle_state += throttle_dot * dt_step
+            self.steering_state += steering_dot * dt_step
+
+
+
         # non - elegant fix: if using kinematic bicycle that does not have Vy w_dot, assign it from kinematic realtions
         if self.vehicle_model == kinematic_bicycle:
+            steering_angle = mf.steering_2_steering_angle(z_next[1],self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
             # evaluate vy w from kinematic relations (so this can't be in the integrating function)
-            steering_angle = steer_angle(z_next[1])
-            w = z_next[5] * np.tan(steering_angle) / l
-            vy = l_r * w
+            #steering_angle = steer_angle(z_next[1])
+            w = z_next[5] * np.tan(steering_angle) / (self.lf_self+self.lr_self)
+            vy = self.l_COM_self * w
             self.state[4] = vy
             self.state[5] = w
 
@@ -318,9 +333,9 @@ class Forward_intergrate_vehicle:
 
         #publish rviz vehicle visualization
         rviz_message = PoseStamped()
-        # to plot centre of arrow as centre of vehicle shift the centre back by l_r
-        rviz_message.pose.position.x = vicon_msg.pose.pose.position.x - l_r/2 * np.cos(self.state[2])
-        rviz_message.pose.position.y = vicon_msg.pose.pose.position.y - l_r/2 * np.sin(self.state[2])
+        # to plot centre of arrow as centre of vehicle shift the centre back by l_COM
+        rviz_message.pose.position.x = vicon_msg.pose.pose.position.x - self.l_COM_self * np.cos(self.state[2])
+        rviz_message.pose.position.y = vicon_msg.pose.pose.position.y - self.l_COM_self * np.sin(self.state[2])
         rviz_message.pose.orientation = vicon_msg.pose.pose.orientation
 
         # frame data is necessary for rviz
@@ -349,7 +364,9 @@ if __name__ == '__main__':
         #vehicle 1         #x y theta vx vy w
         initial_state_1 = [0, 0, 0, 0.0, 0, 0]
         car_number_1 = 1
-        vehicle_1_integrator = Forward_intergrate_vehicle(car_number_1, vehicle_model, initial_state_1, dt_int)
+        actuator_dynamics = False
+        vehicle_1_integrator = Forward_intergrate_vehicle(car_number_1, vehicle_model, initial_state_1,
+                                                           dt_int,actuator_dynamics)
 
 
         vehicles_list = [vehicle_1_integrator]
@@ -359,13 +376,23 @@ if __name__ == '__main__':
         Forward_intergrate_GUI_manager_obj = Forward_intergrate_GUI_manager(vehicles_list)
 
         # forwards integrate
-        rate = rospy.Rate(1 / dt_int)
+        #rate = rospy.Rate(1 / dt_int)
         while not rospy.is_shutdown():
             # forwards integrate all vehicles
             for i in range(len(vehicles_list)):
-                vehicles_list[i].forward_integrate_1_timestep()
-            # wait one loop time
-            rate.sleep()
+                # get time now
+                rostime_begin_loop = rospy.get_rostime()
+                vehicles_list[i].forward_integrate_1_timestep(rostime_begin_loop,dt_int)
+                rostime_finished_loop = rospy.get_rostime()
+                #evalaute time needed to do the loop and print
+                time_for_loop = rostime_finished_loop - rostime_begin_loop
+                #print('time for loop: ' + str(time_for_loop.to_sec()))
+
+            # if you have extra time, wait until rate to keep the loop at the desired rate
+            if time_for_loop.to_sec() < dt_int:
+                # wait by the difference
+                rospy.sleep(dt_int - time_for_loop.to_sec())
+
 
     except rospy.ROSInterruptException:
         pass
