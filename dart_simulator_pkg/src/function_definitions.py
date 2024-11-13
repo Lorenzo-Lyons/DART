@@ -3,7 +3,6 @@
 # This is not best practice but at least this package is then self contained and easy to get to work.
 
 import numpy as np
-import torch
 import os
 
 def directly_measured_model_parameters():
@@ -118,161 +117,86 @@ class model_functions():
 
     def steering_2_steering_angle(self,steering_command,a_s,b_s,c_s,d_s,e_s):
 
-        if torch.is_tensor(steering_command):
-            w_s = 0.5 * (torch.tanh(30*(steering_command+c_s))+1)
-            steering_angle1 = b_s * torch.tanh(a_s * (steering_command + c_s)) 
-            steering_angle2 = d_s * torch.tanh(e_s * (steering_command + c_s))
-            steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2 
-        else: # use numpy implementation
-            w_s = 0.5 * (np.tanh(30*(steering_command+c_s))+1)
-            steering_angle1 = b_s * np.tanh(a_s * (steering_command + c_s))
-            steering_angle2 = d_s * np.tanh(e_s * (steering_command + c_s))
-            steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
+        w_s = 0.5 * (np.tanh(30*(steering_command+c_s))+1)
+        steering_angle1 = b_s * np.tanh(a_s * (steering_command + c_s))
+        steering_angle2 = d_s * np.tanh(e_s * (steering_command + c_s))
+        steering_angle = (w_s)*steering_angle1+(1-w_s)*steering_angle2
         return steering_angle
     
     def rolling_friction(self,vx,a_f,b_f,c_f,d_f):
-        if torch.is_tensor(vx):
-            F_rolling = - ( a_f * torch.tanh(b_f  * vx) + c_f * vx + d_f * vx**2 )
-        else:
-            F_rolling = - ( a_f * np.tanh(b_f  * vx) + c_f * vx + d_f * vx**2 )
+        F_rolling = - ( a_f * np.tanh(b_f  * vx) + c_f * vx + d_f * vx**2 )
         return F_rolling
     
 
     def motor_force(self,throttle_filtered,v,a_m,b_m,c_m):
-        if torch.is_tensor(throttle_filtered):
-            w_m = 0.5 * (torch.tanh(100*(throttle_filtered+c_m))+1)
-            Fx =  (a_m - b_m * v) * w_m * (throttle_filtered+c_m)
-        else:
-            w_m = 0.5 * (np.tanh(100*(throttle_filtered+c_m))+1)
-            Fx =  (a_m - b_m * v) * w_m * (throttle_filtered+c_m)
+        w_m = 0.5 * (np.tanh(100*(throttle_filtered+c_m))+1)
+        Fx =  (a_m - b_m * v) * w_m * (throttle_filtered+c_m)
         return Fx
     
     def evaluate_slip_angles(self,vx,vy,w,lf,lr,steer_angle):
         vy_wheel_f,vy_wheel_r = self.evalaute_wheel_lateral_velocities(vx,vy,w,steer_angle,lf,lr)
 
-        if torch.is_tensor(vx):
-            steer_angle_tensor = steer_angle * torch.Tensor([1]).cuda()
-            vx_wheel_f = torch.cos(-steer_angle_tensor) * vx - torch.sin(-steer_angle_tensor)*(vy + lf*w)
-            
-            Vx_correction_term_f = 1 * torch.exp(-3*vx_wheel_f**2)
-            Vx_correction_term_r = 1 * torch.exp(-3*vx**2)
+        # do the same but for numpy
+        vx_wheel_f = np.cos(-steer_angle) * vx - np.sin(-steer_angle)*(vy + lf*w)
 
-            Vx_f = vx_wheel_f + Vx_correction_term_f
-            Vx_r = vx + Vx_correction_term_r
+        Vx_correction_term_f = 1 * np.exp(-3*vx_wheel_f**2) 
+        Vx_correction_term_r = 1 *  np.exp(-3*vx**2) 
 
-            # evaluate slip angles
-            alpha_f = torch.atan2(vy_wheel_f, Vx_f) 
-            alpha_r = torch.atan2(vy_wheel_r, Vx_r)
-        else:
-            # do the same but for numpy
-            vx_wheel_f = np.cos(-steer_angle) * vx - np.sin(-steer_angle)*(vy + lf*w)
-
-            Vx_correction_term_f = 1 * np.exp(-3*vx_wheel_f**2) 
-            Vx_correction_term_r = 1 *  np.exp(-3*vx**2) 
-
-            Vx_f = vx_wheel_f + Vx_correction_term_f
-            Vx_r = vx + Vx_correction_term_r
-            
-            alpha_f = np.arctan2(vy_wheel_f,Vx_f)
-            alpha_r = np.arctan2(vy_wheel_r,Vx_r)
+        Vx_f = vx_wheel_f + Vx_correction_term_f
+        Vx_r = vx + Vx_correction_term_r
+        
+        alpha_f = np.arctan2(vy_wheel_f,Vx_f)
+        alpha_r = np.arctan2(vy_wheel_r,Vx_r)
             
         return alpha_f,alpha_r
     
     def lateral_forces_activation_term(self,vx):
-        if torch.is_tensor(vx):
-            return torch.tanh(100 * vx**2)
-        else:
-            return np.tanh(100 * vx**2)
+        return np.tanh(100 * vx**2)
 
     def lateral_tire_force(self,alpha,d_t,c_t,b_t,m_wheel):
-        if torch.is_tensor(alpha):
-            F_y = m_wheel * 9.81 * d_t * torch.sin(c_t * torch.arctan(b_t * alpha)) 
-        else:
-            F_y = m_wheel * 9.81 * d_t * np.sin(c_t * np.arctan(b_t * alpha))
+
+        F_y = m_wheel * 9.81 * d_t * np.sin(c_t * np.arctan(b_t * alpha))
         return F_y 
     
 
     def evalaute_wheel_lateral_velocities(self,vx,vy,w,steer_angle,lf,lr):
-        if torch.is_tensor(vx):
-            Vy_wheel_f = - torch.sin(steer_angle) * vx + torch.cos(steer_angle)*(vy + lf*w) 
-            Vy_wheel_r = vy - lr*w
-        else:
-            Vy_wheel_f = - np.sin(steer_angle) * vx + np.cos(steer_angle)*(vy + lf*w) 
-            Vy_wheel_r = vy - lr*w
+
+        Vy_wheel_f = - np.sin(steer_angle) * vx + np.cos(steer_angle)*(vy + lf*w) 
+        Vy_wheel_r = vy - lr*w
         return Vy_wheel_f,Vy_wheel_r
     
 
     def F_friction_due_to_steering(self,steer_angle,vx,a,b,d,e):        # evaluate forward force
-        if torch.is_tensor(steer_angle):
-            friction_term = a + (b * steer_angle * torch.tanh(30 * steer_angle)) 
-            vx_term =  - (0.5+0.5 *torch.tanh(20*(vx-0.3))) * (e + d * (vx-0.5))  
-        else:
-                friction_term = a + (b * steer_angle * np.tanh(30 * steer_angle))
-                vx_term =  - (0.5+0.5 *np.tanh(20*(vx-0.3))) * (e + d * (vx-0.5))
+
+        friction_term = a + (b * steer_angle * np.tanh(30 * steer_angle))
+        vx_term =  - (0.5+0.5 *np.tanh(20*(vx-0.3))) * (e + d * (vx-0.5))
 
         return  vx_term * friction_term
 
 
     
     def solve_rigid_body_dynamics(self,vx,vy,w,steer_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,lf,lr,m,Jz):
-        if torch.is_tensor(vx):
-            # evaluate centripetal acceleration
-            a_cent_x = + w * vy  # x component of ac_centripetal
-            a_cent_y = - w * vx  # y component of ac_centripetal
 
-            # evaluate body forces
-            Fx_body =  Fx_front*(torch.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-torch.sin(steer_angle))
+        # evaluate centripetal acceleration
+        a_cent_x = + w * vy
+        a_cent_y = - w * vx
 
-            Fy_body =  Fx_front*(torch.sin(steer_angle)) + Fy_wheel_f * (torch.cos(steer_angle)) + Fy_wheel_r
+        # evaluate body forces
+        Fx_body =  Fx_front*(np.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-np.sin(steer_angle))
 
-            M       = Fx_front * (+torch.sin(steer_angle)*lf) + Fy_wheel_f * (torch.cos(steer_angle)*lf)+\
-                    Fy_wheel_r * (-lr) 
-            
-            acc_x = Fx_body/m + a_cent_x
-            acc_y = Fy_body/m + a_cent_y
-            acc_w = M/Jz
-        else:
-            # evaluate centripetal acceleration
-            a_cent_x = + w * vy
-            a_cent_y = - w * vx
+        Fy_body =  Fx_front*(np.sin(steer_angle)) + Fy_wheel_f * (np.cos(steer_angle)) + Fy_wheel_r
 
-            # evaluate body forces
-            Fx_body =  Fx_front*(np.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-np.sin(steer_angle))
-
-            Fy_body =  Fx_front*(np.sin(steer_angle)) + Fy_wheel_f * (np.cos(steer_angle)) + Fy_wheel_r
-
-            M       = Fx_front * (+np.sin(steer_angle)*lf) + Fy_wheel_f * (np.cos(steer_angle)*lf)+\
-                    Fy_wheel_r * (-lr)
-            
-            acc_x = Fx_body/m + a_cent_x
-            acc_y = Fy_body/m + a_cent_y
-            acc_w = M/Jz
+        M       = Fx_front * (+np.sin(steer_angle)*lf) + Fy_wheel_f * (np.cos(steer_angle)*lf)+\
+                Fy_wheel_r * (-lr)
+        
+        acc_x = Fx_body/m + a_cent_x
+        acc_y = Fy_body/m + a_cent_y
+        acc_w = M/Jz
         
         return acc_x,acc_y,acc_w
     
 
-
-    def produce_past_action_coefficients_2nd_oder_critically_damped(self,w_natural_Hz,length):
-        # Generate the k coefficients for past actions
-        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
-        k_vec = torch.zeros((length,1)).cuda()
-        k_dev_vec = torch.zeros((length,1)).cuda()
-        for i in range(length):
-            k_vec[i], k_dev_vec[i] = self.impulse_response_2n_oder_critically_damped(i*self.dt,w_natural_Hz) # 
-        # the dt is really important to get the amplitude right
-        k_vec = k_vec * self.dt
-        k_dev_vec = k_dev_vec * self.dt
-        return k_vec.double() ,  k_dev_vec.double()   
-
-
-    def impulse_response_2n_oder_critically_damped(self,t,w_natural_Hz):
-        #second order impulse response
-        #[d,c,b,damping,w_natural] = self.transform_parameters_norm_2_real()
-        w = w_natural_Hz * 2 *np.pi # convert to rad/s
-        f = w**2 * t * torch.exp(-w*t)
-        f_dev = w**2 * (torch.exp(-w*t)-w*t*torch.exp(-w*t)) 
-        return f ,f_dev
-    
+ 
     def critically_damped_2nd_order_dynamics_numpy(self,x_dot,x,forcing_term,w_Hz):
         z = 1 # critically damped system
         w_natural = w_Hz * 2 * np.pi # convert to rad/s
@@ -281,52 +205,31 @@ class model_functions():
 
 
     def produce_past_action_coefficients_1st_oder(self,C,length,dt):
-        if torch.is_tensor(C):
-            k_vec = torch.zeros((length,1)).cuda()
-            for i in range(length):
-                k_vec[i] = self.impulse_response_1st_oder(i*dt,C) 
-            k_vec = k_vec * dt # the dt is really important to get the amplitude right
-            return k_vec.double()
-        
-        else:
-            k_vec = np.zeros((length,1))
-            for i in range(length):
-                k_vec[i] = self.impulse_response_1st_oder(i*dt,C) 
-            k_vec = k_vec * dt # the dt is really important to get the amplitude right
-            return k_vec 
+
+        k_vec = np.zeros((length,1))
+        for i in range(length):
+            k_vec[i] = self.impulse_response_1st_oder(i*dt,C) 
+        k_vec = k_vec * dt # the dt is really important to get the amplitude right
+        return k_vec 
 
 
     def impulse_response_1st_oder(self,t,C):
-        if torch.is_tensor(C):
-            return torch.exp(-t/C)*1/C
-        else:
-            return np.exp(-t/C)*1/C
+        return np.exp(-t/C)*1/C
 
 
 
     def produce_past_action_coefficients_1st_oder_step_response(self,C,length,dt):
-            if torch.is_tensor(C): # torch implementation
-                k_vec = torch.zeros((length,1))#.cuda()
-                for i in range(1,length):
-                    k_vec[i] = self.step_response_1st_oder(i*dt,C) - self.step_response_1st_oder((i-1)*dt,C)
-                k_vec = k_vec.double()
-                # move to cuda if C was in cuda
-                if C.is_cuda:
-                    k_vec = k_vec.cuda()
 
-            else: # numpy implementation
-                k_vec = np.zeros((length,1))
-                for i in range(1,length): # the first value is zero because it has not had time to act yet
-                    k_vec[i] = self.step_response_1st_oder(i*dt,C) - self.step_response_1st_oder((i-1)*dt,C)  
-            
+            k_vec = np.zeros((length,1))
+            for i in range(1,length): # the first value is zero because it has not had time to act yet
+                k_vec[i] = self.step_response_1st_oder(i*dt,C) - self.step_response_1st_oder((i-1)*dt,C)  
+        
             return k_vec 
     
 
     def step_response_1st_oder(self,t,C):
-        if torch.is_tensor(C):
-            return 1 - torch.exp(-t/C)
-        else:
-            return 1 - np.exp(-t/C)
+
+        return 1 - np.exp(-t/C)
         
     def continuous_time_1st_order_dynamics(self,x,forcing_term,C):
         x_dot = 1/C * (forcing_term - x)
