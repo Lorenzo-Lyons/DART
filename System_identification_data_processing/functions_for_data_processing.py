@@ -309,10 +309,13 @@ class model_functions():
 
     def produce_past_action_coefficients_1st_oder_step_response(self,C,length,dt):
             if torch.is_tensor(C): # torch implementation
-                k_vec = torch.zeros((length,1)).cuda()
+                k_vec = torch.zeros((length,1))#.cuda()
                 for i in range(1,length):
                     k_vec[i] = self.step_response_1st_oder(i*dt,C) - self.step_response_1st_oder((i-1)*dt,C)
                 k_vec = k_vec.double()
+                # move to cuda if C was in cuda
+                if C.is_cuda:
+                    k_vec = k_vec.cuda()
 
             else: # numpy implementation
                 k_vec = np.zeros((length,1))
@@ -2021,7 +2024,7 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
     def forward(self, x):
         # extract throttle and steering inputs
-        if self.actuator_time_delay_fitting_tag != 0: # extract inputs
+        if self.actuator_time_delay_fitting_tag == 1 or self.actuator_time_delay_fitting_tag == 2: # extract inputs
             throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
             steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
 
@@ -2212,10 +2215,8 @@ def plot_GP(ax,x,y,subset_indexes,model,likelihood,resolution,df):
     likelihood = likelihood.cuda()
 
 
-def train_SVGP_model(learning_rate,num_epochs,
-                     train_x, train_y_vx, train_y_vy, train_y_w,
-                     inducing_points,
-                     actuator_time_delay_fitting_tag,n_past_actions,dt,
+def train_SVGP_model(num_epochs,
+                    train_x, train_y_vx, train_y_vy, train_y_w,
                     model_vx,model_vy,model_w,
                     likelihood_vx,likelihood_vy,likelihood_w,
                     optimizer_vx,optimizer_vy,optimizer_w):
@@ -2351,12 +2352,12 @@ def train_SVGP_model(learning_rate,num_epochs,
         loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
            
     #plot loss functions
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111)
-    # ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
-    # ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
-    # ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
-    # ax.legend()
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+    ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+    ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+    ax.legend()
 
 
     #move to gpu for later evaluation
@@ -2567,9 +2568,15 @@ class dyn_model_SVGP_4_long_term_predictions():
 
     def forward(self, state_action):
         # input will have both inputs and input commands, so chose the right ones
-        if self.model_vx.actuator_time_delay_fitting_tag == 0:
+        if self.model_vx.actuator_time_delay_fitting_tag == 0: # take unfiltered inputs
             #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
             state_action_base_model = np.array([*state_action[:3],state_action[5],state_action[6]])
+            throttle_dot = 0
+            steering_dot = 0
+
+        elif self.model_vx.actuator_time_delay_fitting_tag == 3: # take filtered inputs
+            #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+            state_action_base_model = state_action[:5]
             throttle_dot = 0
             steering_dot = 0
             
@@ -2592,9 +2599,15 @@ class dyn_model_SVGP_4_long_term_predictions_analytical():
 
     def forward(self, state_action):
         # input will have both inputs and input commands, so chose the right ones
-        if self.model_vx.actuator_time_delay_fitting_tag == 0:
+        if self.model_vx.actuator_time_delay_fitting_tag == 0: # take unfiltered inputs
             #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
             state_action_base_model = np.array([*state_action[:3],state_action[5],state_action[6]])
+            throttle_dot = 0
+            steering_dot = 0
+
+        elif self.model_vx.actuator_time_delay_fitting_tag == 3: # take filtered inputs
+            #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+            state_action_base_model = state_action[:5]
             throttle_dot = 0
             steering_dot = 0
             

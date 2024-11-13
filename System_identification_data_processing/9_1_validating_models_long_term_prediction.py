@@ -38,11 +38,11 @@ if model_tag == 0: # pysic-based model
     # the model gives you the derivatives of it's own states, so you can integrate them to get the states in the new time instant
     dynamic_model = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
 
-elif model_tag == 1: # SVGP model
+elif model_tag == 1: # SVGP model NOTE that it can take both raw and filtered inputs according to the actuator_time_delay_fitting_tag
     model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path)
     dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
 
-elif model_tag == 2: # SVGP model analytical form
+elif model_tag == 2: # SVGP model analytical form NOTE that it can take both raw and filtered inputs according to the actuator_time_delay_fitting_tag
     model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
     dynamic_model = dyn_model_SVGP_4_long_term_predictions_analytical(model_vx,model_vy,model_w)
     
@@ -104,7 +104,7 @@ n_inputs = 2
 columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
-jumps = 300 #25
+jumps = 600 #25
 long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
 
 
@@ -116,7 +116,7 @@ long_term_predictions = produce_long_term_predictions(input_data_long_term_predi
 
 
 # plot long term predictions over real data
-fig, ((ax10,ax11,ax12)) = plt.subplots(3, 1, figsize=(10, 6))
+fig, ((ax10,ax11,ax12)) = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
 fig.subplots_adjust(top=0.995,
                     bottom=0.11,
                     left=0.095,

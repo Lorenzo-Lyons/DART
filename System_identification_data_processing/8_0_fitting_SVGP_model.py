@@ -29,10 +29,12 @@ learning_rate = 0.01
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
 # 2 = linear layer time delay fitting
+# 3 = GP takes as input the time-filtered inputs obtained with the input dynamics taken from the physics-based model.
+
 actuator_time_delay_fitting_tag = 0
 
 # fit likelihood noise?
-fit_likelihood_noise_tag = False  # this doesn't really make much difference
+fit_likelihood_noise_tag = True  # this doesn't really make much difference
 
 # fit on subsampled dataset?
 fit_on_subsampled_dataset_tag = False
@@ -128,17 +130,22 @@ ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_nump
 
 
 # train the SVGP model
-n_inducing_points = 250
+n_inducing_points = 500
 n_past_actions = 0 # default value
 
 
 
 
 if actuator_time_delay_fitting_tag == 0:
-    columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering'] #  angle time delayed
+    columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering'] 
     train_x_full_dataset = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
+
+elif actuator_time_delay_fitting_tag == 3:
+    columns_to_extract = ['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered'] 
+    train_x_full_dataset = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
+
 else:
-    columns_to_extract = ['vx body', 'vy body', 'w'] #  angle time delayed
+    columns_to_extract = ['vx body', 'vy body', 'w'] 
     train_x_states = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
 
     n_past_actions = 50
@@ -147,6 +154,10 @@ else:
     train_x_steering = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'steering')
 
     train_x_full_dataset = torch.cat((train_x_states,train_x_throttle,train_x_steering),1) # concatenate
+
+
+
+
 
 # produce y lables
 train_y_vx_full_dataset = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda()
@@ -224,14 +235,8 @@ likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_
 
 # train the SVGP model
 model_vx, model_vy, model_w,\
-likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(learning_rate,epochs,
-                                                            train_x,
-                                                            train_y_vx,
-                                                            train_y_vy,
-                                                            train_y_w,
-                                                            inducing_points,
-                                                            actuator_time_delay_fitting_tag,
-                                                            n_past_actions,dt,
+likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(epochs,
+                                                            train_x, train_y_vx, train_y_vy, train_y_w,
                                                             model_vx,model_vy,model_w,
                                                             likelihood_vx,likelihood_vy,likelihood_w,
                                                             optimizer_vx,optimizer_vy,optimizer_w)
@@ -299,7 +304,7 @@ ax_w.legend()
 
 
 # show linear layer weights
-if actuator_time_delay_fitting_tag != 0:
+if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 1:
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
     # x
     if actuator_time_delay_fitting_tag == 1:

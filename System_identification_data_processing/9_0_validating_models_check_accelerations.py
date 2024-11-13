@@ -26,8 +26,9 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 
 
 # load model
-model_tag = 2 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form
-
+model_tag = 1 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form # 
+# note SVGP can take either the raw inputs, or the filtered inputs, depending on the actuator_time_delay_fitting_tag in the model
+ 
 if model_tag == 0: # pysic-based model
     steering_friction_flag = True
     pitch_dynamics_flag = False
@@ -41,6 +42,9 @@ elif model_tag == 1: # SVGP model
 elif model_tag == 2: # SVGP model analytical form
     model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
     dynamic_model = dyn_model_SVGP_4_long_term_predictions_analytical(model_vx,model_vy,model_w)
+
+
+
 
 
 steps_shift = 5 # decide to filter more or less the vicon data
@@ -133,6 +137,10 @@ elif model_tag == 1:
     if model_vx.actuator_time_delay_fitting_tag == 0:
         #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
         state_action_base_model = np.column_stack((input_data[:, :3], input_data[:, 5], input_data[:, 6]))
+
+    elif model_vx.actuator_time_delay_fitting_tag == 3:
+        state_action_base_model = input_data[:, :5]
+
     test_x = torch.Tensor(state_action_base_model)
     acc_x_model = model_vx(test_x).mean.detach().numpy()
     acc_y_model = model_vy(test_x).mean.detach().numpy()
