@@ -2,10 +2,9 @@ import os
 import glob
 import pandas as pd
 import numpy as np
-from scipy.interpolate import UnivariateSpline, CubicSpline
 from matplotlib import pyplot as plt
 import torch
-from scipy.signal import savgol_filter
+from colorama import Fore, Style, Back
 
 def directly_measured_model_parameters():
     # from vicon system measurements
@@ -2180,6 +2179,8 @@ def plot_GP(ax,x,y,subset_indexes,model,likelihood,resolution,df):
     likelihood = likelihood.cuda()
 
 
+
+
 def train_SVGP_model(num_epochs,
                     train_x, train_y_vx, train_y_vy, train_y_w,
                     model_vx,model_vy,model_w,
@@ -2249,15 +2250,20 @@ def train_SVGP_model(num_epochs,
     loss_2_print_vy_vec = []
     loss_2_print_w_vec = []
 
-    minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False, disable=True)
-    minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False, disable=True)
-    minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False, disable=True)
+    
     
     # start training (tqdm is just to show the loading bar)
-    epochs_iter = tqdm.tqdm(range(num_epochs), desc="Epoch")
+    bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
+    epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
+    
+    
+    
+    
     for i in epochs_iter: #range(num_epochs):
         # Within each iteration, we will go over each minibatch of data
-
+        minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False) # , disable=True
+        minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False) # , disable=True
+        minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False) # , disable=True
 
         for x_batch_vx, y_batch_vx in minibatch_iter_vx:
             optimizer_vx.zero_grad()

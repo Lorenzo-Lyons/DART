@@ -23,7 +23,7 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 30 # epochs for training the SVGP
+epochs = 5 # epochs for training the SVGP
 learning_rate = 0.01
 # generate data in tensor form for torch
 # 0 = no time delay fitting
@@ -44,8 +44,8 @@ fit_on_subsampled_dataset_tag = False
 
 # select data folder NOTE: this assumes that the current directory is DART
 #folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
-
+#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+folder_path = 'System_identification_data_processing/Data/82_huge_datest_for_gp_fitting'
 
 # process data
 steps_shift = 5 # decide to filter more or less the vicon data
@@ -83,11 +83,25 @@ else:
 
 
 
+
+# cut time between 803.8 and 804.2
+if folder_path:
+    df = df[(df['vicon time'] < 803.8) | (df['vicon time'] > 804.2)]
+
+
+
+
+
+
 # load likelihood noise
-try:
-    raw_likelihood_noises = np.load(folder_path + '/raw_noise_likelihood.npy')
-except:
-    print('missing likelihood noise file')
+if fit_likelihood_noise_tag == False:
+    try:
+        raw_likelihood_noises = np.load(folder_path + '/raw_noise_likelihood.npy')
+    except:
+        print('missing likelihood noise file')
+else:    
+    raw_likelihood_noises = [0,0,0] # some default values that will not be used
+
 
 # load subset of indexes
 try:
@@ -119,11 +133,10 @@ wspace=0.2)
 ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
 ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
 ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
-# add inputs
-ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
-ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-
+# # add inputs
+# ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
+# ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+# ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
 
 
 
@@ -242,136 +255,20 @@ likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(epochs,
                                                             optimizer_vx,optimizer_vy,optimizer_w)
     
 
-# move to cpu for plotting
+
+
+
+
+# save models
+# move to cpu 
 model_vx = model_vx.cpu()
 model_vy = model_vy.cpu()
 model_w = model_w.cpu()
-
-train_x_full_dataset = train_x_full_dataset.cpu()
-
-
-preds_ax = model_vx(train_x_full_dataset)
-preds_ay = model_vy(train_x_full_dataset)
-preds_aw = model_w(train_x_full_dataset)
-
-
-# plotting
-lower_x, upper_x = preds_ax.confidence_region()
-lower_y, upper_y = preds_ay.confidence_region()
-lower_w, upper_w = preds_aw.confidence_region()
-
-# plot fitting results
-ax_x.cla()  # Clear the axis
-ax_y.cla()  # Clear the axis
-ax_w.cla()  # Clear the axis
-
-# add accelerations
-ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
-ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
-# add inputs
-ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
-ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-
-# add subsampled points as orange dots
-if fit_on_subsampled_dataset_tag:
-    for kk in range(0,len(subset_indexes)):
-        ax_x.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ax body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
-        ax_y.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ay body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
-        ax_w.plot(df['vicon time'].iloc[subset_indexes[kk]],df['acc_w'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
-
-
-
-ax_x.set_title('ax in body frame')
-ax_plot_mean = ax_x.plot(df['vicon time'].to_numpy(),preds_ax.mean.detach().cpu().numpy(),color='k',label='model prediction')
-aax_plot_confidence = ax_x.fill_between(df['vicon time'].to_numpy(), lower_x.detach().cpu().numpy(), upper_x.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-ax_x.legend()
-
-ax_y.set_title('ay in body frame')
-ax_y.plot(df['vicon time'].to_numpy(),preds_ay.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax_y.fill_between(df['vicon time'].to_numpy(), lower_y.detach().cpu().numpy(), upper_y.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-ax_y.legend()
-
-ax_w.set_title('aw in body frame')
-ax_w.plot(df['vicon time'].to_numpy(),preds_aw.mean.detach().cpu().numpy(),color='k',label='model prediction')
-ax_w.fill_between(df['vicon time'].to_numpy(), lower_w.detach().cpu().numpy(), upper_w.detach().cpu().numpy(), alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-ax_w.legend()
-
-
-
-
-
-
-# show linear layer weights
-if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 1:
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
-    # x
-    if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = model_vx.transform_parameters_norm_2_real()
-        weights_throttle_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-        #print out time parameter
-        print('model vx')
-        print(f'time constant throttle: {time_C_throttle.item()}')
-        print(f'time constant steering: {time_C_steering.item()}')
-    elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)[0]
-        weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)[0]
-    ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-    ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
-
-
-    # y
-    if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = model_vy.transform_parameters_norm_2_real()
-        weights_throttle_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-        # print out time parameter
-        print('model vy')
-        print(f'time constant throttle: {time_C_throttle.item()}')
-        print(f'time constant steering: {time_C_steering.item()}')
-    elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)[0]
-        weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)[0]
-    ax2.plot(weights_throttle_vy.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-    ax2.plot(weights_steering_vy.detach().cpu().numpy(),color='orangered',label='steering weights')
-
-    # w
-    if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = model_w.transform_parameters_norm_2_real()
-        weights_throttle_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-        # print out time parameter
-        print('model w')
-        print(f'time constant throttle: {time_C_throttle.item()}')
-        print(f'time constant steering: {time_C_steering.item()}')
-
-    elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)[0]
-        weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)[0]
-    ax3.plot(weights_throttle_w.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-    ax3.plot(weights_steering_w.detach().cpu().numpy(),color='orangered',label='steering weights')
-
-    # add legends
-    ax1.legend()
-    ax2.legend()
-    ax3.legend()
-
-
-
-
-
-# display fitting results
 
 # Get into evaluation (predictive posterior) mode
 model_vx.eval()
 model_vy.eval()
 model_w.eval()
-
-
-
-
 
 
 # analytical version of the model [necessary for solver implementation]
@@ -395,29 +292,9 @@ KZZ_x = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x),np.squ
 KZZ_y = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y),np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
 KZZ_w = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w),np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
 
-#kXZ = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(train_x.cpu().numpy()),np.squeeze(inducing_locations_x),outputscale,lengthscale)
-#KXX = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(train_x.cpu().numpy()),np.squeeze(train_x.cpu().numpy()),outputscale,lengthscale)
-
-# #plot covariance matrix eigenvalues
-# # Compute the eigenvalues
-# eigenvalues = np.linalg.eigvalsh(KZZ)
-
-# # Sort the eigenvalues in decreasing order
-# sorted_eigenvalues = np.sort(eigenvalues)[::-1]
-
-# # Plot the eigenvalues
-# plt.figure(figsize=(8, 5))
-# plt.plot(sorted_eigenvalues, 'o-', markersize=8, color='blue', label='Eigenvalues')
-# plt.title('Eigenvalues of the KXX Matrix in Decreasing Order')
-# plt.xlabel('Index')
-# plt.ylabel('Eigenvalue')
-# plt.grid(True)
-# plt.legend()
 
 # call prediction module on inducing locations
 jitter_term = 0.0001 * np.eye(n_inducing_points)  # this is very important for numerical stability
-
-
 
 
 preds_zz_x = model_vx(model_vx.variational_strategy.inducing_points)
@@ -501,6 +378,210 @@ if over_write_saved_parameters:
     likelihood_path_w = folder_path_SVGP_params + 'svgp_likelihood_w.pth'
     torch.save(model_w.state_dict(), model_path_w)
     torch.save(likelihood_w.state_dict(), likelihood_path_w)
+
+
+
+
+print('------------------------------')
+print('--- saved model parameters ---')
+print('------------------------------')
+
+
+
+
+
+
+# train_x_full_dataset = train_x_full_dataset.cpu()
+
+# with torch.no_grad(): # this actually saves memory allocation cause it doesn't store the gradients
+#     preds_ax = model_vx(train_x_full_dataset)
+#     preds_ay = model_vy(train_x_full_dataset)
+#     preds_aw = model_w(train_x_full_dataset)
+
+
+
+
+
+
+
+from torch.utils.data import DataLoader, TensorDataset
+
+# Assuming train_x_full_dataset is a PyTorch Tensor
+train_x_full_dataset = train_x_full_dataset.cpu()
+batch_size = 2000  # You can adjust this based on your system's capacity
+dataset_to_plot = TensorDataset(train_x_full_dataset)
+dataloader_to_plot = DataLoader(dataset_to_plot, batch_size=batch_size)
+
+# Initialize empty lists to store predictions
+preds_ax_mean = []
+preds_ay_mean = []
+preds_aw_mean = []
+
+# upper and lower margins for plotting
+lower_x = []
+upper_x = []
+lower_y = []
+upper_y = []
+lower_w = []
+upper_w = []
+
+# Loop over mini-batches
+with torch.no_grad(): # this actually saves memory allocation cause it doesn't store the gradients
+    for batch in dataloader_to_plot:
+        batch_data = batch[0]
+
+        preds_ax_batch = model_vx(batch_data)
+        preds_ay_batch = model_vy(batch_data)
+        preds_aw_batch = model_w(batch_data)
+        
+        # Get predictions for each model
+        preds_ax_mean.extend(preds_ax_batch.mean.numpy())
+        preds_ay_mean.extend(preds_ay_batch.mean.numpy())
+        preds_aw_mean.extend(preds_aw_batch.mean.numpy())
+
+        # plotting
+        lower_x_batch, upper_x_batch = preds_ax_batch.confidence_region()
+        lower_y_batch, upper_y_batch = preds_ay_batch.confidence_region()
+        lower_w_batch, upper_w_batch = preds_aw_batch.confidence_region()
+
+        # append confidence region bounds
+        lower_x.extend(lower_x_batch.numpy())
+        upper_x.extend(upper_x_batch.numpy())
+        lower_y.extend(lower_y_batch.numpy())
+        upper_y.extend(upper_y_batch.numpy())
+        lower_w.extend(lower_w_batch.numpy())
+        upper_w.extend(upper_w_batch.numpy())
+
+
+
+
+
+
+
+
+
+
+
+
+# plot fitting results
+ax_x.cla()  # Clear the axis
+ax_y.cla()  # Clear the axis
+ax_w.cla()  # Clear the axis
+
+# add accelerations
+ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
+ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
+# # add inputs
+# ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
+# ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+# ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
+
+# add subsampled points as orange dots
+if fit_on_subsampled_dataset_tag:
+    for kk in range(0,len(subset_indexes)):
+        ax_x.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ax body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
+        ax_y.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ay body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
+        ax_w.plot(df['vicon time'].iloc[subset_indexes[kk]],df['acc_w'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
+
+
+
+ax_x.set_title('ax in body frame')
+ax_plot_mean = ax_x.plot(df['vicon time'].to_numpy(),preds_ax_mean,color='k',label='model prediction')
+aax_plot_confidence = ax_x.fill_between(df['vicon time'].to_numpy(), lower_x, upper_x, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+ax_x.legend()
+
+ax_y.set_title('ay in body frame')
+ax_y.plot(df['vicon time'].to_numpy(),preds_ay_mean,color='k',label='model prediction')
+ax_y.fill_between(df['vicon time'].to_numpy(), lower_y, upper_y, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+ax_y.legend()
+
+ax_w.set_title('aw in body frame')
+ax_w.plot(df['vicon time'].to_numpy(),preds_aw_mean,color='k',label='model prediction')
+ax_w.fill_between(df['vicon time'].to_numpy(), lower_w, upper_w, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+ax_w.legend()
+
+
+
+
+
+
+# show linear layer weights
+if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 1:
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
+    # x
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = model_vx.transform_parameters_norm_2_real()
+        weights_throttle_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        #print out time parameter
+        print('model vx')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)[0]
+        weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)[0]
+    ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+    ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
+
+
+    # y
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = model_vy.transform_parameters_norm_2_real()
+        weights_throttle_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        # print out time parameter
+        print('model vy')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)[0]
+        weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)[0]
+    ax2.plot(weights_throttle_vy.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+    ax2.plot(weights_steering_vy.detach().cpu().numpy(),color='orangered',label='steering weights')
+
+    # w
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = model_w.transform_parameters_norm_2_real()
+        weights_throttle_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        # print out time parameter
+        print('model w')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)[0]
+        weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)[0]
+    ax3.plot(weights_throttle_w.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+    ax3.plot(weights_steering_w.detach().cpu().numpy(),color='orangered',label='steering weights')
+
+    # add legends
+    ax1.legend()
+    ax2.legend()
+    ax3.legend()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
