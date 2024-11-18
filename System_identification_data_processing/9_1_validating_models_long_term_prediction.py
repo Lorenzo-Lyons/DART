@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import os
+from tqdm import tqdm
 
 
 #matplotlib.rc('font', **font)
@@ -32,13 +33,13 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 
 
 # --- folder path from where to load gp parameters ---
-folder_path_GP = 'System_identification_data_processing/Data/82_huge_datest_for_gp_fitting'
+folder_path_GP = 'System_identification_data_processing/Data/82_huge_datest_for_gp_fitting/SVGP_saved_parameters'
 
 
 
 
 
-model_tag = 2 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form
+model_tag = 1 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form
 
 
 
@@ -53,7 +54,8 @@ elif model_tag == 1: # SVGP model NOTE that it can take both raw and filtered in
     dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
 
 elif model_tag == 2: # SVGP model analytical form NOTE that it can take both raw and filtered inputs according to the actuator_time_delay_fitting_tag
-    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path_GP)
+    evalaute_cov_tag = False
+    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path_GP,evalaute_cov_tag)
     dynamic_model = dyn_model_SVGP_4_long_term_predictions_analytical(model_vx,model_vy,model_w)
     
 
@@ -114,7 +116,7 @@ n_inputs = 2
 columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
 input_data_long_term_predictions = df[columns_to_extract].to_numpy()
 prediction_window = 1.5 # [s]
-jumps = 600 #25
+jumps = 25 #25
 long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
 
 
@@ -237,14 +239,59 @@ acc_x_model_from_data = np.zeros(df.shape[0])
 acc_y_model_from_data = np.zeros(df.shape[0])
 acc_w_model_from_data = np.zeros(df.shape[0])
 
-for i in range(0,df.shape[0]):
-    acc = dynamic_model.forward(input_data_acc_prediction[i,:])
-    acc_x_model_from_data[i] = acc[0]
-    acc_y_model_from_data[i] = acc[1]
-    acc_w_model_from_data[i] = acc[2]
+# print('predicting accelerations from data')
+# for i in tqdm(range(0,df.shape[0]), desc="i"):
+#     acc = dynamic_model.forward(input_data_acc_prediction[i,:])
+#     acc_x_model_from_data[i] = acc[0]
+#     acc_y_model_from_data[i] = acc[1]
+#     acc_w_model_from_data[i] = acc[2]
 
 
-# plot longitudinal accleeartion
+
+acc_x_model_from_data = np.zeros(df.shape[0])
+acc_y_model_from_data = np.zeros(df.shape[0])
+acc_w_model_from_data = np.zeros(df.shape[0])
+
+print('predicting accelerations from data')
+if model_tag == 0:
+    for i in range(0,df.shape[0]):
+        acc = dynamic_model.forward(input_data_acc_prediction[i,:])
+        acc_x_model_from_data[i] = acc[0]
+        acc_y_model_from_data[i] = acc[1]
+        acc_w_model_from_data[i] = acc[2]
+
+elif model_tag == 1:
+    import torch
+    if model_vx.actuator_time_delay_fitting_tag == 0:
+        #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+        state_action_base_model = np.column_stack((input_data_acc_prediction[:, :3], input_data_acc_prediction[:, 5], input_data_acc_prediction[:, 6]))
+
+    elif model_vx.actuator_time_delay_fitting_tag == 3:
+        state_action_base_model = input_data_acc_prediction[:, :5]
+
+    test_x = torch.Tensor(state_action_base_model)
+    acc_x_model_from_data = model_vx(test_x).mean.detach().numpy()
+    acc_y_model_from_data = model_vy(test_x).mean.detach().numpy()
+    acc_w_model_from_data = model_w(test_x).mean.detach().numpy()
+
+elif model_tag == 2:
+    # add tqdm bar
+    from tqdm import tqdm
+    for i in tqdm(range(0,df.shape[0])):
+        acc = dynamic_model.forward(input_data_acc_prediction[i,:])
+        acc_x_model_from_data[i] = acc[0]
+        acc_y_model_from_data[i] = acc[1]
+        acc_w_model_from_data[i] = acc[2]
+
+
+
+
+
+
+
+
+
+# plot longitudinal acclearation
 ax_acc_x.plot(df['vicon time'].to_numpy(),acc_x_model_from_data,color='maroon',label='model output from data')
 ax_acc_y.plot(df['vicon time'].to_numpy(),acc_y_model_from_data,color='maroon',label='model output from data')
 ax_acc_w.plot(df['vicon time'].to_numpy(),acc_w_model_from_data,color='maroon',label='model output from data')
@@ -265,7 +312,9 @@ ax_st.legend()
 
 # plot long term predictions
 
-for pred in long_term_predictions:
+print('plotting long term predictions')
+
+for pred in tqdm(long_term_predictions, desc="Rollouts"):
 
     #velocities
     ax10.plot(pred[:,0],pred[:,1],color='k',alpha=0.2)

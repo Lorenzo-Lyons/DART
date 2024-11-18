@@ -2017,14 +2017,14 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
 def load_SVGPModel_actuator_dynamics(folder_path):
     #load model paths
-    model_path_vx = folder_path + '/SVGP_saved_parameters/svgp_model_vx.pth'
-    model_path_vy = folder_path + '/SVGP_saved_parameters/svgp_model_vy.pth'
-    model_path_w = folder_path + '/SVGP_saved_parameters/svgp_model_w.pth'
+    model_path_vx = folder_path + '/svgp_model_vx.pth'
+    model_path_vy = folder_path + '/svgp_model_vy.pth'
+    model_path_w = folder_path + '/svgp_model_w.pth'
 
     #load inducing points
-    inducing_points_vx = folder_path + '/SVGP_saved_parameters/inducing_locations_x.npy'
-    inducing_points_vy = folder_path + '/SVGP_saved_parameters/inducing_locations_y.npy'
-    inducing_points_w = folder_path + '/SVGP_saved_parameters/inducing_locations_w.npy'
+    inducing_points_vx = folder_path + '/inducing_locations_x.npy'
+    inducing_points_vy = folder_path + '/inducing_locations_y.npy'
+    inducing_points_w = folder_path + '/inducing_locations_w.npy'
 
     #load nupy arrays
     inducing_points_vx = np.load(inducing_points_vx)
@@ -2042,7 +2042,7 @@ def load_SVGPModel_actuator_dynamics(folder_path):
     model_w = SVGPModel_actuator_dynamics(inducing_points_w)
 
     #load time delay parameters
-    time_delay_parameters_path = folder_path + '/SVGP_saved_parameters/time_delay_parameters.npy'
+    time_delay_parameters_path = folder_path + '/time_delay_parameters.npy'
     time_delay_parameters = np.load(time_delay_parameters_path)
 
     #set up time delay parameters
@@ -2068,8 +2068,72 @@ def load_SVGPModel_actuator_dynamics(folder_path):
 
 
 
-def load_SVGPModel_actuator_dynamics_analytic(folder_path):
-    svgp_params_path = folder_path + '/SVGP_saved_parameters/'
+# def load_SVGPModel_actuator_dynamics_analytic(folder_path):
+#     svgp_params_path = folder_path + '/SVGP_saved_parameters/'
+
+#     # Define the parameter names for each dimension (x, y, w)
+#     param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale']
+#     dimensions = ['x', 'y', 'w']
+
+#     # Initialize an empty dictionary to store all parameters
+#     svgp_params = {}
+
+#     # Loop through each dimension and parameter name to load the .npy files
+#     for dim in dimensions:
+#         svgp_params[dim] = {}
+#         for param in param_names:
+#             file_path = os.path.join(svgp_params_path, f"{param}_{dim}.npy")
+#             if os.path.exists(file_path):
+#                 svgp_params[dim][param] = np.load(file_path)
+#                 #print(f"Loaded {param}_{dim}: shape {svgp_params[dim][param].shape}")
+#             else:
+#                 print(f"Warning: {param}_{dim}.npy not found in {svgp_params_path}")
+
+#     # load time delay parameters
+#     time_delay_parameters_path = folder_path + '/SVGP_saved_parameters/time_delay_parameters.npy'
+#     time_delay_parameters = np.load(time_delay_parameters_path)
+#     actuator_time_delay_fitting_tag = time_delay_parameters[0]
+#     n_past_actions = time_delay_parameters[1]
+#     dt_svgp = time_delay_parameters[2]
+
+#     evalaute_cov_tag = False # dont evaluate covariance for now
+#     # now build the models
+#     model_vx = SVGP_analytic(svgp_params['x']['outputscale'],
+#                              svgp_params['x']['lengthscale'],
+#                              svgp_params['x']['inducing_locations'],
+#                              svgp_params['x']['right_vec'],
+#                              svgp_params['x']['L_inv'],
+#                              evalaute_cov_tag)
+#     model_vx.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+#     model_vx.n_past_actions = n_past_actions
+#     model_vx.dt = dt_svgp
+
+#     model_vy = SVGP_analytic(svgp_params['y']['outputscale'],
+#                                 svgp_params['y']['lengthscale'],
+#                                 svgp_params['y']['inducing_locations'],
+#                                 svgp_params['y']['right_vec'],
+#                                 svgp_params['y']['L_inv'],
+#                                 evalaute_cov_tag)
+#     model_vy.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+#     model_vy.n_past_actions = n_past_actions
+#     model_vy.dt = dt_svgp
+    
+#     model_w = SVGP_analytic(svgp_params['w']['outputscale'],
+#                                 svgp_params['w']['lengthscale'],
+#                                 svgp_params['w']['inducing_locations'],
+#                                 svgp_params['w']['right_vec'],
+#                                 svgp_params['w']['L_inv'],
+#                                 evalaute_cov_tag)
+#     model_w.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+#     model_w.n_past_actions = n_past_actions
+#     model_w.dt = dt_svgp
+
+#     return model_vx,model_vy,model_w
+
+
+
+def load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag):
+    svgp_params_path = folder_path 
 
     # Define the parameter names for each dimension (x, y, w)
     param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale']
@@ -2090,13 +2154,13 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
                 print(f"Warning: {param}_{dim}.npy not found in {svgp_params_path}")
 
     # load time delay parameters
-    time_delay_parameters_path = folder_path + '/SVGP_saved_parameters/time_delay_parameters.npy'
+    time_delay_parameters_path = folder_path + '/time_delay_parameters.npy'
     time_delay_parameters = np.load(time_delay_parameters_path)
     actuator_time_delay_fitting_tag = time_delay_parameters[0]
     n_past_actions = time_delay_parameters[1]
     dt_svgp = time_delay_parameters[2]
 
-    evalaute_cov_tag = False # dont evaluate covariance for now
+    
     # now build the models
     model_vx = SVGP_analytic(svgp_params['x']['outputscale'],
                              svgp_params['x']['lengthscale'],
@@ -2129,6 +2193,52 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
     model_w.dt = dt_svgp
 
     return model_vx,model_vy,model_w
+
+
+
+class SVGP_analytic():
+    def __init__(self,outputscale,lengthscale,inducing_locations,right_vec,L_inv,evalaute_cov_tag):
+
+        self.outputscale = outputscale
+        self.lengthscale = lengthscale
+        self.inducing_locations = inducing_locations
+        self.right_vec = right_vec
+        self.L_inv = L_inv
+        self.evalaute_cov_tag = evalaute_cov_tag
+
+    def forward(self, x_star):
+        #make x_star into a 5 x 1 array
+        x_star = np.expand_dims(x_star, axis=0)
+        kXZ = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations),self.outputscale,self.lengthscale)
+
+        # calculate mean and covariance for x
+        mean = kXZ @ self.right_vec
+        if self.evalaute_cov_tag:
+            # calculate covariance
+            X = self.L_inv @ kXZ.T
+            KXX = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale,self.lengthscale)
+            cov = KXX + X.T @ self.middle @ X
+        else:
+            cov = 0
+
+        return mean[0], cov
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # simple SVGP model 
 class SVGPModel(ApproximateGP):
@@ -2554,32 +2664,32 @@ class dyn_model_SVGP_4_long_term_predictions_analytical():
         return np.array([ax,ay,aw,throttle_dot,steering_dot])
 
 
-class SVGP_analytic():
-    def __init__(self,outputscale,lengthscale,inducing_locations,right_vec,L_inv,evalaute_cov_tag):
+# class SVGP_analytic():
+#     def __init__(self,outputscale,lengthscale,inducing_locations,right_vec,L_inv,evalaute_cov_tag):
 
-        self.outputscale = outputscale
-        self.lengthscale = lengthscale
-        self.inducing_locations = inducing_locations
-        self.right_vec = right_vec
-        self.L_inv = L_inv
-        self.evalaute_cov_tag = evalaute_cov_tag
+#         self.outputscale = outputscale
+#         self.lengthscale = lengthscale
+#         self.inducing_locations = inducing_locations
+#         self.right_vec = right_vec
+#         self.L_inv = L_inv
+#         self.evalaute_cov_tag = evalaute_cov_tag
 
-    def forward(self, x_star):
-        #make x_star into a 5 x 1 array
-        x_star = np.expand_dims(x_star, axis=0)
-        kXZ = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations),self.outputscale,self.lengthscale)
+#     def forward(self, x_star):
+#         #make x_star into a 5 x 1 array
+#         x_star = np.expand_dims(x_star, axis=0)
+#         kXZ = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations),self.outputscale,self.lengthscale)
 
-        # calculate mean and covariance for x
-        mean = kXZ @ self.right_vec
-        if self.evalaute_cov_tag:
-            # calculate covariance
-            X = self.L_inv @ kXZ.T
-            KXX = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale,self.lengthscale)
-            cov = KXX + X.T @ self.middle @ X
-        else:
-            cov = 0
+#         # calculate mean and covariance for x
+#         mean = kXZ @ self.right_vec
+#         if self.evalaute_cov_tag:
+#             # calculate covariance
+#             X = self.L_inv @ kXZ.T
+#             KXX = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale,self.lengthscale)
+#             cov = KXX + X.T @ self.middle @ X
+#         else:
+#             cov = 0
 
-        return mean[0], cov
+#         return mean[0], cov
     
 
 def rebuild_Kxy_RBF_vehicle_dynamics(X,Y,outputscale,lengthscale):

@@ -13,24 +13,41 @@ from dart_simulator_pkg.cfg import dart_simulator_guiConfig
 from tf.transformations import quaternion_from_euler
 
 
+# import the model functions from previously installed python package
+from DART_dynamic_models.dart_dynamic_models import model_functions,load_SVGPModel_actuator_dynamics_analytic
 
-from function_definitions import model_functions,load_SVGPModel_actuator_dynamics_analytic
+
 
 # instantiate the model functions
 mf = model_functions()
 
 
+def unpack_state(z):
+    #z = throttle delta x y theta vx vy w
+    th = z[0]
+    st = z[1]
+    x = z[2]
+    y = z[3]
+    yaw = z[4]
+    vx = z[5]
+    vy = z[6]
+    w = z[7]
 
+    return th, st, x, y, yaw, vx, vy, w
+
+def produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w):
+    xdot1 = vx * np.cos(yaw) - vy * np.sin(yaw)
+    xdot2 = vx * np.sin(yaw) + vy * np.cos(yaw)
+    xdot3 = w
+    xdot4 = acc_x  
+    xdot5 = acc_y  
+    xdot6 = acc_w
+    return np.array([xdot1,xdot2,xdot3,xdot4,xdot5,xdot6])
 
 def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and state
-    #z = throttle delta x y theta vx vy w
-    u = z[0:2]
-    x = z[2:]
-    th = u[0]
-    st = u[1]
-    vx = x[3]
-    vy = x[4]
-    w = x[5]
+    
+    th, st, x, y, yaw, vx, vy, w = unpack_state(z)
+
 
     #evaluate steering angle 
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
@@ -45,26 +62,16 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     w = vx * np.tan(steering_angle) / (mf.lr_self + mf.lf_self) # angular velocity
     vy = mf.l_COM_self * w
 
-    xdot1 = vx * np.cos(x[2]) - vy * np.sin(x[2])
-    xdot2 = vx * np.sin(x[2]) + vy * np.cos(x[2])
-    xdot3 = w
-    xdot4 = acc_x  
-    xdot5 = 0  # vy dot is not used
-    xdot6 = 0  # w dot is not used
+
+    xdot= produce_xdot(yaw,vx,vy,w,acc_x,0,0)
 
     # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
-    zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
-    return zdot
+    #zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
+    return xdot
 
 def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and state
-    #z = throttle delta x y theta vx vy w
-    u = z[0:2]
-    x = z[2:]
-    th = u[0]
-    st = u[1]
-    vx = x[3]
-    vy = x[4]
-    w  = x[5]
+    # extract states
+    th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
     #evaluate steering angle 
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
@@ -94,35 +101,29 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 
     acc_x,acc_y,acc_w = mf.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,mf.lf_self,mf.lr_self,mf.m_self,mf.Jz_self)
 
-    xdot1 = vx * np.cos(x[2]) - vy * np.sin(x[2])
-    xdot2 = vx * np.sin(x[2]) + vy * np.cos(x[2])
-    xdot3 = w
-    xdot4 = acc_x  
-    xdot5 = acc_y  
-    xdot6 = acc_w  
+    xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w)
 
     # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
-    zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
-    return zdot
+    #zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
+    return xdot
 
 
 
 
 #get current folder path
-import os
-folder_path = os.path.dirname(os.path.realpath(__file__))
+#import os
+import importlib.resources
+#folder_path = os.path.dirname(os.path.realpath(__file__))
+
+with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters') as data_path:
+    folder_path = str(data_path)
+
+
 evalaute_cov_tag = False # only using the mean for now
 model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag)
 
 def SVGP(t,z):  # RK4 wants a function that takes as input time and state
-    #z = throttle delta x y theta vx vy w
-    u = z[0:2]
-    x = z[2:]
-    th = u[0]
-    st = u[1]
-    vx = x[3]
-    vy = x[4]
-    w  = x[5]
+    th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
     #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
     state_action_base_model = np.array([vx,vy,w,th,st])
@@ -132,16 +133,11 @@ def SVGP(t,z):  # RK4 wants a function that takes as input time and state
     acc_w, cov_w = model_w.forward(state_action_base_model)
     
 
-    xdot1 = vx * np.cos(x[2]) - vy * np.sin(x[2])
-    xdot2 = vx * np.sin(x[2]) + vy * np.cos(x[2])
-    xdot3 = w
-    xdot4 = acc_x  
-    xdot5 = acc_y  
-    xdot6 = acc_w  
+    xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w) 
 
     # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
-    zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
-    return zdot
+    #xdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
+    return xdot
 
 
 
@@ -261,12 +257,13 @@ class Forward_intergrate_vehicle(model_functions):
 
         # only activates if safety is off
         if self.actuator_dynamics:
-            y0 = np.array([self.throttle_state, self.steering_state] + self.state) # use integrated throttle and steering
+            y0 = np.array([self.throttle_state, self.steering_state, *self.state]) # use integrated throttle and steering
         else:
-            y0 = np.array([self.throttle, self.steering] + self.state)
+            y0 = np.array([self.throttle, self.steering, *self.state] )
 
         # using forward euler
-        zdot = self.vehicle_model(t0,y0)
+        xdot = self.vehicle_model(t0,y0)
+
         # evaluate elapsed time
         rostime_stop = rospy.get_rostime()
         #evalaute time needed to do the loop and print
@@ -278,8 +275,8 @@ class Forward_intergrate_vehicle(model_functions):
         else:
             dt_step = dt_int
         # step state
-        z_next = y0 + zdot * dt_step
-        self.state = z_next[2:].tolist()
+        #z_next = y0 + zdot * dt_step
+        self.state += xdot * dt_step #z_next[2:].tolist()
 
         # now step internal states for actuators if needed
         if self.actuator_dynamics:
@@ -292,10 +289,12 @@ class Forward_intergrate_vehicle(model_functions):
 
         # non - elegant fix: if using kinematic bicycle that does not have Vy w_dot, assign it from kinematic realtions
         if self.vehicle_model == kinematic_bicycle:
-            steering_angle = mf.steering_2_steering_angle(z_next[1],self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
+            # z_next[1]
+            steering_angle = mf.steering_2_steering_angle(self.steering,self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
             # evaluate vy w from kinematic relations (so this can't be in the integrating function)
             #steering_angle = steer_angle(z_next[1])
-            w = z_next[5] * np.tan(steering_angle) / (self.lf_self+self.lr_self)
+            vx = self.state[3]
+            w = vx * np.tan(steering_angle) / (self.lf_self+self.lr_self)
             vy = self.l_COM_self * w
             self.state[4] = vy
             self.state[5] = w
@@ -321,7 +320,7 @@ class Forward_intergrate_vehicle(model_functions):
         sensor_msg = Float32MultiArray()
         #                  current,voltage,IMU[0](acc x),IMU[1] (acc y),IMU[2] (omega rads),velocity, safety, throttle, steering
         elapsed_time = rospy.Time.now() - self.initial_time
-        sensor_msg.data = [elapsed_time.to_sec(), 0.0, 0.0, 0.0, 0.0, z_next[7], z_next[5], self.safety_value,self.throttle,self.steering]
+        sensor_msg.data = [elapsed_time.to_sec(), 0.0, 0.0, 0.0, 0.0, self.state[5], self.state[3], self.safety_value,self.throttle,self.steering]
         self.pub_sens_input.publish(sensor_msg)
 
 

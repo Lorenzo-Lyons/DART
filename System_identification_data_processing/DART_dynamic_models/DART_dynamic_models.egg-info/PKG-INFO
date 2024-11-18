@@ -1,0 +1,16 @@
+Metadata-Version: 2.1
+Name: DART-dynamic-models
+Version: 0.1.0
+Summary: This package provides easy access to DART dynamic models and relative utility functions, e.g. for plotting.
+Home-page: https://github.com/Lorenzo-Lyons/DART
+Author: Lorenzo Lyons
+Author-email: l.lyons@tudelft.nl
+License: UNKNOWN
+Description: # Dart dynamic models #
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8.10
+Description-Content-Type: text/markdown

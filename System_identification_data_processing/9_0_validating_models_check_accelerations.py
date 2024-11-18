@@ -3,10 +3,14 @@ from functions_for_data_processing import get_data, plot_raw_data, process_raw_v
     process_vicon_data_kinematics,throttle_dynamics_data_processing,steering_dynamics_data_processing,\
     load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions,\
     load_SVGPModel_actuator_dynamics_analytic,dyn_model_SVGP_4_long_term_predictions_analytical
+
+
+
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 import os
+
 
 
 
@@ -24,6 +28,9 @@ folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sep
 #folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
 
 
+# --- folder path from where to load gp parameters ---
+folder_path_GP = 'System_identification_data_processing/Data/82_huge_datest_for_gp_fitting/SVGP_saved_parameters'
+
 
 # load model
 model_tag = 1 # 0 for physics-based model, 1 for SVGP model, 2 for SVGP rewritten in analytic form # 
@@ -36,11 +43,12 @@ if model_tag == 0: # pysic-based model
     dynamic_model = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
 
 elif model_tag == 1: # SVGP model
-    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path)
+    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path_GP)
     #dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
 
 elif model_tag == 2: # SVGP model analytical form
-    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
+    evalaute_cov_tag = False
+    model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path_GP,evalaute_cov_tag)
     dynamic_model = dyn_model_SVGP_4_long_term_predictions_analytical(model_vx,model_vy,model_w)
 
 
@@ -120,7 +128,6 @@ columns_to_extract = ['vx body', 'vy body', 'w', 'throttle filtered' ,'steering 
 input_data = df[columns_to_extract].to_numpy()
 
 
-# plot long term predictions
 acc_x_model = np.zeros(df.shape[0])
 acc_y_model = np.zeros(df.shape[0])
 acc_w_model = np.zeros(df.shape[0])
