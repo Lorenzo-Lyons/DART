@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, motor_and_friction_model,model_functions,generate_tensor_past_actions
+from dart_dynamic_models import get_data, plot_raw_data, motor_and_friction_model,model_functions,generate_tensor_past_actions
 from matplotlib import pyplot as plt
 import torch
 import numpy as np

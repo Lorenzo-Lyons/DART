@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
+from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,produce_long_term_predictions,train_decoupled_SVGP_model,dyn_model_SVGP,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten
 from matplotlib import pyplot as plt
 import torch

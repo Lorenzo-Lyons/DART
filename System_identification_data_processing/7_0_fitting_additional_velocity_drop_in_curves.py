@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
+from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,steering_friction_model,process_vicon_data_kinematics, model_functions,\
 throttle_dynamics_data_processing,steering_dynamics_data_processing
 from matplotlib import pyplot as plt

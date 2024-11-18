@@ -1,7 +1,7 @@
 # testing to see if we can replicate second order dynamics using some coefficients
 import numpy as np
 from matplotlib import pyplot as plt
-from functions_for_data_processing import model_functions
+from dart_dynamic_models import model_functions
 mf = model_functions()
 
 

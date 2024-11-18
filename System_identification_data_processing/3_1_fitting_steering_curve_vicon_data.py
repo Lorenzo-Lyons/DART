@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, steering_curve_model,plot_raw_data,process_vicon_data_kinematics,\
+from dart_dynamic_models import get_data, steering_curve_model,plot_raw_data,process_vicon_data_kinematics,\
 directly_measured_model_parameters,plot_vicon_data, model_functions
 from matplotlib import pyplot as plt
 import torch

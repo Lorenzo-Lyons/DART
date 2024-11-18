@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data,process_raw_data_steering, steering_curve_model,plot_raw_data
+from dart_dynamic_models import get_data,process_raw_data_steering, steering_curve_model,plot_raw_data
 from matplotlib import pyplot as plt
 import torch
 import numpy as np

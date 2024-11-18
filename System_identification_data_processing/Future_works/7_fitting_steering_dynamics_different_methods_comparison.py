@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,\
+from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data,\
 model_parameters,\
 process_vicon_data_kinematics,model_functions,steering_dynamics_model_NN,generate_tensor_past_actions,steering_dynamics_model_first_order
 from matplotlib import pyplot as plt

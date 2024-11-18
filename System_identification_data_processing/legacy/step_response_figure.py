@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, evaluate_delay, motor_curve_model, plot_motor_friction_curves
+from dart_dynamic_models import get_data, plot_raw_data, evaluate_delay, motor_curve_model, plot_motor_friction_curves
 from matplotlib import pyplot as plt
 import torch
 import numpy as np

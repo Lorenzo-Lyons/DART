@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_vicon_data_kinematics,plot_vicon_data,model_parameters,\
+from dart_dynamic_models import get_data, plot_raw_data, process_vicon_data_kinematics,plot_vicon_data,model_parameters,\
 vicon_parameters_model
 from matplotlib import pyplot as plt
 import torch

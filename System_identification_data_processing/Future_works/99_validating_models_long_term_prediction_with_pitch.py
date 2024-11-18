@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
+from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,dyn_model_culomb_tires_pitch,throttle_dynamics,\
 steering_dynamics, produce_long_term_predictions_full_model,process_vicon_data_kinematics,model_functions
 

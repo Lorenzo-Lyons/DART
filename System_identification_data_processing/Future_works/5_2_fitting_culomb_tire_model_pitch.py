@@ -1,4 +1,4 @@
-from functions_for_data_processing import get_data, plot_raw_data, process_raw_vicon_data,\
+from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,\
 plot_vicon_data,model_parameters,directly_measured_model_parameters,process_vicon_data_kinematics,\
     pacejka_tire_model_pitch,throttle_dynamics,steering_dynamics,\
     generate_tensor_past_actions

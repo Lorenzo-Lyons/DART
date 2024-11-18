@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
-from functions_for_data_processing import get_data, throttle_dynamics_data_processing, steering_dynamics_data_processing, process_vicon_data_kinematics, process_raw_vicon_data
+from dart_dynamic_models import get_data, throttle_dynamics_data_processing, steering_dynamics_data_processing, process_vicon_data_kinematics, process_raw_vicon_data
 
 
 # define the folder path to load data
