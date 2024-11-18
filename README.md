@@ -27,6 +27,12 @@ Clone this repo.
 ```
 git clone https://github.com/Lorenzo-Lyons/DART.git
 ```
+Install DART_dynamic_models python package. Navigate to the pacakge root folder *DART_dynamic_models* and install:
+
+```
+pip install dist/DART_dynamic_models-0.1.0-py3-none-any.whl
+```
+
 The Data_processing folder contains the code and data required for system identification and can be run as simple python scripts with your favourite code editor like [Visual Studio Code](https://code.visualstudio.com/). To use the simulator and other ROS packages you will need a working ROS intallation, we used [ROS noetic](http://wiki.ros.org/noetic/Installation/Ubuntu) but other ROS versions should work too. You will then need to place the packages in a [catkin workspace](http://wiki.ros.org/catkin/Tutorials/create_a_workspace). 
 
 ### System identification
