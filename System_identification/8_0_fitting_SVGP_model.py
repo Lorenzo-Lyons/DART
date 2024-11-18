@@ -43,9 +43,9 @@ fit_on_subsampled_dataset_tag = False
 
 
 # select data folder NOTE: this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
-folder_path = 'System_identification_data_processing/Data/82_huge_datest_for_gp_fitting'
+#folder_path = 'System_identification/Data/91_free_driving_16_sept_2024'
+#folder_path = 'System_identification/Data/91_free_driving_16_sept_2024_slow'
+folder_path = 'System_identification/Data/82_huge_datest_for_gp_fitting'
 
 # process data
 steps_shift = 5 # decide to filter more or less the vicon data

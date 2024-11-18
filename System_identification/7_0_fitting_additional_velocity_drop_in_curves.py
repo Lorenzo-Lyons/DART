@@ -13,9 +13,9 @@ import os
 
 # select data folder NOTE: this assumes that the current directory is DART
 
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
-#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
-folder_path = 'System_identification_data_processing/Data/steer_friction_training_data' # this uses both the above files
+#folder_path = 'System_identification/Data/81_throttle_ramps'
+#folder_path = 'System_identification/Data/circles_27_sept_2024'
+folder_path = 'System_identification/Data/steer_friction_training_data' # this uses both the above files
 
 
 
@@ -85,7 +85,7 @@ else:
 
 
 #cut off time instances where the vicon missed a detection to avoid corrupted datapoints
-if  folder_path == 'System_identification_data_processing/Data/81_throttle_ramps':
+if  folder_path == 'System_identification/Data/81_throttle_ramps':
     df1 = df[df['vicon time']<100]
     df1 = df1[df1['vicon time']>20]
 
@@ -115,10 +115,10 @@ if  folder_path == 'System_identification_data_processing/Data/81_throttle_ramps
 
     df = pd.concat([df1,df2,df3,df4,df5,df6,df7,df8,df9]) 
 
-elif folder_path == 'System_identification_data_processing/Data/steering_identification_25_sept_2024':
+elif folder_path == 'System_identification/Data/steering_identification_25_sept_2024':
     df = df[df['vicon time']<460]
 
-elif folder_path == 'System_identification_data_processing/Data/circles_27_sept_2024':
+elif folder_path == 'System_identification/Data/circles_27_sept_2024':
 
     df1 = df[df['vicon time']>1]
     df1 = df1[df1['vicon time']<375]
@@ -131,7 +131,7 @@ elif folder_path == 'System_identification_data_processing/Data/circles_27_sept_
 
     df = pd.concat([df1,df2,df3])
 
-elif folder_path == 'System_identification_data_processing/Data/steer_friction_training_data':
+elif folder_path == 'System_identification/Data/steer_friction_training_data':
     df1 = df[df['vicon time']<100]
     df1 = df1[df1['vicon time']>20]
 

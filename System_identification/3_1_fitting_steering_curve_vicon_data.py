@@ -14,9 +14,9 @@ mf = model_functions()
 
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'  # small sinusoidal input
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
-#folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
+folder_path = 'System_identification/Data/steering_identification_25_sept_2024'  # small sinusoidal input
+#folder_path = 'System_identification/Data/81_throttle_ramps'
+#folder_path = 'System_identification/Data/circles_27_sept_2024'
 
 
 # --- Starting data processing  ------------------------------------------------
@@ -44,7 +44,7 @@ else:
 
 
 
-if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps':
+if folder_path == 'System_identification/Data/81_throttle_ramps':
     #cut off time instances where the vicon missed a detection to avoid corrupted datapoints
     df1 = df[df['vicon time']<100]
     df1 = df1[df1['vicon time']>20]

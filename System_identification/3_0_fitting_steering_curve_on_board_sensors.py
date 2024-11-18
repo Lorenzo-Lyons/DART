@@ -5,7 +5,7 @@ import numpy as np
 
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/30_step_steering_data'  # small sinusoidal input
+folder_path = 'System_identification/Data/30_step_steering_data'  # small sinusoidal input
 
 # get the raw data
 df_raw_data = get_data(folder_path)

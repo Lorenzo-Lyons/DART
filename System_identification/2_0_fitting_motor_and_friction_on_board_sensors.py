@@ -6,8 +6,8 @@ import numpy as np
 
 
 # this assumes that the current directory is DART
-folder_path = 'System_identification_data_processing/Data/20_step_input_data_rubbery_floor' 
-#folder_path = 'System_identification_data_processing/Data/21_step_input_data_rubbery_floor_v_08-15' # velocity up to 1.5 m/s
+folder_path = 'System_identification/Data/20_step_input_data_rubbery_floor' 
+#folder_path = 'System_identification/Data/21_step_input_data_rubbery_floor_v_08-15' # velocity up to 1.5 m/s
 
 
 # needed to retrieve friction coefficients

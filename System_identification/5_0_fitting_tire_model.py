@@ -13,8 +13,8 @@ mf = model_functions()
 
 
 # select data folder NOTE: this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
-folder_path = 'System_identification_data_processing/Data/circles_27_sept_2024'
+#folder_path = 'System_identification/Data/8_circles_rubbery_floor_1_file'
+folder_path = 'System_identification/Data/circles_27_sept_2024'
 
 # --- Starting data processing  ------------------------------------------------
 
@@ -58,7 +58,7 @@ else:
 
 
 
-if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03':
+if folder_path == 'System_identification/Data/81_throttle_ramps_only_steer03':
     # cut the data in two parts cause something is wrong in the middle (probably a temporary lag in the network)
     df1=df[df['vicon time']<110]  #  60 150
     df2=df[df['vicon time']>185.5] 
@@ -67,11 +67,11 @@ if folder_path == 'System_identification_data_processing/Data/81_throttle_ramps_
     # Reset the index if you want a clean, continuous index
     df.reset_index(drop=True, inplace=True)
 
-elif folder_path == 'System_identification_data_processing/Data/steering_identification_25_sept_2024':
+elif folder_path == 'System_identification/Data/steering_identification_25_sept_2024':
     # cut the data in two parts cause something is wrong in the middle (probably a temporary lag in the network)
     df=df[df['vicon time']<460]
 #cut off time instances where the vicon missed a detection to avoid corrupted datapoints
-elif  folder_path == 'System_identification_data_processing/Data/81_throttle_ramps':
+elif  folder_path == 'System_identification/Data/81_throttle_ramps':
     df1 = df[df['vicon time']<100]
     df1 = df1[df1['vicon time']>20]
 
@@ -103,7 +103,7 @@ elif  folder_path == 'System_identification_data_processing/Data/81_throttle_ram
 
 
 
-if folder_path == 'System_identification_data_processing/Data/circles_27_sept_2024':
+if folder_path == 'System_identification/Data/circles_27_sept_2024':
     df1 = df[df['vicon time']>1]
     df1 = df1[df1['vicon time']<375]
 

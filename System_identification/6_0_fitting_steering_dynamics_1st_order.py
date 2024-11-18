@@ -17,20 +17,20 @@ import os
 
 
 # select data folder NOTE: this assumes that the current directory is DART
-#folder_path = 'System_identification_data_processing/Data/8_circles_rubbery_floor_1_file'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps'
+#folder_path = 'System_identification/Data/8_circles_rubbery_floor_1_file'
+#folder_path = 'System_identification/Data/81_throttle_ramps'
 
-#folder_path = 'System_identification_data_processing/Data/81_circles_tape_and_tiles'
-#folder_path = 'System_identification_data_processing/Data/81_throttle_ramps_only_steer03'
-#folder_path = 'System_identification_data_processing/Data/91_model_validation_long_term_predictions_fast'
-#folder_path = 'System_identification_data_processing/Data/90_model_validation_long_term_predictions'
+#folder_path = 'System_identification/Data/81_circles_tape_and_tiles'
+#folder_path = 'System_identification/Data/81_throttle_ramps_only_steer03'
+#folder_path = 'System_identification/Data/91_model_validation_long_term_predictions_fast'
+#folder_path = 'System_identification/Data/90_model_validation_long_term_predictions'
 
 # Decide how many past steering signals to use. Note that this shold be enough to capture the dynamics of the system. 
 # steering_time_window = 0.04  # [s] # this should be enough to capture the dynamics of the impulse response of the steering dynamics
 # dt_steering = 0.001  # this small enough to limit the numerical error when solving the convolution integral in the steering dynamics model
-#folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024'
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
-#folder_path = 'System_identification_data_processing/Data/steering_identification_25_sept_2024'
+#folder_path = 'System_identification/Data/91_free_driving_16_sept_2024'
+folder_path = 'System_identification/Data/91_free_driving_16_sept_2024_slow'
+#folder_path = 'System_identification/Data/steering_identification_25_sept_2024'
 
 
 

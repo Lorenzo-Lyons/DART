@@ -13,7 +13,7 @@ plot_GP, SVGPModel
 
 
 # define the folder path to load data
-folder_path = 'System_identification_data_processing/Data/91_free_driving_16_sept_2024_slow'
+folder_path = 'System_identification/Data/91_free_driving_16_sept_2024_slow'
 
 # process data
 steps_shift = 5 # decide to filter more or less the vicon data
