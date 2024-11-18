@@ -1,7 +1,7 @@
 # DART: Delft's Autonomous-driving Robotic Testbed
 
 <p align="center">
-  <img src="Images_for_readme/4_jetracers_in_a_line_cropped.png" width="700" title="DART ">
+  <img src="Images_for_readme/DART_front_image.png" width="700" title="DART ">
 </p>
 
 
