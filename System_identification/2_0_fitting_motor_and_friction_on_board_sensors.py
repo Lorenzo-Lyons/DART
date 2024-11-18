@@ -2,7 +2,10 @@ from dart_dynamic_models import get_data, plot_raw_data, motor_and_friction_mode
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
-
+font = {'family' : 'normal',
+        'size'   : 22}
+import matplotlib
+matplotlib.rc('font', **font)
 
 
 # this assumes that the current directory is DART

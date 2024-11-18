@@ -5,7 +5,10 @@ import torch
 import numpy as np
 import pandas as pd
 import os
-
+font = {'family' : 'normal',
+        'size'   : 22}
+import matplotlib
+matplotlib.rc('font', **font)
 
 # load parameters
 mf = model_functions()
