@@ -49,7 +49,7 @@ To perform the system identification, run through the scripts following the numb
 As a preview we show the physics-based identified sub-models.
 
 
-|![](Images_for_readme/friction_curve.png)<br>Friction Curve|![](Images_for_readme/motor_curve.png)<br>Motor Curve|
+|![](Images_for_readme/friction_curve.png)<br>Friction Curve|![](Images_for_readme/motor_curve_wide.png)<br>Motor Curve|
 |:-:|:-:
 |![](Images_for_readme/steering_mapping.png)<br>**Steering input to steering angle map**|![](Images_for_readme/tire_models.png)<br>**Tire models**|
 
