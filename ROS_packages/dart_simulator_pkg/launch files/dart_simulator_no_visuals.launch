@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+
+<node pkg="dart_simulator_pkg" type="dart_simulator.py" name="dart_simulator_node" output="screen"
+   />
+<node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconfigure_forwards_int"
+   />
+
+</launch>

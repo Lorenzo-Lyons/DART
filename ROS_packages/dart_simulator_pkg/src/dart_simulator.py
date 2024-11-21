@@ -48,13 +48,12 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
-
     #evaluate steering angle 
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
     # evaluate longitudinal forces
     Fx = + mf.motor_force(th,vx,mf.a_m_self,mf.b_m_self,mf.c_m_self)\
-                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)
+            + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)
 
     acc_x =  Fx / mf.m_self # acceleration in the longitudinal direction
 
