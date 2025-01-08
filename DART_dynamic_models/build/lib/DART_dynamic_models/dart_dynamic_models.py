@@ -235,16 +235,15 @@ class model_functions():
             acc_w = M/Jz
         else:
             # evaluate centripetal acceleration
-            a_cent_x = + w * vy
+            a_cent_x = w * vy
             a_cent_y = - w * vx
 
             # evaluate body forces
-            Fx_body =  Fx_front*(np.cos(steer_angle))+ Fx_rear + Fy_wheel_f * (-np.sin(steer_angle))
+            Fx_body =  Fx_front * np.cos(steer_angle) + Fx_rear + Fy_wheel_f * -np.sin(steer_angle)
 
-            Fy_body =  Fx_front*(np.sin(steer_angle)) + Fy_wheel_f * (np.cos(steer_angle)) + Fy_wheel_r
+            Fy_body =  Fx_front * np.sin(steer_angle) + Fy_wheel_f * np.cos(steer_angle) + Fy_wheel_r
 
-            M       = Fx_front * (+np.sin(steer_angle)*lf) + Fy_wheel_f * (np.cos(steer_angle)*lf)+\
-                    Fy_wheel_r * (-lr)
+            M       =  Fx_front * np.sin(steer_angle) * lf + Fy_wheel_f * np.cos(steer_angle) * lf + Fy_wheel_r * -lr
             
             acc_x = Fx_body/m + a_cent_x
             acc_y = Fy_body/m + a_cent_y
