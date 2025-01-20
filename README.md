@@ -6,7 +6,7 @@
 
 
 ## What's DART?
-DART is a small-scale car-like robot that is intended for autonomous driving research. It's based on the commercially available [JetracerPro AI kit](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit)  available from Waveshare and features  additional sensors and a few other upgrades. Instructions on how to build your own will be available soon. 
+DART is a small-scale car-like robot that is intended for autonomous driving research. It's based on the commercially available [JetracerPro AI kit](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit)  available from Waveshare and features  additional sensors and a few other upgrades.
 
 
 
@@ -21,12 +21,13 @@ This repository contains the code to set up and start driving with DART! In part
 
 To see the full build instructions go to [Build instruction section](build_instructions/).
 
-
-## Installation
-Clone this repo.
+## Software setup
+To start using the robot first of all set up the operating system and ROS installation on the Jetson-Nano [link](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit). Then do the following:
+- Clone this repo.
 ```
 git clone https://github.com/Lorenzo-Lyons/DART.git
 ```
+
 Install DART_dynamic_models python package. Navigate to the pacakge root folder *DART_dynamic_models* and install:
 
 ```
@@ -102,7 +103,7 @@ The lane following controller allows the vehicle to autonomously track a user-de
 To build a map of the environment first launch the file:
 
 ```
-roslaunch localization_and_mapping_pkg gmapping_universal.launch
+roslaunch localization_and_mapping_pkg mapping_controller.launch
 ```
 Note that the vehicle needs to navigate the environment in order to map it. A convenient way of doing so is to run the velocity tracking controller described in the previous section. We also assume that the lidar has been properly set up as detailed in the building instructions.
 
