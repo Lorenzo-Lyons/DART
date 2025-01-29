@@ -7,8 +7,8 @@
 	CompilerVersion="9.4.0"
 	OSName="Linux"
 	Hostname="lorenzo-Alienware-m15-Ryzen-Ed-R5"
-	OSRelease="5.15.0-130-generic"
-	OSVersion="#140~20.04.1-Ubuntu SMP Wed Dec 18 21:35:34 UTC 2024"
+	OSRelease="5.15.0-131-generic"
+	OSVersion="#141~20.04.1-Ubuntu SMP Thu Jan 16 18:38:51 UTC 2025"
 	OSPlatform="x86_64"
 	Is64Bits="1"
 	VendorString="AuthenticAMD"
@@ -21,14 +21,14 @@
 	TotalVirtualMemory="8191"
 	TotalPhysicalMemory="15329"
 	LogicalProcessorsPerPhysical="2"
-	ProcessorClockFrequency="3902.41"
+	ProcessorClockFrequency="1200"
 	>
 	<Testing>
-		<StartDateTime>Jan 29 09:45 CET</StartDateTime>
-		<StartTestTime>1738140349</StartTestTime>
+		<StartDateTime>Jan 29 13:44 CET</StartDateTime>
+		<StartTestTime>1738154643</StartTestTime>
 		<TestList/>
-		<EndDateTime>Jan 29 09:45 CET</EndDateTime>
-		<EndTestTime>1738140349</EndTestTime>
+		<EndDateTime>Jan 29 13:44 CET</EndDateTime>
+		<EndTestTime>1738154643</EndTestTime>
 		<ElapsedMinutes>0</ElapsedMinutes>
 	</Testing>
 </Site>
