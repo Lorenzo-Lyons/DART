@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 
 # this script simulates the output from the optitrack, so you can use it for tests
-import sys
 import rospy
-from std_msgs.msg import String, Float32, Float32MultiArray
+from std_msgs.msg import Float32, Float32MultiArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 import numpy as np
-from scipy import integrate
 import tf_conversions
 from dynamic_reconfigure.server import Server
 from dart_simulator_pkg.cfg import dart_simulator_guiConfig
-from tf.transformations import quaternion_from_euler
 
 
 # import the model functions from previously installed python package
@@ -48,7 +45,7 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
-    #evaluate steering angle 
+    #evaluate steering angle
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
     # evaluate longitudinal forces
@@ -78,10 +75,8 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 
     # # evaluate longitudinal forces
     Fx_wheels = + mf.motor_force(th,vx,mf.a_m_self,mf.b_m_self,mf.c_m_self)\
-                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)
-    
-    # add extra friction due to steering
-    Fx_wheels += mf.F_friction_due_to_steering(steering_angle,vx,mf.a_stfr_self,mf.b_stfr_self,mf.d_stfr_self,mf.e_stfr_self)
+                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)\
+                + mf.F_friction_due_to_steering(steering_angle,vx,mf.a_stfr_self,mf.b_stfr_self,mf.d_stfr_self,mf.e_stfr_self)
 
 
     c_front = (mf.m_front_wheel_self)/mf.m_self
@@ -102,8 +97,6 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w)
 
-    # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
-    #zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
     return xdot
 
 
@@ -159,13 +152,10 @@ class Forward_intergrate_GUI_manager:
     def reconfig_callback_forwards_integrate(self, config, level):
             print('----------------------------------------------')
             print('reconfiguring parameters from dynamic_reconfig')
-            # self.dt_int = config['dt_int'] # set the inegrating step
-            # self.rate = rospy.Rate(1 / self.dt_int) # accordingly reset the output rate of a new measurement
 
             vehicle_model_choice = config['dynamic_model_choice']
 
             for i in range(len(self.vehicles_list)):
-
                 self.vehicles_list[i].actuator_dynamics = config['actuator_dynamics']
 
                 if vehicle_model_choice == 1:
@@ -179,6 +169,11 @@ class Forward_intergrate_GUI_manager:
                 elif vehicle_model_choice == 3:
                     print('vehicle model set to SVGP')
                     self.vehicles_list[i].vehicle_model = SVGP
+
+                # --- add disturbance selection parameters here ---
+                disturbance_choice =config['disturbance_choice'] # this is the number associsated with the disturbance type from GUI 
+                self.vehicles_list[i].disturbance_type = self.disturbance_type_options[disturbance_choice]
+                # --- add the bounds here also ---
 
 
             reset_state_x = config['reset_state_x']
@@ -216,6 +211,11 @@ class Forward_intergrate_vehicle(model_functions):
         # internal states for actuator dynamics
         self.throttle_state = 0.0
         self.steering_state = 0.0
+
+        # --- initialize disturbance parameters to some dummy values ---
+        self.disturbance_type_options = ["None","Truncated_gaussian","Uniform"]
+        self.disturbance_type = self.disturbance_type_options[0]
+        self.disturbance_bounds = [1.0,1.0]
 
 
         
@@ -263,6 +263,11 @@ class Forward_intergrate_vehicle(model_functions):
         # using forward euler
         xdot = self.vehicle_model(t0,y0)
 
+        # --- add disturbance (if needed) ---
+        disturbance = self.produce_disturbance() # it will be 0 if no disturbance is selected
+        xdot += disturbance
+        # ---
+
         # evaluate elapsed time
         rostime_stop = rospy.get_rostime()
         #evalaute time needed to do the loop and print
@@ -283,7 +288,6 @@ class Forward_intergrate_vehicle(model_functions):
             steering_dot = self.continuous_time_1st_order_dynamics(self.steering_state,self.steering,self.k_stdn_self)
             self.throttle_state += throttle_dot * dt_step
             self.steering_state += steering_dot * dt_step
-
 
 
         # non - elegant fix: if using kinematic bicycle that does not have Vy w_dot, assign it from kinematic realtions
@@ -340,6 +344,12 @@ class Forward_intergrate_vehicle(model_functions):
         rviz_message.header.frame_id = 'map'
         self.pub_rviz_vehicle_visualization.publish(rviz_message)
 
+    # --- complete this function ---
+    def produce_disturbance(self):
+        if self.disturbance_type == "None":
+            disturbance = np.zeros((6,1))
+        # oterh options here
+        return disturbance
 
 
 
