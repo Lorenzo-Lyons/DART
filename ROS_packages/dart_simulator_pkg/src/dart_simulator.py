@@ -8,6 +8,7 @@ import numpy as np
 import tf_conversions
 from dynamic_reconfigure.server import Server
 from dart_simulator_pkg.cfg import dart_simulator_guiConfig
+from scipy.stats import truncnorm
 
 
 # import the model functions from previously installed python package
@@ -146,6 +147,7 @@ class Forward_intergrate_GUI_manager:
         #fory dynamic parameter change using rqt_reconfigure GUI
         self.vehicles_list = vehicles_list
         srv = Server(dart_simulator_guiConfig, self.reconfig_callback_forwards_integrate)
+        self.disturbance_type_options = ["None", "Truncated_Gaussian", "Flat"]
         
 
 
@@ -170,10 +172,30 @@ class Forward_intergrate_GUI_manager:
                     print('vehicle model set to SVGP')
                     self.vehicles_list[i].vehicle_model = SVGP
 
+                
+                    # Aggiorna il tipo di disturbo scelto (Low, Medium, High)
+                trunc_disturbance_level = config['trunc_type']
+                flat_disturbance_level = config['flat_type']
+
+                for i in range(len(self.vehicles_list)):
+                    self.vehicles_list[i].trunc_disturbance_level = trunc_disturbance_level
+                    self.vehicles_list[i].flat_disturbance_level = flat_disturbance_level
+
                 # --- add disturbance selection parameters here ---
-                disturbance_choice =config['disturbance_choice'] # this is the number associsated with the disturbance type from GUI 
-                self.vehicles_list[i].disturbance_type = self.disturbance_type_options[disturbance_choice]
-                # --- add the bounds here also ---
+                disturbance_choice =config['disturbance_choice'] # this is the number associsated with the disturbance type from GUI
+
+                
+                # self.vehicles_list[i].disturbance_type = self.disturbance_type_options[disturbance_choice]
+                if disturbance_choice == 1:
+                    print("No disturbance set")
+                    self.vehicles_list[i].disturbance_type = "None"
+                elif disturbance_choice == 2:
+                    print("Truncated disturbance is set")
+                    self.vehicles_list[i].disturbance_type = "Truncated_Gaussian"
+                elif disturbance_choice == 3:
+                    print("Flat disturbance is set")
+                    self.vehicles_list[i].disturbance_type = "Flat"
+                    # --- add the bounds here also ---
 
 
             reset_state_x = config['reset_state_x']
@@ -305,7 +327,7 @@ class Forward_intergrate_vehicle(model_functions):
 
 
         # simulate vicon motion capture system output
-        vicon_msg = PoseWithCovarianceStamped()
+        vicon_msg = PoseWithCovarianceStamped() 
         vicon_msg.header.stamp = rospy.Time.now()
         vicon_msg.header.frame_id = 'map'
         vicon_msg.pose.pose.position.x = self.state[0] 
@@ -347,8 +369,46 @@ class Forward_intergrate_vehicle(model_functions):
     # --- complete this function ---
     def produce_disturbance(self):
         if self.disturbance_type == "None":
-            disturbance = np.zeros((6,1))
-        # oterh options here
+            disturbance = np.zeros((6))
+        
+        elif self.disturbance_type == "Truncated_Gaussian":
+            if self.trunc_disturbance_level == 1:  # LOW
+                mean = 0
+                std_dev = 0.02
+                upper_bound = 0.05
+                lower_bound = - upper_bound
+
+            elif self.trunc_disturbance_level == 2: # MEDIUM
+                mean = 0
+                std_dev = 0.1
+                upper_bound = 0.2
+                lower_bound = - upper_bound
+
+            elif self.trunc_disturbance_level == 3: # HIGH
+                mean = 0
+                std_dev = 1
+                upper_bound = 1.5
+                lower_bound = - upper_bound
+
+            a, b = (lower_bound - mean) / std_dev, (upper_bound - mean) / std_dev
+            disturbance = truncnorm.rvs(a, b, loc=mean, scale=std_dev, size=(6))
+
+        elif self.disturbance_type == 'Flat':
+            if self.flat_disturbance_level == 1: # LOW
+                upper_bound = 0.05
+                lower_bound = - upper_bound
+
+            elif self.flat_disturbance_level == 2: # MEDIUM
+                upper_bound = 0.5
+                lower_bound = - upper_bound 
+
+            elif self.flat_disturbance_level == 3: # HIGH
+                upper_bound = 1
+                lower_bound = - upper_bound         
+                
+            disturbance = np.random.uniform(lower_bound, upper_bound, size=(6))
+
+        
         return disturbance
 
 
@@ -367,6 +427,7 @@ if __name__ == '__main__':
 
         dt_int = 0.01
         vehicle_model = kinematic_bicycle
+        disturbance = None
         
 
         #vehicle 1         #x y theta vx vy w

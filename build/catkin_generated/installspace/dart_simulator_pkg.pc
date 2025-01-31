@@ -1,8 +1,0 @@
-prefix=/usr/local
-
-Name: dart_simulator_pkg
-Description: Description of dart_simulator_pkg
-Version: 0.0.0
-Cflags: -I${prefix}/include
-Libs: -L${prefix}/lib 
-Requires: 
