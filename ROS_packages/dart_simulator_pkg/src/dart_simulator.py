@@ -173,7 +173,7 @@ class Forward_intergrate_GUI_manager:
                     self.vehicles_list[i].vehicle_model = SVGP
 
                 
-                    # Aggiorna il tipo di disturbo scelto (Low, Medium, High)
+                # Aggiorna il tipo di disturbo scelto (Low, Medium, High)
                 trunc_disturbance_level = config['trunc_type']
                 flat_disturbance_level = config['flat_type']
 
