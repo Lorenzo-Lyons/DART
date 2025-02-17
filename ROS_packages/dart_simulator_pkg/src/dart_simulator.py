@@ -42,7 +42,14 @@ def produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w):
     xdot6 = acc_w
     return np.array([xdot1,xdot2,xdot3,xdot4,xdot5,xdot6])
 
-def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and state
+
+def activation_coeff(vx):
+    c = 0.5
+    sharpness = 16
+    return np.tanh(sharpness * (vx-c))*0.5+0.5
+
+
+def kinematic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
@@ -59,6 +66,15 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     w = vx * np.tan(steering_angle) / (mf.lr_self + mf.lf_self) # angular velocity
     vy = mf.l_COM_self * w
 
+    if disturbance:
+        # add disturbance if needed
+        state_action_base_model = np.array([vx,vy,w,th,st])
+        acc_x, cov_x = model_vx.forward(state_action_base_model)
+        # draw a random sample with the appropriate covariance
+        # activate if the velocity is above a certain threshold (c)
+        disturbance_x = activation_coeff(vx) * np.random.normal(0, cov_x**0.5) # np.random wants the standard deviation
+        # add to xdot
+        acc_x += disturbance_x
 
     xdot= produce_xdot(yaw,vx,vy,w,acc_x,0,0)
 
@@ -66,7 +82,7 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     #zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
     return xdot
 
-def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and state
+def dynamic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     # extract states
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
@@ -96,6 +112,26 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 
     acc_x,acc_y,acc_w = mf.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,mf.lf_self,mf.lr_self,mf.m_self,mf.Jz_self)
 
+    if disturbance:
+        # add disturbance if needed
+        state_action_base_model = np.array([vx,vy,w,th,st])
+        acc_x, cov_x = model_vx.forward(state_action_base_model)
+        acc_y, cov_y = model_vy.forward(state_action_base_model)
+        acc_w, cov_w = model_w.forward(state_action_base_model)
+        # draw a random sample with the appropriate covariance
+
+        disturbance_x = activation_coeff(vx) * np.random.normal(0, cov_x**0.5) # np.random wants the standard deviation
+        disturbance_y = activation_coeff(vx) * np.random.normal(0, cov_y**0.5)
+        disturbance_w = activation_coeff(vx) * np.random.normal(0, cov_w**0.5)
+        
+        # add to xdot
+        acc_x += disturbance_x
+        acc_y += disturbance_y
+        acc_w += disturbance_w
+
+
+
+
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w)
 
     return xdot
@@ -115,7 +151,8 @@ with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters') as
 evalaute_cov_tag = False # only using the mean for now
 model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag)
 
-def SVGP(t,z):  # RK4 wants a function that takes as input time and state
+
+def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
     #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
@@ -124,7 +161,24 @@ def SVGP(t,z):  # RK4 wants a function that takes as input time and state
     acc_x, cov_x = model_vx.forward(state_action_base_model)
     acc_y, cov_y = model_vy.forward(state_action_base_model)
     acc_w, cov_w = model_w.forward(state_action_base_model)
-    
+
+    # to avoid strange jittering close to 0 velocity, blend
+
+    # add nominal model
+    xdot_nom = dynamic_bicycle(t,z,False)
+    acc_x = activation_coeff(vx) * acc_x + xdot_nom[3]
+    acc_y = activation_coeff(vx) * acc_y + xdot_nom[4]
+    acc_w = activation_coeff(vx) * acc_w + xdot_nom[5]
+
+    if disturbance:
+        # add disturbance if needed
+        disturbance_x = activation_coeff(vx) * np.random.normal(0, cov_x**0.5) # np.random wants the standard deviation
+        disturbance_y = activation_coeff(vx) * np.random.normal(0, cov_y**0.5)
+        disturbance_w = activation_coeff(vx) * np.random.normal(0, cov_w**0.5)
+        # add to xdot
+        acc_x += disturbance_x
+        acc_y += disturbance_y
+        acc_w += disturbance_w
 
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w) 
 
@@ -147,7 +201,7 @@ class Forward_intergrate_GUI_manager:
         #fory dynamic parameter change using rqt_reconfigure GUI
         self.vehicles_list = vehicles_list
         srv = Server(dart_simulator_guiConfig, self.reconfig_callback_forwards_integrate)
-        self.disturbance_type_options = ["None", "Truncated_Gaussian", "Flat"]
+        #self.disturbance_type_options = ["None", "Truncated_Gaussian", "Flat"]
         
 
 
@@ -159,6 +213,7 @@ class Forward_intergrate_GUI_manager:
 
             for i in range(len(self.vehicles_list)):
                 self.vehicles_list[i].actuator_dynamics = config['actuator_dynamics']
+                self.vehicles_list[i].disturbance = config['disturbance']
 
                 if vehicle_model_choice == 1:
                     print('vehicle model set to kinematic bicycle')
@@ -169,33 +224,9 @@ class Forward_intergrate_GUI_manager:
                     self.vehicles_list[i].vehicle_model = dynamic_bicycle
 
                 elif vehicle_model_choice == 3:
-                    print('vehicle model set to SVGP')
+                    print('vehicle model set to SVGP + dynamic bicycle as nominal model')
                     self.vehicles_list[i].vehicle_model = SVGP
 
-                
-                # Aggiorna il tipo di disturbo scelto (Low, Medium, High)
-                trunc_disturbance_level = config['trunc_type']
-                flat_disturbance_level = config['flat_type']
-
-                for i in range(len(self.vehicles_list)):
-                    self.vehicles_list[i].trunc_disturbance_level = trunc_disturbance_level
-                    self.vehicles_list[i].flat_disturbance_level = flat_disturbance_level
-
-                # --- add disturbance selection parameters here ---
-                disturbance_choice =config['disturbance_choice'] # this is the number associsated with the disturbance type from GUI
-
-                
-                # self.vehicles_list[i].disturbance_type = self.disturbance_type_options[disturbance_choice]
-                if disturbance_choice == 1:
-                    print("No disturbance set")
-                    self.vehicles_list[i].disturbance_type = "None"
-                elif disturbance_choice == 2:
-                    print("Truncated disturbance is set")
-                    self.vehicles_list[i].disturbance_type = "Truncated_Gaussian"
-                elif disturbance_choice == 3:
-                    print("Flat disturbance is set")
-                    self.vehicles_list[i].disturbance_type = "Flat"
-                    # --- add the bounds here also ---
 
 
             reset_state_x = config['reset_state_x']
@@ -213,7 +244,7 @@ class Forward_intergrate_GUI_manager:
 
 
 class Forward_intergrate_vehicle(model_functions):
-    def __init__(self, car_number, vehicle_model, initial_state, dt_int,actuator_dynamics):
+    def __init__(self, car_number, vehicle_model, initial_state, dt_int,actuator_dynamics,disturbance):
         print("Starting vehicle integrator " + str(car_number))
         # set up ros nodes for this vehicle
         print("setting ros topics and node")
@@ -229,16 +260,11 @@ class Forward_intergrate_vehicle(model_functions):
         self.car_number = car_number
         self.initial_time = rospy.Time.now()
         self.actuator_dynamics = actuator_dynamics
+        self.disturbance = disturbance
 
         # internal states for actuator dynamics
         self.throttle_state = 0.0
         self.steering_state = 0.0
-
-        # --- initialize disturbance parameters to some dummy values ---
-        self.disturbance_type_options = ["None","Truncated_gaussian","Uniform"]
-        self.disturbance_type = self.disturbance_type_options[0]
-        self.disturbance_bounds = [1.0,1.0]
-
 
         
         rospy.Subscriber('steering_' + str(car_number), Float32, self.callback_steering)
@@ -283,12 +309,9 @@ class Forward_intergrate_vehicle(model_functions):
             y0 = np.array([self.throttle, self.steering, *self.state] )
 
         # using forward euler
-        xdot = self.vehicle_model(t0,y0)
+        xdot = self.vehicle_model(t0,y0,self.disturbance)
 
-        # --- add disturbance (if needed) ---
-        disturbance = self.produce_disturbance() # it will be 0 if no disturbance is selected
-        xdot += disturbance
-        # ---
+
 
         # evaluate elapsed time
         rostime_stop = rospy.get_rostime()
@@ -297,6 +320,8 @@ class Forward_intergrate_vehicle(model_functions):
         elapsed_dt = elapsed_dt.to_sec()
 
         if elapsed_dt > dt_int:
+            print('elapsed time is greater than dt_int')
+            print('elapsed time: ' + str(elapsed_dt))
             dt_step = elapsed_dt
         else:
             dt_step = dt_int
@@ -366,56 +391,6 @@ class Forward_intergrate_vehicle(model_functions):
         rviz_message.header.frame_id = 'map'
         self.pub_rviz_vehicle_visualization.publish(rviz_message)
 
-    # --- complete this function ---
-    def produce_disturbance(self):
-        if self.disturbance_type == "None":
-            disturbance = np.zeros((6))
-        
-        elif self.disturbance_type == "Truncated_Gaussian":
-            if self.trunc_disturbance_level == 1:  # LOW
-                mean = 0
-                std_dev = 0.02
-                upper_bound = 0.05
-                lower_bound = - upper_bound
-
-            elif self.trunc_disturbance_level == 2: # MEDIUM
-                mean = 0
-                std_dev = 0.1
-                upper_bound = 0.2
-                lower_bound = - upper_bound
-
-            elif self.trunc_disturbance_level == 3: # HIGH
-                mean = 0
-                std_dev = 1
-                upper_bound = 1.5
-                lower_bound = - upper_bound
-
-            a, b = (lower_bound - mean) / std_dev, (upper_bound - mean) / std_dev
-            disturbance = truncnorm.rvs(a, b, loc=mean, scale=std_dev, size=(6))
-
-        elif self.disturbance_type == 'Flat':
-            if self.flat_disturbance_level == 1: # LOW
-                upper_bound = 0.05
-                lower_bound = - upper_bound
-
-            elif self.flat_disturbance_level == 2: # MEDIUM
-                upper_bound = 0.5
-                lower_bound = - upper_bound 
-
-            elif self.flat_disturbance_level == 3: # HIGH
-                upper_bound = 1
-                lower_bound = - upper_bound         
-                
-            disturbance = np.random.uniform(lower_bound, upper_bound, size=(6))
-
-        
-        return disturbance
-
-
-
-
-
-
 
 
 
@@ -434,8 +409,9 @@ if __name__ == '__main__':
         initial_state_1 = [0, 0, 0, 0.0, 0, 0]
         car_number_1 = 1
         actuator_dynamics = False
+        disturbance = False
         vehicle_1_integrator = Forward_intergrate_vehicle(car_number_1, vehicle_model, initial_state_1,
-                                                           dt_int,actuator_dynamics)
+                                                           dt_int,actuator_dynamics,disturbance)
 
 
         vehicles_list = [vehicle_1_integrator]
