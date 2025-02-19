@@ -2073,7 +2073,7 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
     svgp_params_path = folder_path 
 
     # Define the parameter names for each dimension (x, y, w)
-    param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale']
+    param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale','max_stdev']
     dimensions = ['x', 'y', 'w']
 
     # Initialize an empty dictionary to store all parameters
@@ -2108,7 +2108,8 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
                              svgp_params['x']['inducing_locations'],
                              svgp_params['x']['right_vec'],
                              svgp_params['x']['L_inv'],
-                             svgp_params['x']['middle'])
+                             svgp_params['x']['middle'],
+                             svgp_params['x']['max_stdev'])
     model_vx.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
     model_vx.n_past_actions = n_past_actions
     model_vx.dt = dt_svgp
@@ -2119,7 +2120,8 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
                                 svgp_params['y']['inducing_locations'],
                                 svgp_params['y']['right_vec'],
                                 svgp_params['y']['L_inv'],
-                                svgp_params['y']['middle'])
+                                svgp_params['y']['middle'],
+                                svgp_params['y']['max_stdev'])
     model_vy.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
     model_vy.n_past_actions = n_past_actions
     model_vy.dt = dt_svgp
@@ -2130,10 +2132,13 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
                                 svgp_params['w']['inducing_locations'],
                                 svgp_params['w']['right_vec'],
                                 svgp_params['w']['L_inv'],
-                                svgp_params['w']['middle'])
+                                svgp_params['w']['middle'],
+                                svgp_params['w']['max_stdev'])
+    
     model_w.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
     model_w.n_past_actions = n_past_actions
     model_w.dt = dt_svgp
+
 
 
     return model_vx,model_vy,model_w
@@ -2209,13 +2214,14 @@ def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
     return KXY
 
 class SVGP_analytic:
-    def __init__(self, outputscale, lengthscale, inducing_locations, right_vec, L_inv, middle):
+    def __init__(self, outputscale, lengthscale, inducing_locations, right_vec, L_inv, middle,max_stdev):
         self.outputscale = outputscale
         self.lengthscale = lengthscale
         self.inducing_locations = inducing_locations
         self.right_vec = right_vec
         self.L_inv = L_inv
         self.middle = middle  # Precomputed middle term for covariance
+        self.max_stdev = max_stdev # max stedev evaluated on the model during training
 
     def forward(self, x_star):
         """Compute predictive mean and covariance for a given test input."""
@@ -2225,14 +2231,16 @@ class SVGP_analytic:
         # Compute mean prediction
         mean = np.dot(kXZ, self.right_vec)
 
-        # Compute covariance 
-        X = np.dot(self.L_inv, kXZ.T)
-        KXX = RBF_kernel_rewritten(x_star[0], x_star[0], self.outputscale, self.lengthscale)
-        cov = KXX + np.dot(X.T, np.dot(self.middle, X))
+        #     # Compute covariance 
+        #     X = np.dot(self.L_inv, kXZ.T)
+        #     KXX = RBF_kernel_rewritten(x_star[0], x_star[0], self.outputscale, self.lengthscale)
+        #     cov = KXX + np.dot(X.T, np.dot(self.middle, X))
+        #     cov = cov[0, 0]
         
-        return mean[0], cov[0, 0]
-
-
+        cov = 0
+        
+        return mean[0], cov
+    
 
 
 
