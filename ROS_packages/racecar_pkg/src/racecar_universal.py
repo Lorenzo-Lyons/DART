@@ -37,7 +37,7 @@ class racecar:
 
 		self.last_safety_value_received = rospy.Time.now()
 
-		# publish sensors to the vehicle every 30 hz
+		# publish sensors to the vehicle every 20 hz
 		self.throttle = 0.0
 		rate = rospy.Rate(30)
 		while not rospy.is_shutdown():
@@ -90,25 +90,14 @@ if __name__ == '__main__':
 		
 
 	elif float(car_number) == 2:
-		steering_gain = 0.5 #-0.5
-		steering_offset = -0.18 * 0.5 # -0.18 * 0.5
+		steering_gain = -0.5
+		steering_offset = -0.18 * 0.5
 		print('setting steer gain and offset for car number 2')
 
 	elif float(car_number) == 3:
-		steering_gain = 0.5
+		steering_gain = -0.5
 		steering_offset = +0.26 * 0.5
 		print('setting steer gain and offset for car number 3')
-	
-	elif float(car_number) == 4:
-		#steering_gain = -0.5
-		#steering_offset = + 0.08   # a negative value means go more to the right
-		# changing steering gain sign!
-		steering_gain = +0.5
-		steering_offset = -0.091   # a negative value means go more to the right
-
-		print('setting steer gain and offset for car number 4')
-		print('steering gain = ',steering_gain)
-		print('steering offset = ',steering_offset)
 
 	else:
 		steering_gain = -0.5

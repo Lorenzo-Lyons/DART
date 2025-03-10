@@ -16,7 +16,7 @@ import numpy as np
 class record_input_and_sensor_data:
     def __init__(self, car_number):
 
-        self.folder_name = '/src/Data/NEW_FOLDER/'
+        self.folder_name = '/src/Data/circles_27_sept_2024_fast_ramp/'
 
 
         self.car_number = car_number

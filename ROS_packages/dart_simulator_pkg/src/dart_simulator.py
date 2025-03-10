@@ -45,8 +45,11 @@ def produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w):
 
 def activation_coeff(vx):
     c = 0.5
-    sharpness = 16
-    return np.tanh(sharpness * (vx-c))*0.5+0.5
+    sharpness = 40
+    out = np.tanh(sharpness * (vx-c))*0.5+0.5
+    # print with 2 decimal points
+    #print('activation coefficient: ' + "{:.2f}".format(out))
+    return out
 
 
 def kinematic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as input time and state
@@ -68,11 +71,11 @@ def kinematic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as in
 
     if disturbance:
         # add disturbance if needed
-        state_action_base_model = np.array([vx,vy,w,th,st])
-        acc_x, cov_x = model_vx.forward(state_action_base_model)
+        stdev_x = model_vx.max_stdev
+        
         # draw a random sample with the appropriate covariance
-        # activate if the velocity is above a certain threshold (c)
-        disturbance_x = activation_coeff(vx) * np.random.normal(0, cov_x**0.5) # np.random wants the standard deviation
+        act_coeff = activation_coeff(vx)
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
         # add to xdot
         acc_x += disturbance_x
 
@@ -113,24 +116,20 @@ def dynamic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as inpu
     acc_x,acc_y,acc_w = mf.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,mf.lf_self,mf.lr_self,mf.m_self,mf.Jz_self)
 
     if disturbance:
-        # add disturbance if needed
-        state_action_base_model = np.array([vx,vy,w,th,st])
-        acc_x, cov_x = model_vx.forward(state_action_base_model)
-        acc_y, cov_y = model_vy.forward(state_action_base_model)
-        acc_w, cov_w = model_w.forward(state_action_base_model)
+        stdev_x = model_vx.max_stdev
+        stdev_y = model_vy.max_stdev
+        stdev_w = model_w.max_stdev
+        
         # draw a random sample with the appropriate covariance
-
-        disturbance_x = activation_coeff(vx) * np.random.normal(0, cov_x**0.5) # np.random wants the standard deviation
-        disturbance_y = activation_coeff(vx) * np.random.normal(0, cov_y**0.5)
-        disturbance_w = activation_coeff(vx) * np.random.normal(0, cov_w**0.5)
+        act_coeff = activation_coeff(vx)
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        disturbance_y = act_coeff * np.random.normal(0, stdev_y)
+        disturbance_w = act_coeff * np.random.normal(0, stdev_w)
         
         # add to xdot
         acc_x += disturbance_x
         acc_y += disturbance_y
         acc_w += disturbance_w
-
-
-
 
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w)
 
@@ -148,8 +147,7 @@ with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters') as
     folder_path = str(data_path)
 
 
-evalaute_cov_tag = False # only using the mean for now
-model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag)
+model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
 
 
 def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and state
@@ -161,24 +159,33 @@ def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and 
     acc_x, cov_x = model_vx.forward(state_action_base_model)
     acc_y, cov_y = model_vy.forward(state_action_base_model)
     acc_w, cov_w = model_w.forward(state_action_base_model)
+    
 
     # to avoid strange jittering close to 0 velocity, blend
+    act_coeff = activation_coeff(vx)
 
     # add nominal model
     xdot_nom = dynamic_bicycle(t,z,False)
-    acc_x = activation_coeff(vx) * acc_x + xdot_nom[3]
-    acc_y = activation_coeff(vx) * acc_y + xdot_nom[4]
-    acc_w = activation_coeff(vx) * acc_w + xdot_nom[5]
+    acc_x = act_coeff * acc_x + xdot_nom[3]
+    acc_y = act_coeff * acc_y + xdot_nom[4]
+    acc_w = act_coeff * acc_w + xdot_nom[5]
 
     if disturbance:
         # add disturbance if needed
-        disturbance_x = activation_coeff(vx) * np.random.normal(0, cov_x**0.5) # np.random wants the standard deviation
-        disturbance_y = activation_coeff(vx) * np.random.normal(0, cov_y**0.5)
-        disturbance_w = activation_coeff(vx) * np.random.normal(0, cov_w**0.5)
+        stdev_x = model_vx.max_stdev
+        stdev_y = model_vy.max_stdev
+        stdev_w = model_w.max_stdev
+
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        disturbance_y = act_coeff * np.random.normal(0, stdev_y)
+        disturbance_w = act_coeff * np.random.normal(0, stdev_w)
+
         # add to xdot
         acc_x += disturbance_x
         acc_y += disturbance_y
         acc_w += disturbance_w
+        # print disturbance values with 3 decimal points
+        #print('disturbance x: ' + "{:.3f}".format(disturbance_x) + ' disturbance y: ' + "{:.3f}".format(disturbance_y) + ' disturbance w: ' + "{:.3f}".format(disturbance_w))
 
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w) 
 
@@ -311,8 +318,6 @@ class Forward_intergrate_vehicle(model_functions):
         # using forward euler
         xdot = self.vehicle_model(t0,y0,self.disturbance)
 
-
-
         # evaluate elapsed time
         rostime_stop = rospy.get_rostime()
         #evalaute time needed to do the loop and print
@@ -320,8 +325,9 @@ class Forward_intergrate_vehicle(model_functions):
         elapsed_dt = elapsed_dt.to_sec()
 
         if elapsed_dt > dt_int:
-            print('elapsed time is greater than dt_int')
-            print('elapsed time: ' + str(elapsed_dt))
+            # print elapesed time with 4 decimal points
+            print('elapsed time exceeded simulator loop time, elapsed time: ' + "{:.4f}".format(elapsed_dt))
+            
             dt_step = elapsed_dt
         else:
             dt_step = dt_int

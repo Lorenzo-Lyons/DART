@@ -145,7 +145,7 @@ ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='o
 
 
 # train the SVGP model
-n_inducing_points = 250
+n_inducing_points = 500
 n_past_actions = 0 # default value
 
 
@@ -539,10 +539,18 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
         upper_w.extend(upper_w_batch.numpy())
 
 
+# print the maximum standard deviation
+max_std_dev_x = np.max(upper_x_batch.numpy()-lower_x_batch.numpy())/4
+max_std_dev_y = np.max(upper_y_batch.numpy()-lower_y_batch.numpy())/4
+max_std_dev_w = np.max(upper_w_batch.numpy()-lower_w_batch.numpy())/4
 
+print('max std dev ax: ', max_std_dev_x)
+print('max std dev ay: ', max_std_dev_y)
+print('max std dev aw: ', max_std_dev_w)
 
-
-
+np.save(folder_path_SVGP_params + 'max_stdev_x.npy', max_std_dev_x)
+np.save(folder_path_SVGP_params + 'max_stdev_y.npy', max_std_dev_y)
+np.save(folder_path_SVGP_params + 'max_stdev_w.npy', max_std_dev_w)
 
 
 
