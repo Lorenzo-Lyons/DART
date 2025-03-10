@@ -708,6 +708,9 @@ def process_vicon_data_kinematics(df,steps_shift):
     return df
 
 
+
+
+
 def process_raw_vicon_data(df,steps_shift):
     print('Processing dynamics data')
 
