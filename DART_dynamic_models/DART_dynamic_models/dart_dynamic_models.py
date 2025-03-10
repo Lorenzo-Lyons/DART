@@ -2194,24 +2194,42 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
 
 
 # Trying to use jit to speed up calculations
-import numpy as np
-from numba import njit
+try:
+    from numba import njit
+    numba_failed = False
+except:
+    numba_failed = True
+    print("NO numba package available to jit the SVGP model. DART simulator with SVGP model or disturbances will be slower.")
+if numba_failed == False:
+    @njit
+    def RBF_kernel_rewritten(x, y, outputscale, lengthscale):
+        """Compute RBF kernel value between two vectors."""
+        exp_arg = (x - y) ** 2 / lengthscale ** 2
+        return outputscale * np.exp(-0.5 * np.sum(exp_arg))
 
-@njit
-def RBF_kernel_rewritten(x, y, outputscale, lengthscale):
-    """Compute RBF kernel value between two vectors."""
-    exp_arg = (x - y) ** 2 / lengthscale ** 2
-    return outputscale * np.exp(-0.5 * np.sum(exp_arg))
+    @njit
+    def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
+        """Compute the RBF kernel matrix between X and Y."""
+        n, m = X.shape[0], Y.shape[0]
+        KXY = np.zeros((n, m))
+        for i in range(n):
+            for j in range(m):
+                KXY[i, j] = RBF_kernel_rewritten(X[i, :], Y[j, :], outputscale, lengthscale)
+        return KXY
+else:
+    def RBF_kernel_rewritten(x, y, outputscale, lengthscale):
+        """Compute RBF kernel value between two vectors."""
+        exp_arg = (x - y) ** 2 / lengthscale ** 2
+        return outputscale * np.exp(-0.5 * np.sum(exp_arg))
 
-@njit
-def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
-    """Compute the RBF kernel matrix between X and Y."""
-    n, m = X.shape[0], Y.shape[0]
-    KXY = np.zeros((n, m))
-    for i in range(n):
-        for j in range(m):
-            KXY[i, j] = RBF_kernel_rewritten(X[i, :], Y[j, :], outputscale, lengthscale)
-    return KXY
+    def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
+        """Compute the RBF kernel matrix between X and Y."""
+        n, m = X.shape[0], Y.shape[0]
+        KXY = np.zeros((n, m))
+        for i in range(n):
+            for j in range(m):
+                KXY[i, j] = RBF_kernel_rewritten(X[i, :], Y[j, :], outputscale, lengthscale)
+        return KXY 
 
 class SVGP_analytic:
     def __init__(self, outputscale, lengthscale, inducing_locations, right_vec, L_inv, middle,max_stdev):
