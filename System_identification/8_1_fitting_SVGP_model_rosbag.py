@@ -22,6 +22,7 @@ rosbag_data_folder = os.path.join('Data',rosbag_folder,'rosbags')
 csv_folder = os.path.join('Data',rosbag_folder,'csv')
 rosbag_files = os.listdir(rosbag_data_folder)
 csv_files = os.listdir(csv_folder)
+folder_path_SVGP_params = os.path.join('Data',rosbag_folder,'SVGP_saved_parameters/')
 reprocess_data = True # set to true to reprocess the data again
 
 
@@ -113,8 +114,7 @@ for bag_file_name in rosbag_files:
 
 
 
-plot_kinemaitcs_data(df)
-plt.show()
+ax_acc_x, ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
 
 
 
@@ -253,6 +253,7 @@ model_vy.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions
 model_w.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
 
 # define likelyhood and optimizer objects
+raw_likelihood_noises = [0,0,0] # default value not used
 likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[0])
 likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[1])
 likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[2])
@@ -349,7 +350,6 @@ middle_w = S_w - np.eye(n_inducing_points)
 
 if over_write_saved_parameters:
     # save quantities to use them later in a solver
-    folder_path_SVGP_params = folder_path + '/SVGP_saved_parameters/'
     np.save(folder_path_SVGP_params+'m_x.npy', m_x)
     np.save(folder_path_SVGP_params+'middle_x.npy', middle_x)
     np.save(folder_path_SVGP_params+'L_inv_x.npy', L_inv_x)
@@ -537,48 +537,38 @@ np.save(folder_path_SVGP_params + 'max_stdev_w.npy', max_std_dev_w)
 
 
 # plot fitting results
-ax_x.cla()  # Clear the axis
-ax_y.cla()  # Clear the axis
-ax_w.cla()  # Clear the axis
+ax_acc_x.cla()  # Clear the axis
+ax_acc_y.cla()  # Clear the axis
+ax_acc_w.cla()  # Clear the axis
 
 # add accelerations
-ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
-ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
-# # add inputs
-# ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
-# ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-# ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-
-# add subsampled points as orange dots
-if fit_on_subsampled_dataset_tag:
-    for kk in range(0,len(subset_indexes)):
-        ax_x.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ax body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
-        ax_y.plot(df['vicon time'].iloc[subset_indexes[kk]],df['ay body'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
-        ax_w.plot(df['vicon time'].iloc[subset_indexes[kk]],df['acc_w'].iloc[subset_indexes[kk]],'o',color='orange',alpha=0.5)
+ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+ax_acc_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
+ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
 
 
 
-ax_x.set_title('ax in body frame')
-ax_plot_mean = ax_x.plot(df['vicon time'].to_numpy(),preds_ax_mean,color='k',label='model prediction')
-aax_plot_confidence = ax_x.fill_between(df['vicon time'].to_numpy(), lower_x, upper_x, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-ax_x.legend()
 
-ax_y.set_title('ay in body frame')
-ax_y.plot(df['vicon time'].to_numpy(),preds_ay_mean,color='k',label='model prediction')
-ax_y.fill_between(df['vicon time'].to_numpy(), lower_y, upper_y, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-ax_y.legend()
+ax_acc_x.set_title('ax in body frame')
+ax_plot_mean = ax_acc_x.plot(df['vicon time'].to_numpy(),preds_ax_mean,color='k',label='model prediction')
+aax_plot_confidence = ax_acc_x.fill_between(df['vicon time'].to_numpy(), lower_x, upper_x, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+ax_acc_x.legend()
 
-ax_w.set_title('aw in body frame')
-ax_w.plot(df['vicon time'].to_numpy(),preds_aw_mean,color='k',label='model prediction')
-ax_w.fill_between(df['vicon time'].to_numpy(), lower_w, upper_w, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
-ax_w.legend()
+ax_acc_y.set_title('ay in body frame')
+ax_acc_y.plot(df['vicon time'].to_numpy(),preds_ay_mean,color='k',label='model prediction')
+ax_acc_y.fill_between(df['vicon time'].to_numpy(), lower_y, upper_y, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+ax_acc_y.legend()
+
+ax_acc_w.set_title('aw in body frame')
+ax_acc_w.plot(df['vicon time'].to_numpy(),preds_aw_mean,color='k',label='model prediction')
+ax_acc_w.fill_between(df['vicon time'].to_numpy(), lower_w, upper_w, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
+ax_acc_w.legend()
 
 if use_nominal_model:
     # add nominal model predictions to plot
-    ax_x.plot(df['vicon time'].to_numpy(),y_nominal_vx,color='gray',label='nominal model',linestyle='--')
-    ax_y.plot(df['vicon time'].to_numpy(),y_nominal_vy,color='gray',label='nominal model',linestyle='--')
-    ax_w.plot(df['vicon time'].to_numpy(),y_nominal_w,color='gray',label='nominal model',linestyle='--')
+    ax_acc_x.plot(df['vicon time'].to_numpy(),y_nominal_vx,color='gray',label='nominal model',linestyle='--')
+    ax_acc_y.plot(df['vicon time'].to_numpy(),y_nominal_vy,color='gray',label='nominal model',linestyle='--')
+    ax_acc_w.plot(df['vicon time'].to_numpy(),y_nominal_w,color='gray',label='nominal model',linestyle='--')
 
 
 
@@ -731,26 +721,26 @@ if check_SVGP_analytic_rebuild:
     # ----- plot over the model training results -----
 
     #ax.plot(train_x.cpu().numpy(), rebuilt_mean,'red',label='pseudo points',linewidth=5)
-    ax_x.plot(df['vicon time'].to_numpy(), mean_mS_x, 'orange',linestyle='--',label='mean mS')
+    ax_acc_x.plot(df['vicon time'].to_numpy(), mean_mS_x, 'orange',linestyle='--',label='mean mS')
 
     #plot covariance rebuilt using m and S
-    ax_x.fill_between(df['vicon time'].to_numpy(),mean_mS_x - two_sigma_cov_rebuilt_x,
+    ax_acc_x.fill_between(df['vicon time'].to_numpy(),mean_mS_x - two_sigma_cov_rebuilt_x,
                     mean_mS_x + two_sigma_cov_rebuilt_x, alpha=0.3,label='covariance mS',color='orange')
 
 
     #ax.plot(train_x.cpu().numpy(), rebuilt_mean,'red',label='pseudo points',linewidth=5)
-    ax_y.plot(df['vicon time'].to_numpy(), mean_mS_y, 'orange',linestyle='--',label='mean mS')
+    ax_acc_y.plot(df['vicon time'].to_numpy(), mean_mS_y, 'orange',linestyle='--',label='mean mS')
 
     #plot covariance rebuilt using m and S
-    ax_y.fill_between(df['vicon time'].to_numpy(),mean_mS_y - two_sigma_cov_rebuilt_y,
+    ax_acc_y.fill_between(df['vicon time'].to_numpy(),mean_mS_y - two_sigma_cov_rebuilt_y,
                     mean_mS_y + two_sigma_cov_rebuilt_y, alpha=0.3,label='covariance mS',color='orange')
 
 
     #ax.plot(train_x.cpu().numpy(), rebuilt_mean,'red',label='pseudo points',linewidth=5)
-    ax_w.plot(df['vicon time'].to_numpy(), mean_mS_w, 'orange',linestyle='--',label='mean mS')
+    ax_acc_w.plot(df['vicon time'].to_numpy(), mean_mS_w, 'orange',linestyle='--',label='mean mS')
 
     #plot covariance rebuilt using m and S
-    ax_w.fill_between(df['vicon time'].to_numpy(),mean_mS_w - two_sigma_cov_rebuilt_w,
+    ax_acc_w.fill_between(df['vicon time'].to_numpy(),mean_mS_w - two_sigma_cov_rebuilt_w,
                     mean_mS_w + two_sigma_cov_rebuilt_w, alpha=0.3,label='covariance mS',color='orange')
 
 

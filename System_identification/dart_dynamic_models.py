@@ -1045,6 +1045,11 @@ def plot_kinemaitcs_data(df):
     ax6.legend()
 
 
+    ax_acc_x = ax4
+    ax_acc_y = ax5
+    ax_acc_w = ax6
+
+
 
 
 
@@ -1089,11 +1094,13 @@ def plot_kinemaitcs_data(df):
     ax4.plot(plotting_time_vec, df['vicon yaw'].to_numpy(), label="theta raw data", color='darkgreen')
     ax4.legend()
 
+    return ax_acc_x,ax_acc_y,ax_acc_w
+
 
 
 def plot_vicon_data(df):
     
-    plot_kinemaitcs_data(df)
+    ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
 
     plotting_time_vec = df['vicon time'].to_numpy()
 
