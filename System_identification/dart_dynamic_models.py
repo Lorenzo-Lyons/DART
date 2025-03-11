@@ -1011,40 +1011,37 @@ def plot_kinemaitcs_data(df):
     fig1, ((ax1, ax2, ax3),(ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(10, 6), constrained_layout=True)
     ax1.set_title('velocity x')
     #ax1.plot(plotting_time_vec, df['vx_abs_raw'].to_numpy(), label="vicon abs vx raw", color='k')
-    ax1.plot(plotting_time_vec, df['vx_abs_filtered'].to_numpy(), label="vicon abs vx filtered", color='dodgerblue')
+    ax1.plot(plotting_time_vec, df['vx body'].to_numpy(), label="vx body", color='dodgerblue')
     ax1.legend()
 
     ax4.set_title('acceleration x')
-    #ax4.plot(plotting_time_vec, df['ax_abs_raw'].to_numpy(), label="vicon abs ax raw", color='k')
-    #ax4.plot(plotting_time_vec, df['ax_abs_filtered'].to_numpy(), label="vicon abs ax filtered", color='k')
-    ax4.plot(plotting_time_vec, df['ax_abs_filtered_more'].to_numpy(), label="vicon abs ax filtered more", color='dodgerblue')
+    ax4.plot(plotting_time_vec, df['ax body'].to_numpy(), label="ax body", color='dodgerblue')
     ax4.legend()
 
 
     ax2.set_title('velocity y')
-    #ax2.plot(plotting_time_vec, df['vy_abs_raw'].to_numpy(), label="vicon abs vy raw", color='k')
-    ax2.plot(plotting_time_vec, df['vy_abs_filtered'].to_numpy(), label="vicon abs vy filtered", color='orangered')
+    ax2.plot(plotting_time_vec, df['vy body'].to_numpy(), label="vy body", color='orangered')
     ax2.legend()
 
     ax5.set_title('acceleration y')
-    #ax5.plot(plotting_time_vec, df['ay_abs_raw'].to_numpy(), label="vicon abs ay raw", color='k')
-    #ax5.plot(plotting_time_vec, df['ay_abs_filtered'].to_numpy(), label="vicon abs ay filtered", color='k')
-    ax5.plot(plotting_time_vec, df['ay_abs_filtered_more'].to_numpy(), label="vicon abs ay filtered more", color='orangered')
+    ax5.plot(plotting_time_vec, df['ay body'].to_numpy(), label="ay body", color='orangered')
     ax5.legend()
 
 
     ax3.set_title('velocity yaw')
     #ax3.plot(plotting_time_vec, df['w_abs_raw'].to_numpy(), label="vicon w raw", color='k')
-    ax3.plot(plotting_time_vec, df['w'].to_numpy(), label="vicon w filtered", color='slateblue')
+    ax3.plot(plotting_time_vec, df['w'].to_numpy(), label="w", color='slateblue')
     ax3.legend()
 
     ax6.set_title('acceleration yaw')
     #ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
     #ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
-    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="vicon aw filtered more", color='slateblue')
+    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="acc w", color='slateblue')
     ax6.legend()
 
-
+    ax_vx = ax1
+    ax_vy = ax2
+    ax_w = ax3
     ax_acc_x = ax4
     ax_acc_y = ax5
     ax_acc_w = ax6
@@ -1094,13 +1091,13 @@ def plot_kinemaitcs_data(df):
     ax4.plot(plotting_time_vec, df['vicon yaw'].to_numpy(), label="theta raw data", color='darkgreen')
     ax4.legend()
 
-    return ax_acc_x,ax_acc_y,ax_acc_w
+    return ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w
 
 
 
 def plot_vicon_data(df):
     
-    ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
+    ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
 
     plotting_time_vec = df['vicon time'].to_numpy()
 
@@ -2146,6 +2143,7 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
     def setup_time_delay_fitting(self,actuator_time_delay_fitting_tag,n_past_actions,dt):
         # time filtering related
+        n_past_actions = int(n_past_actions)
         self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
         self.n_past_actions = n_past_actions
         self.dt = dt
@@ -2157,9 +2155,10 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
             self.constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
             
         elif self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
-            self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
-            self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
-
+            # self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            # self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
+            self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
 
     def transform_parameters_norm_2_real(self):
         
@@ -2569,12 +2568,17 @@ def train_SVGP_model(num_epochs,
     
     
     for i in epochs_iter: #range(num_epochs):
+        torch.cuda.empty_cache()  # Releases unused cached memory
+
+
         # Within each iteration, we will go over each minibatch of data
         minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False) # , disable=True
         minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False) # , disable=True
         minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False) # , disable=True
 
         for x_batch_vx, y_batch_vx in minibatch_iter_vx:
+
+
             optimizer_vx.zero_grad()
             output_vx = model_vx(x_batch_vx)
             loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
@@ -2818,7 +2822,7 @@ class dyn_model_SVGP_4_long_term_predictions():
             throttle_dot = 0
             steering_dot = 0
 
-        elif self.model_vx.actuator_time_delay_fitting_tag == 3: # take filtered inputs
+        elif self.model_vx.actuator_time_delay_fitting_tag == 3 or self.model_vx.actuator_time_delay_fitting_tag ==2: # take filtered inputs
             #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
             state_action_base_model = state_action[:5]
             throttle_dot = 0

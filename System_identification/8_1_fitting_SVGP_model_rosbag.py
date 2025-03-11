@@ -1,7 +1,7 @@
 from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten,\
 throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics,generate_tensor_past_actions,\
-SVGPModel_actuator_dynamics, plot_kinemaitcs_data
+SVGPModel_actuator_dynamics, plot_kinemaitcs_data, load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions
 
 from matplotlib import pyplot as plt
 import torch
@@ -44,15 +44,15 @@ reprocess_data = True # set to true to reprocess the data again
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 10 # epochs for training the SVGP
-learning_rate = 0.05
+epochs = 100 #  epochs for training the SVGP
+learning_rate = 0.02
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
 # 2 = linear layer time delay fitting
 # 3 = GP takes as input the time-filtered inputs obtained with the input dynamics taken from the physics-based model.
 
-actuator_time_delay_fitting_tag = 0
+actuator_time_delay_fitting_tag = 2
 
 # fit likelihood noise?
 fit_likelihood_noise_tag = True  # this doesn't really make much difference
@@ -61,7 +61,7 @@ fit_likelihood_noise_tag = True  # this doesn't really make much difference
 fit_on_subsampled_dataset_tag = False
 
 # use nominal model (using the dynamic bicycle model as the mean function)
-use_nominal_model = True
+use_nominal_model = False
 
 
 
@@ -84,7 +84,7 @@ steps_shift = 1 # decide to filter more or less the vicon data
 
 for bag_file_name in rosbag_files:
     bag_file = os.path.join(rosbag_data_folder,bag_file_name)
-    csv_file = bag_file.replace('.bag','.csv')
+    csv_file = bag_file_name.replace('.bag','.csv')
     if not os.path.isfile(csv_file) or reprocess_data == True:
         # process the rosbag data
         using_rosbag_data=True
@@ -95,6 +95,9 @@ for bag_file_name in rosbag_files:
         df = df[df['vicon time'] > activation_time - 1]
         # now set time to 0 in the beginning
         df['vicon time'] = df['vicon time'] - df['vicon time'].to_numpy()[0]
+    
+        # save the processed data with
+        df.to_csv(os.path.join(csv_folder,csv_file), index=False)
 
 
 
@@ -126,7 +129,7 @@ for bag_file_name in rosbag_files:
 
 
 
-ax_acc_x, ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
+ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
 
 
 
@@ -219,6 +222,39 @@ train_y_w = train_y_w_full_dataset
 
 
 
+# normalize the ouptut data between -1 and 1
+# normalize the output data
+# Delata_y_vx = torch.max(train_y_vx) - torch.min(train_y_vx)
+# Delata_y_vy = torch.max(train_y_vy) - torch.min(train_y_vy)
+# Delata_y_w = torch.max(train_y_w) - torch.min(train_y_w)
+# mean_y_vx = torch.mean(train_y_vx)
+# mean_y_vy = torch.mean(train_y_vy)
+# mean_y_w = torch.mean(train_y_w)
+
+# # convert to numpy for later
+# mean_y_vx = mean_y_vx.cpu().numpy().item()
+# mean_y_vy = mean_y_vy.cpu().numpy().item()
+# mean_y_w = mean_y_w.cpu().numpy().item()
+# Delata_y_vx = Delata_y_vx.cpu().numpy().item()
+# Delata_y_vy = Delata_y_vy.cpu().numpy().item()
+# Delata_y_w = Delata_y_w.cpu().numpy().item()
+
+# train_y_vx = (train_y_vx - mean_y_vx) / Delata_y_vx
+# train_y_vy = (train_y_vy - mean_y_vy) / Delata_y_vy
+# train_y_w = (train_y_w - mean_y_w) / Delata_y_w
+
+
+
+
+
+
+
+
+
+
+
+
+
 # active learning
 # select an initial subset of the training data
 import random
@@ -262,6 +298,21 @@ likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learni
 likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[1])
 likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[2])
 
+
+
+
+
+# ---  first guess ---
+
+sdt_x = 3
+sdt_y = 1
+sdt_w = 5
+likelihood_vx.noise = torch.tensor([sdt_x**2], dtype=torch.float32)
+likelihood_vy.noise = torch.tensor([sdt_y**2], dtype=torch.float32)
+likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch.float32)
+
+
+# ---------------------
 
 
 
@@ -541,14 +592,25 @@ np.save(folder_path_SVGP_params + 'max_stdev_w.npy', max_std_dev_w)
 
 
 # plot fitting results
-ax_acc_x.cla()  # Clear the axis
-ax_acc_y.cla()  # Clear the axis
-ax_acc_w.cla()  # Clear the axis
+# ax_acc_x.cla()  # Clear the axis
+# ax_acc_y.cla()  # Clear the axis
+# ax_acc_w.cla()  # Clear the axis
 
-# add accelerations
-ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-ax_acc_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
-ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
+# # add accelerations
+# ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
+# ax_acc_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
+# ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
+
+
+
+
+# rescale the output data
+# preds_ax_mean = np.array(preds_ax_mean) * Delata_y_vx + mean_y_vx
+# preds_ay_mean = np.array(preds_ay_mean) * Delata_y_vy + mean_y_vy
+# preds_aw_mean = np.array(preds_aw_mean) * Delata_y_w + mean_y_w
+
+
+
 
 
 
@@ -580,7 +642,7 @@ if use_nominal_model:
 
 
 # show linear layer weights
-if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 1:
+if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
     # x
     if actuator_time_delay_fitting_tag == 1:
@@ -636,7 +698,7 @@ if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 1:
 
 
 
-
+plt.show()
 
 
 
@@ -746,6 +808,65 @@ if check_SVGP_analytic_rebuild:
     #plot covariance rebuilt using m and S
     ax_acc_w.fill_between(df['vicon time'].to_numpy(),mean_mS_w - two_sigma_cov_rebuilt_w,
                     mean_mS_w + two_sigma_cov_rebuilt_w, alpha=0.3,label='covariance mS',color='orange')
+
+
+
+
+# add legends
+ax_acc_x.legend()
+ax_acc_y.legend()
+ax_acc_w.legend()
+
+
+
+
+
+
+print('Producing long term predictions')
+# copy the thorottle and steering commands from the filtered data
+if actuator_time_delay_fitting_tag == 0:
+    df['throttle filtered'] = df['throttle']
+    df['steering filtered'] = df['steering']
+elif actuator_time_delay_fitting_tag == 2:
+    # NOTE this really would need to be that there is only 1 steering and throttle filtered that all models use
+    # but now using the same as the one used for the model fitting
+    df['throttle filtered'] = (train_x_throttle.float().cpu() @ weights_throttle_vx).detach().numpy()
+    df['steering filtered'] = (train_x_steering.float().cpu() @ weights_throttle_w).detach().numpy()
+
+
+
+
+
+
+columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
+input_data_long_term_predictions = df[columns_to_extract].to_numpy()
+prediction_window = 1.5 # [s]
+jumps = 25 #25
+
+
+model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path_SVGP_params)
+dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
+
+forward_propagate_indexes = [1,2,3] # [1,2,3,4,5] # # 1 = vx, 2=vy, 3=w, 4=throttle, 5=steering
+
+long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
+
+
+
+
+# plot long term predictions
+
+print('plotting long term predictions')
+
+for pred in tqdm.tqdm(long_term_predictions, desc="Rollouts"):
+
+    #velocities
+    ax_vx.plot(pred[:,0],pred[:,1],color='k',alpha=0.2)
+    ax_vy.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
+    ax_w.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
+
+
+
 
 
 
