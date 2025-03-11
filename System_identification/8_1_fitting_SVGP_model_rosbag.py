@@ -1,7 +1,7 @@
 from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten,\
 throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics,generate_tensor_past_actions,\
-SVGPModel_actuator_dynamics
+SVGPModel_actuator_dynamics, plot_kinemaitcs_data
 
 from matplotlib import pyplot as plt
 import torch
@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import os
 import tqdm
-import rosbag
+
 
 
 # change current folder where this script is located
@@ -54,111 +54,11 @@ use_nominal_model = True
 
 
 # process data
-steps_shift = 5 # decide to filter more or less the vicon data
+steps_shift = 1 # decide to filter more or less the vicon data
 
 
 
 
-
-# once finished working on this move it to where the data processing is done
-def process_rosbag_data(bag_file):
-        # Initialize a list to store data
-    data = []
-
-    # Open the bag file
-    with rosbag.Bag(bag_file, 'r') as bag:
-        # Iterate through the messages in the specified topic
-        for topic, msg, t in bag.read_messages(topics=['/vicon/jetracer1']):
-            # Extract data from the PoseWithCovarianceStamped message
-            timestamp = t.to_sec()  # Timestamp in seconds
-            
-            # Extract position (x, y, z)
-            x = msg.pose.pose.position.x
-            y = msg.pose.pose.position.y
-            
-            # Extract orientation (quaternion x, y, z, w)
-            qx = msg.pose.pose.orientation.x
-            qy = msg.pose.pose.orientation.y
-            qz = msg.pose.pose.orientation.z
-            qw = msg.pose.pose.orientation.w
-            
-            # Convert quaternion to yaw angle (radians)
-            siny_cosp = 2 * (qw * qz + qx * qy)
-            cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
-            yaw = np.arctan2(siny_cosp, cosy_cosp)
-
-            # Add the data to the list 
-            data.append([timestamp, x, y, yaw])
-    # Convert the data to a DataFrame
-    columns = ["time", "x", "y", "yaw"]
-    df_vicon = pd.DataFrame(data, columns=columns)
-
-    # get throttle data
-    data = []
-    with rosbag.Bag(bag_file, 'r') as bag:
-        for topic, msg, t in bag.read_messages(topics=['/throttle_complete_stamp_1']):
-            timestamp = t.to_sec()
-            t1 = msg.header1.stamp.to_sec()
-            t2 = msg.header2.stamp.to_sec()
-            t3 = msg.header3.stamp.to_sec()
-            throttle = msg.data
-            data.append([timestamp,t1,t2,t3,throttle])
-    columns = ["time",'time 1','time 2','time 3', "throttle"]
-    df_throttle = pd.DataFrame(data, columns=columns)
-
-    # get steering data
-    data = []
-    with rosbag.Bag(bag_file, 'r') as bag:
-        for topic, msg, t in bag.read_messages(topics=['/steering_complete_stamp_1']):
-            timestamp = t.to_sec()
-            t1 = msg.header1.stamp.to_sec()
-            t2 = msg.header2.stamp.to_sec()
-            t3 = msg.header3.stamp.to_sec()
-            steering = msg.data
-            data.append([timestamp,t1,t2,t3,steering])
-    columns = ["time",'time 1','time 2','time 3', "steering"]
-    df_steering = pd.DataFrame(data, columns=columns)
-
-
-    # plot the throttle data
-    # 2 subplots 
-    fig, ax = plt.subplots(2, 2, figsize=(8, 18), sharex=True)
-
-    # Access individual subplots correctly
-    ax1 = ax[0, 0]  # Top-left
-    ax2 = ax[0, 1]  # Top-right
-    ax3 = ax[1, 0]  # Bottom-left
-    ax4 = ax[1, 1]  # Bottom-right
-
-    ax1.plot(df_throttle['time 1'].to_numpy(),df_throttle['throttle'].to_numpy(),label='sent throttle from laptop')
-    ax1.plot(df_throttle['time 2'].to_numpy(),df_throttle['throttle'].to_numpy(),label='car received throttle')
-    ax1.plot(df_throttle['time 3'].to_numpy(),df_throttle['throttle'].to_numpy(),label='laptop received throttle back from car')
-    ax1.plot(df_throttle['time'].to_numpy(),df_throttle['throttle'].to_numpy(),label='msg timestamp from bag',linestyle='--')
-    ax1.set_title('throttle data')
-    ax1.legend()
-
-    # plot time difference between the car and the laptop
-    ax2.plot(df_throttle['time'].to_numpy(),df_throttle['time 3'].to_numpy()-df_throttle['time 1'].to_numpy(),label='laptop round trip')
-    ax2.legend()
-
-    # plot the steering data
-    ax3.plot(df_steering['time 1'].to_numpy(),df_steering['steering'].to_numpy(),label='sent steering from laptop')
-    ax3.plot(df_steering['time 2'].to_numpy(),df_steering['steering'].to_numpy(),label='car received steering')
-    ax3.plot(df_steering['time 3'].to_numpy(),df_steering['steering'].to_numpy(),label='laptop received steering back from car')
-    ax3.plot(df_steering['time'].to_numpy(),df_steering['steering'].to_numpy(),label='msg timestamp from bag',linestyle='--')
-    ax3.set_title('steering data')
-    ax3.legend()
-
-    # plot time difference between the car and the laptop
-    ax4.plot(df_steering['time'].to_numpy(),df_steering['time 3'].to_numpy()-df_steering['time 1'].to_numpy(),label='laptop round trip')
-    ax4.legend()
-
-
-
-    plt.show()
-
-
-    return df
 
 
 
@@ -174,8 +74,14 @@ for bag_file_name in rosbag_files:
     csv_file = bag_file.replace('.bag','.csv')
     if not os.path.isfile(csv_file) or reprocess_data == True:
         # process the rosbag data
-        df_vicon = process_rosbag_data(bag_file)
-
+        using_rosbag_data=True
+        df = process_vicon_data_kinematics([],steps_shift,using_rosbag_data,bag_file)
+        # find the time when velocity is higher than 0.2 m/s and cut time before that to 1 s before that
+        idx = np.where(df['vx body'].to_numpy() > 0.2)[0][0]
+        activation_time = df['vicon time'].to_numpy()[idx]
+        df = df[df['vicon time'] > activation_time - 1]
+        # now set time to 0 in the beginning
+        df['vicon time'] = df['vicon time'] - df['vicon time'].to_numpy()[0]
 
 
 
@@ -207,59 +113,11 @@ for bag_file_name in rosbag_files:
 
 
 
-# cut time between 803.8 and 804.2
-if folder_path:
-    df = df[(df['vicon time'] < 803.8) | (df['vicon time'] > 804.2)]
+plot_kinemaitcs_data(df)
+plt.show()
 
 
 
-
-
-
-# load likelihood noise
-if fit_likelihood_noise_tag == False:
-    try:
-        raw_likelihood_noises = np.load(folder_path + '/raw_noise_likelihood.npy')
-    except:
-        print('missing likelihood noise file')
-else:    
-    raw_likelihood_noises = [0,0,0] # some default values that will not be used
-
-
-# load subset of indexes
-try:
-    subset_indexes = np.load(folder_path + '/subset_indexes.npy')
-    subset_indexes = subset_indexes.tolist()
-except:
-    print('missing subset indexes file')
-
-
-
-
-
-# plot raw data
-#ax0,ax1,ax2 = plot_raw_data(df)
-
-# plot 
-#plot_vicon_data(df)
-
-# plotting body frame accelerations and data fitting results 
-fig, ((ax_x,ax_y,ax_w)) = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
-fig.subplots_adjust(top=0.96,
-bottom=0.055,
-left=0.05,
-right=0.995,
-hspace=0.345,
-wspace=0.2)
-
-# add accelerations
-ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
-ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
-# # add inputs
-# ax_x.plot(df['vicon time'].to_numpy(),df['ax body'].max() * df['throttle'].to_numpy(),color='gray',label='throttle')
-# ax_y.plot(df['vicon time'].to_numpy(),df['ay body'].max() * df['steering'].to_numpy(),color='gray',label='steering')
-# ax_w.plot(df['vicon time'].to_numpy(),df['acc_w'].max() * df['steering'].to_numpy(),color='gray',label='steering')
 
 
 

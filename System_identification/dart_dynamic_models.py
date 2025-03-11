@@ -571,40 +571,210 @@ def plot_raw_data(df):
     return ax0,ax1,ax2
 
 
-def process_vicon_data_kinematics(df,steps_shift):
+
+
+
+
+
+# once finished working on this move it to where the data processing is done
+def process_rosbag_data(bag_file):
+    import rosbag
+        # Initialize a list to store data
+    data = []
+
+    # Open the bag file
+    with rosbag.Bag(bag_file, 'r') as bag:
+        # Iterate through the messages in the specified topic
+        for topic, msg, t in bag.read_messages(topics=['/vicon/jetracer1']):
+            # Extract data from the PoseWithCovarianceStamped message
+            timestamp = t.to_sec()  # Timestamp in seconds
+            
+            # Extract position (x, y, z)
+            x = msg.pose.pose.position.x
+            y = msg.pose.pose.position.y
+            
+            # Extract orientation (quaternion x, y, z, w)
+            qx = msg.pose.pose.orientation.x
+            qy = msg.pose.pose.orientation.y
+            qz = msg.pose.pose.orientation.z
+            qw = msg.pose.pose.orientation.w
+            
+            # Convert quaternion to yaw angle (radians)
+            siny_cosp = 2 * (qw * qz + qx * qy)
+            cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
+            yaw = np.arctan2(siny_cosp, cosy_cosp)
+
+            # Add the data to the list 
+            data.append([timestamp, x, y, yaw])
+    # Convert the data to a DataFrame
+    columns = ["vicon time", "vicon x", "vicon y", "vicon yaw"]
+    df_vicon = pd.DataFrame(data, columns=columns)
+
+    # get throttle data
+    data = []
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for topic, msg, t in bag.read_messages(topics=['/throttle_complete_stamp_1']):
+            timestamp = t.to_sec()
+            t1 = msg.header1.stamp.to_sec()
+            t2 = msg.header2.stamp.to_sec()
+            t3 = msg.header3.stamp.to_sec()
+            throttle = msg.data
+            data.append([timestamp,t1,t2,t3,throttle])
+    columns = ["time",'time 1','time 2','time 3', "throttle"]
+    df_throttle = pd.DataFrame(data, columns=columns)
+
+    # get steering data
+    data = []
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for topic, msg, t in bag.read_messages(topics=['/steering_complete_stamp_1']):
+            timestamp = t.to_sec()
+            t1 = msg.header1.stamp.to_sec()
+            t2 = msg.header2.stamp.to_sec()
+            t3 = msg.header3.stamp.to_sec()
+            steering = msg.data
+            data.append([timestamp,t1,t2,t3,steering])
+    columns = ["time",'time 1','time 2','time 3', "steering"]
+    df_steering = pd.DataFrame(data, columns=columns)
+
+
+    # get safety off data
+    data = []
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for topic, msg, t in bag.read_messages(topics=['/safety_value']):
+            timestamp = t.to_sec()
+            safety_value = msg.data
+            data.append([timestamp,safety_value])
+    columns = ["time","safety_value"]
+    df_safety = pd.DataFrame(data, columns=columns)
+
+    # assign t2 as the middle point between t1 and t3
+    # this is a bit of an approximation but it should be acceptable
+    t2_th_reconstructed = 0.5 * (df_throttle['time 1']+df_throttle['time 3']).to_numpy()
+    t2_st_reconstructed = 0.5 * (df_steering['time 1']+df_steering['time 3']).to_numpy()
+
+    
+    # now reallign the input data with the state data coming from the vicon
+    from scipy.interpolate import interp1d
+
+    # Define FOH interpolation functions
+    throttle_foh = interp1d(t2_th_reconstructed, df_throttle['throttle'].to_numpy(),
+                            kind='previous', bounds_error=False, fill_value=(df_throttle['throttle'].iloc[0], df_throttle['throttle'].iloc[-1]))
+
+    steering_foh = interp1d(t2_st_reconstructed, df_steering['steering'].to_numpy(),
+                            kind='previous', bounds_error=False, fill_value=(df_steering['steering'].iloc[0], df_steering['steering'].iloc[-1]))
+
+    safety_value_foh = interp1d(df_safety['time'].to_numpy(), df_safety['safety_value'].to_numpy(),
+                                kind='previous', bounds_error=False, fill_value=(df_safety['safety_value'].iloc[0], df_safety['safety_value'].iloc[-1]))
+
+    # Resample using First-Order Hold
+    throttle_resampled = throttle_foh(df_vicon['vicon time'].to_numpy())
+    steering_resampled = steering_foh(df_vicon['vicon time'].to_numpy())
+    safety_value_resampled = safety_value_foh(df_vicon['vicon time'].to_numpy())
+
+    
+    
+    # add to vicon df
+    df_vicon['throttle'] = throttle_resampled
+    df_vicon['steering'] = steering_resampled
+    df_vicon['safety_value'] = safety_value_resampled
+
+    # set throttle to zero when safety is off
+    df_vicon['throttle'][safety_value_resampled != 1] = 0.0
+
+
+
+    # plot the throttle data   (USED FOR DEBUGGIN PURPOSES)
+    # # # 2 subplots 
+    # # fig, ax = plt.subplots(2, 2, figsize=(8, 18), sharex=True)
+
+    # # # Access individual subplots correctly
+    # # ax1 = ax[0, 0]  # Top-left
+    # # ax2 = ax[0, 1]  # Top-right
+    # # ax3 = ax[1, 0]  # Bottom-left
+    # # ax4 = ax[1, 1]  # Bottom-right
+
+    # # ax1.plot(df_throttle['time 1'].to_numpy(),df_throttle['throttle'].to_numpy(),label='sent throttle from laptop')
+    # # ax1.plot(df_throttle['time 2'].to_numpy(),df_throttle['throttle'].to_numpy(),label='car received throttle')
+    # # ax1.plot(df_throttle['time 3'].to_numpy(),df_throttle['throttle'].to_numpy(),label='laptop received throttle back from car')
+    # # ax1.plot(df_throttle['time'].to_numpy(),df_throttle['throttle'].to_numpy(),label='msg timestamp from bag',linestyle='--')
+    # # ax1.set_title('throttle data')
+
+    # # # plot time difference between the car and the laptop
+    # # ax2.plot(df_throttle['time'].to_numpy(),df_throttle['time 3'].to_numpy()-df_throttle['time 1'].to_numpy(),label='laptop round trip')
+    # # ax2.legend()
+
+    # # # plot the steering data
+    # # ax3.plot(df_steering['time 1'].to_numpy(),df_steering['steering'].to_numpy(),label='sent steering from laptop')
+    # # ax3.plot(df_steering['time 2'].to_numpy(),df_steering['steering'].to_numpy(),label='car received steering')
+    # # ax3.plot(df_steering['time 3'].to_numpy(),df_steering['steering'].to_numpy(),label='laptop received steering back from car')
+    # # ax3.plot(df_steering['time'].to_numpy(),df_steering['steering'].to_numpy(),label='msg timestamp from bag',linestyle='--')
+    # # ax3.set_title('steering data')
+    
+    # # # plot time difference between the car and the laptop
+    # # ax4.plot(df_steering['time'].to_numpy(),df_steering['time 3'].to_numpy()-df_steering['time 1'].to_numpy(),label='laptop round trip')
+    # # ax4.legend()
+
+    # # # add to plot
+    # # ax1.plot(t2_th_reconstructed,df_throttle['throttle'].to_numpy(),label='reconstructed t2')
+    # # ax3.plot(t2_st_reconstructed,df_steering['steering'].to_numpy(),label='reconstructed t2')
+    # # # add to plot
+    # # ax1.plot(df_vicon['time'].to_numpy(),throttle_resampled,label='realligned throttle')
+    # # ax3.plot(df_vicon['time'].to_numpy(),steering_resampled,label='realligned steering')
+
+    # # ax1.legend()
+    # # ax3.legend()
+    # # plt.show()
+    return df_vicon
+
+
+
+
+
+
+
+
+
+
+
+def process_vicon_data_kinematics(df,steps_shift,using_rosbag_data=False,bag_file=None):
     print('Processing kinematics data')
     mf = model_functions()
 
+
     # resampling the robot data to have the same time as the vicon data
-    from scipy.interpolate import interp1d
+    if using_rosbag_data==False:
+        from scipy.interpolate import interp1d
 
-    # Step 1: Identify sensor time differences and extract sensor checkpoints
-    sensor_time_diff = df['elapsed time sensors'].diff()
+        # Step 1: Identify sensor time differences and extract sensor checkpoints
+        sensor_time_diff = df['elapsed time sensors'].diff()
 
-    # Times where sensor values change more than 0.01s (100Hz -> 10Hz)
-    sensor_time = df['elapsed time sensors'][sensor_time_diff > 0.01].to_numpy()
-    steering_at_checkpoints = df['steering'][sensor_time_diff > 0.01].to_numpy()
+        # Times where sensor values change more than 0.01s (100Hz -> 10Hz)
+        sensor_time = df['elapsed time sensors'][sensor_time_diff > 0.01].to_numpy()
+        steering_at_checkpoints = df['steering'][sensor_time_diff > 0.01].to_numpy()
 
-    # Step 2: Interpolate using Zero-Order Hold
-    zoh_interp = interp1d(sensor_time, steering_at_checkpoints, kind='previous', bounds_error=False, fill_value="extrapolate")
+        # Step 2: Interpolate using Zero-Order Hold
+        zoh_interp = interp1d(sensor_time, steering_at_checkpoints, kind='previous', bounds_error=False, fill_value="extrapolate")
 
-    # Step 3: Apply interpolation to 'vicon time'
-    df['steering'] = zoh_interp(df['vicon time'].to_numpy())
+        # Step 3: Apply interpolation to 'vicon time'
+        df['steering'] = zoh_interp(df['vicon time'].to_numpy())
+
+    else:
+        df = process_rosbag_data(bag_file)
 
     
-    robot2vicon_delay = 0 # samples delay between the robot and the vicon data # very important to get it right (you can see the robot reacting to throttle and steering inputs before they have happened otherwise)
-    # this is beacause the lag between vicon-->laptop, and robot-->laptop is different. (The vicon data arrives sooner)
+    # robot2vicon_delay = 0 # samples delay between the robot and the vicon data # very important to get it right (you can see the robot reacting to throttle and steering inputs before they have happened otherwise)
+    # # this is beacause the lag between vicon-->laptop, and robot-->laptop is different. (The vicon data arrives sooner)
 
-    # there is a timedelay between robot and vicon system. Ideally the right way to do this would be to shift BACKWARDS in time the robot data.
-    # but equivalently we can shift FORWARDS in time the vicon data. This is done by shifting the vicon time backwards by the delay time.
-    # This is ok since we just need the data to be consistent. but be aware of this
-    df['vicon x'] = df['vicon x'].shift(+robot2vicon_delay)
-    df['vicon y'] = df['vicon y'].shift(+robot2vicon_delay)
-    df['vicon yaw'] = df['vicon yaw'].shift(+robot2vicon_delay)
-    # account for fisrt values that will be NaN
-    df['vicon x'].iloc[:robot2vicon_delay] = df['vicon x'].iloc[robot2vicon_delay]
-    df['vicon y'].iloc[:robot2vicon_delay] = df['vicon y'].iloc[robot2vicon_delay]
-    df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
+    # # there is a timedelay between robot and vicon system. Ideally the right way to do this would be to shift BACKWARDS in time the robot data.
+    # # but equivalently we can shift FORWARDS in time the vicon data. This is done by shifting the vicon time backwards by the delay time.
+    # # This is ok since we just need the data to be consistent. but be aware of this
+    # df['vicon x'] = df['vicon x'].shift(+robot2vicon_delay)
+    # df['vicon y'] = df['vicon y'].shift(+robot2vicon_delay)
+    # df['vicon yaw'] = df['vicon yaw'].shift(+robot2vicon_delay)
+    # # account for fisrt values that will be NaN
+    # df['vicon x'].iloc[:robot2vicon_delay] = df['vicon x'].iloc[robot2vicon_delay]
+    # df['vicon y'].iloc[:robot2vicon_delay] = df['vicon y'].iloc[robot2vicon_delay]
+    # df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
 
 
     #  ---  relocating reference point to the centre of mass  ---
@@ -834,8 +1004,7 @@ def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_r
     return train_x
 
 
-def plot_vicon_data(df):
-
+def plot_kinemaitcs_data(df):
     # plot vicon data filtering process
     plotting_time_vec = df['vicon time'].to_numpy()
 
@@ -879,7 +1048,7 @@ def plot_vicon_data(df):
 
 
 
-    # plot raw opti data
+    # plot raw vicon data
     fig1, ((ax1, ax2, ax3 , ax4)) = plt.subplots(4, 1, figsize=(10, 6), constrained_layout=True)
     ax1.set_title('Velocity data')
     #ax1.plot(plotting_time_vec, df['vx_abs'].to_numpy(), label="Vx abs data", color='lightblue')
@@ -889,18 +1058,26 @@ def plot_vicon_data(df):
     ax1.legend()
 
     # plot body frame data time history
-    ax2.set_title('Vy data raw vicon')
+    ax2.set_title('Vx data raw vicon')
     ax2.plot(plotting_time_vec, df['throttle'].to_numpy(), label="Throttle",color='gray', alpha=1)
-    ax2.plot(plotting_time_vec, df['vel encoder'].to_numpy(),label="Velocity Encoder raw", color='indigo')
     ax2.plot(plotting_time_vec, df['vx body'].to_numpy(), label="Vx body frame",color='dodgerblue')
-    ax2.plot(plotting_time_vec, df['Vx_wheel_front'].to_numpy(), label="Vx front wheel",color='navy')
-    #ax2.plot(plotting_time_vec, df['vy body'].to_numpy(), label="Vy body frame",color='orangered')
+    #plot safety value
+    mask = np.array(df['safety_value']) == 1
+    ax2.fill_between(plotting_time_vec, ax2.get_ylim()[0], ax2.get_ylim()[1], where=mask, color='gray', alpha=0.1, label='safety value disingaged')
+    #ax2.plot(plotting_time_vec,df['safety_value'].to_numpy(),label='safety value',color='k')
+    if 'vel encoder' in df.columns:
+        ax2.plot(plotting_time_vec, df['vel encoder'].to_numpy(),label="Velocity Encoder raw", color='indigo')
+    if 'Vx_wheel_front' in df.columns:
+        ax2.plot(plotting_time_vec, df['Vx_wheel_front'].to_numpy(), label="Vx front wheel",color='navy')
+    
+
     
     ax2.legend()
     # plot omega data time history
     ax3.set_title('Omega data time history')
     ax3.plot(plotting_time_vec, df['steering'].to_numpy(),label="steering input raw data", color='pink') #  -17 / 180 * np.pi * 
-    ax3.plot(plotting_time_vec, df['W (IMU)'].to_numpy(),label="omega IMU raw data", color='orchid')
+    if 'W IMU' in df.columns:
+        ax3.plot(plotting_time_vec, df['W IMU'].to_numpy(),label="omega IMU raw data", color='orchid')
     #ax3.plot(plotting_time_vec, df['w_abs'].to_numpy(), label="omega opti", color='lightblue')
     ax3.plot(plotting_time_vec, df['w'].to_numpy(), label="omega opti filtered",color='slateblue')
     ax3.legend()
@@ -912,6 +1089,13 @@ def plot_vicon_data(df):
     ax4.plot(plotting_time_vec, df['vicon yaw'].to_numpy(), label="theta raw data", color='darkgreen')
     ax4.legend()
 
+
+
+def plot_vicon_data(df):
+    
+    plot_kinemaitcs_data(df)
+
+    plotting_time_vec = df['vicon time'].to_numpy()
 
     # plot slip angles
     fig2, ((ax1, ax2, ax3)) = plt.subplots(3, 1, figsize=(10, 6), constrained_layout=True)
@@ -1126,6 +1310,11 @@ def plot_vicon_data(df):
     return ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,\
 ax_total_force_rear,ax_lat_force,ax_long_force,\
 ax_acc_x_body,ax_acc_y_body,ax_acc_w
+
+
+
+
+
 
 
 class friction_curve_model(torch.nn.Sequential,model_functions):
