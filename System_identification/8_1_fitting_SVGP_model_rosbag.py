@@ -11,6 +11,18 @@ import os
 import tqdm
 
 
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print('using GPU')
+    print(f"Allocated memory: {torch.cuda.memory_allocated() / 1e6:.2f} MB")
+    print(f"Cached memory: {torch.cuda.memory_reserved() / 1e6:.2f} MB")
+    torch.cuda.empty_cache()  # Releases unused cached memory
+    torch.cuda.synchronize()  # Ensures all operations are completed
+
+
+
+
+
 
 # change current folder where this script is located
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -199,18 +211,10 @@ train_y_vy_full_dataset = train_y_vy_full_dataset.to(torch.float32)
 train_y_w_full_dataset = train_y_w_full_dataset.to(torch.float32)
 
 
-
-# if training on a subset of the data use the subset indexes
-if fit_on_subsampled_dataset_tag:
-    train_x = train_x_full_dataset[subset_indexes,:]
-    train_y_vx = train_y_vx_full_dataset[subset_indexes,:]
-    train_y_vy = train_y_vy_full_dataset[subset_indexes,:]
-    train_y_w = train_y_w_full_dataset[subset_indexes,:]
-else:
-    train_x = train_x_full_dataset
-    train_y_vx = train_y_vx_full_dataset
-    train_y_vy = train_y_vy_full_dataset
-    train_y_w = train_y_w_full_dataset
+train_x = train_x_full_dataset
+train_y_vx = train_y_vx_full_dataset
+train_y_vy = train_y_vy_full_dataset
+train_y_w = train_y_w_full_dataset
 
 
 
