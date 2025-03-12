@@ -102,31 +102,6 @@ for bag_file_name in rosbag_files:
 
 
 
-    #     df_raw_data = get_data(folder_path)
-
-        
-    #     # add throttle with time integrated throttle
-    #     filtered_throttle = throttle_dynamics_data_processing(df_raw_data)
-    #     df_raw_data['throttle filtered'] = filtered_throttle
-
-    #     # add steering angle with time integated version
-    #     st_angle_vec_FEuler, st_vec_FEuler = steering_dynamics_data_processing(df_raw_data)
-    #     # over-write the actual data with the forward integrated data
-    #     df_raw_data['steering angle filtered'] = st_angle_vec_FEuler
-    #     df_raw_data['steering filtered'] = st_vec_FEuler
-
-    #     # process kinematics and dynamics
-    #     df_kinematics = process_vicon_data_kinematics(df_raw_data,steps_shift)
-    #     df = process_raw_vicon_data(df_kinematics,steps_shift)
-
-    #     #save the processed data file
-    #     df.to_csv(file_path, index=False)
-    #     print(f"File '{file_path}' saved.")
-    # else:
-    #     print(f"File '{file_path}' already exists, loading data.")
-    #     df = pd.read_csv(file_path)
-
-
 
 
 ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
@@ -222,35 +197,6 @@ train_y_w = train_y_w_full_dataset
 
 
 
-# normalize the ouptut data between -1 and 1
-# normalize the output data
-# Delata_y_vx = torch.max(train_y_vx) - torch.min(train_y_vx)
-# Delata_y_vy = torch.max(train_y_vy) - torch.min(train_y_vy)
-# Delata_y_w = torch.max(train_y_w) - torch.min(train_y_w)
-# mean_y_vx = torch.mean(train_y_vx)
-# mean_y_vy = torch.mean(train_y_vy)
-# mean_y_w = torch.mean(train_y_w)
-
-# # convert to numpy for later
-# mean_y_vx = mean_y_vx.cpu().numpy().item()
-# mean_y_vy = mean_y_vy.cpu().numpy().item()
-# mean_y_w = mean_y_w.cpu().numpy().item()
-# Delata_y_vx = Delata_y_vx.cpu().numpy().item()
-# Delata_y_vy = Delata_y_vy.cpu().numpy().item()
-# Delata_y_w = Delata_y_w.cpu().numpy().item()
-
-# train_y_vx = (train_y_vx - mean_y_vx) / Delata_y_vx
-# train_y_vy = (train_y_vy - mean_y_vy) / Delata_y_vy
-# train_y_w = (train_y_w - mean_y_w) / Delata_y_w
-
-
-
-
-
-
-
-
-
 
 
 
@@ -263,22 +209,6 @@ initial_inducing_points_indexes = random.choices(range(train_x.shape[0]), k=n_in
 inducing_points = train_x[initial_inducing_points_indexes,:].to(torch.float32)
 
 
-
-
-#cast to float to avoid issues with data types
-# add some state noise to stabilize predictions in the long term
-# Define different standard deviations for each column
-# std_devs = [0.0, 0.0, 0.0]  
-
-# # Generate noise for each column with the specified standard deviations
-# noise1 = torch.randn(train_x.size(0)) * std_devs[0]
-# noise2 = torch.randn(train_x.size(0)) * std_devs[1]
-# noise3 = torch.randn(train_x.size(0)) * std_devs[2]
-
-# # Add the noise to the first three columns
-# train_x[:, 0] += noise1.cuda()
-# train_x[:, 1] += noise2.cuda()
-# train_x[:, 2] += noise3.cuda()
 
 dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
 

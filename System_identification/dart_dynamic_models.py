@@ -2130,6 +2130,14 @@ from gpytorch.variational import VariationalStrategy
 
 
 
+
+
+
+
+
+
+
+
 # SVGP 
 class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
     def __init__(self,inducing_points):
@@ -2185,6 +2193,15 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
 
     def forward(self, x):
+        # produce the inputs for the model
+        x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
+        # feed them to the model
+        mean_x = self.mean_module(x_4_model)
+        covar_x = self.covar_module(x_4_model)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+    def produce_th_st_4_model(self,x):
         # extract throttle and steering inputs
         if self.actuator_time_delay_fitting_tag == 1 or self.actuator_time_delay_fitting_tag == 2: # extract inputs
             throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
@@ -2203,14 +2220,58 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
             steering = torch.matmul(steering_past_actions, weights_steering)
 
             x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+            return x_4_model, weights_throttle, weights_steering
         else:
             x_4_model = x
+            return x_4_model,[],[]
 
-    
 
-        mean_x = self.mean_module(x_4_model)
-        covar_x = self.covar_module(x_4_model)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+
+class SVGP_unified_model(SVGPModel_actuator_dynamics):
+    def __init__(self,inducing_points,n_past_actions,dt,actuator_time_delay_fitting_tag):
+        #super(SVGP_unified_model, self).__init__(inducing_points)
+        # instantiate the 3 models
+        self.model_vx = SVGPModel_actuator_dynamics(inducing_points)
+        self.model_vy = SVGPModel_actuator_dynamics(inducing_points)
+        self.model_w = SVGPModel_actuator_dynamics(inducing_points)
+
+        # produce likelihood objects 
+        self.likelihood_vx = gpytorch.likelihoods.GaussianLikelihood() 
+        self.likelihood_vy = gpytorch.likelihoods.GaussianLikelihood() 
+        self.likelihood_w  = gpytorch.likelihoods.GaussianLikelihood() 
+
+        # add time delay fitting parameters
+        self.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
+
+    def forward(self, x):
+        # extract throttle and steering inputs
+        x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
+        # get the outputs of the models
+        # vx
+        mean_vx  = self.model_vx.mean_module(x_4_model)
+        covar_vx = self.model_vx.covar_module(x_4_model)
+        output_vx = gpytorch.distributions.MultivariateNormal(mean_vx, covar_vx)
+        # vy
+        mean_vy = self.model_vy.mean_module(x_4_model)
+        covar_vy = self.model_vy.covar_module(x_4_model)
+        output_vy = gpytorch.distributions.MultivariateNormal(mean_vy, covar_vy)
+        # w
+        mean_w = self.model_w.mean_module(x_4_model)
+        covar_w = self.model_w.covar_module(x_4_model)
+        output_w = gpytorch.distributions.MultivariateNormal(mean_w, covar_w)
+        return output_vx,output_vy,output_w,weights_throttle,weights_steering
+
+
+
+
+
+
+
+
+
+
 
 
 def load_SVGPModel_actuator_dynamics(folder_path):
