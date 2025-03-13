@@ -999,7 +999,7 @@ def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_r
     refined_past_actions_matrix = np.stack(refined_past_actions, axis=1)
     
     # Convert the matrix into a tensor and move it to the GPU (if available)
-    train_x = torch.tensor(refined_past_actions_matrix).cuda()
+    train_x = torch.tensor(refined_past_actions_matrix) #.cuda()
 
     return train_x
 
@@ -2192,9 +2192,9 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         return likelihood, optimizer
 
 
-    def forward(self, x):
+    def forward(self, x_4_model):
         # produce the inputs for the model
-        x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
+        #x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
         # feed them to the model
         mean_x = self.mean_module(x_4_model)
         covar_x = self.covar_module(x_4_model)
@@ -2229,13 +2229,36 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
 
 
-class SVGP_unified_model(SVGPModel_actuator_dynamics):
-    def __init__(self,inducing_points,n_past_actions,dt,actuator_time_delay_fitting_tag):
-        #super(SVGP_unified_model, self).__init__(inducing_points)
+
+
+# SVGP 
+class SVGP_submodel_actuator_dynamics(ApproximateGP):
+    # the single SVGP used to model either vx, vy or w
+    def __init__(self,inducing_points):
+        variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
+        variational_strategy = VariationalStrategy(self, inducing_points, variational_distribution, learn_inducing_locations=True)
+        super(SVGP_submodel_actuator_dynamics, self).__init__(variational_strategy)
+        self.mean_module = gpytorch.means.ZeroMean()
+        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=inducing_points.size(1)))
+
+    def forward(self, x_4_model):
+
+        mean_x = self.mean_module(x_4_model)
+        covar_x = self.covar_module(x_4_model)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+
+class SVGP_unified_model(torch.nn.Sequential):
+    def __init__(self,inducing_points,n_past_actions,dt,actuator_time_delay_fitting_tag,submodel_vx,submodel_vy,submodel_vw):
+        
+        super().__init__() # this will also add the same parameters to this class
+
         # instantiate the 3 models
-        self.model_vx = SVGPModel_actuator_dynamics(inducing_points)
-        self.model_vy = SVGPModel_actuator_dynamics(inducing_points)
-        self.model_w = SVGPModel_actuator_dynamics(inducing_points)
+        self.model_vx = submodel_vx
+        self.model_vy = submodel_vy
+        self.model_w = submodel_vw
+        
 
         # produce likelihood objects 
         self.likelihood_vx = gpytorch.likelihoods.GaussianLikelihood() 
@@ -2245,27 +2268,298 @@ class SVGP_unified_model(SVGPModel_actuator_dynamics):
         # add time delay fitting parameters
         self.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
 
+
+
+    def setup_time_delay_fitting(self,actuator_time_delay_fitting_tag,n_past_actions,dt):
+        # time filtering related
+        n_past_actions = int(n_past_actions)
+        self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+        self.n_past_actions = n_past_actions
+        self.dt = dt
+
+        if self.actuator_time_delay_fitting_tag == 1:
+            # add time constant parameters
+            self.register_parameter('time_C_throttle', torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+            self.register_parameter('time_C_steering', torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+            self.constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+            
+        elif self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
+            # self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            # self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            # put to cuda if available
+            if torch.cuda.is_available():
+                self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda() * 0.5)
+                self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda() * 0.5)
+            else:
+                self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
+                self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
+
+
     def forward(self, x):
         # extract throttle and steering inputs
         x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
-        # get the outputs of the models
-        # vx
-        mean_vx  = self.model_vx.mean_module(x_4_model)
-        covar_vx = self.model_vx.covar_module(x_4_model)
-        output_vx = gpytorch.distributions.MultivariateNormal(mean_vx, covar_vx)
-        # vy
-        mean_vy = self.model_vy.mean_module(x_4_model)
-        covar_vy = self.model_vy.covar_module(x_4_model)
-        output_vy = gpytorch.distributions.MultivariateNormal(mean_vy, covar_vy)
-        # w
-        mean_w = self.model_w.mean_module(x_4_model)
-        covar_w = self.model_w.covar_module(x_4_model)
-        output_w = gpytorch.distributions.MultivariateNormal(mean_w, covar_w)
+        output_vx = self.model_vx(x_4_model)
+        output_vy = self.model_vy(x_4_model)
+        output_w = self.model_w(x_4_model)
+
+
         return output_vx,output_vy,output_w,weights_throttle,weights_steering
 
+    def produce_th_st_4_model(self,x):
+        # extract throttle and steering inputs
+        if self.actuator_time_delay_fitting_tag == 1 or self.actuator_time_delay_fitting_tag == 2: # extract inputs
+            throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
+            steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
+
+            if self.actuator_time_delay_fitting_tag == 1: # using physics informed
+                [time_C_throttle,time_C_steering] = self.transform_parameters_norm_2_real()
+                weights_throttle = self.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,self.n_past_actions,self.dt).float()
+                weights_steering = self.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,self.n_past_actions,self.dt).float()
+
+            elif self.actuator_time_delay_fitting_tag == 2: # using linear layer
+                weights_throttle = self.constrained_linear_layer(self.raw_weights_throttle).t()
+                weights_steering = self.constrained_linear_layer(self.raw_weights_steering).t()
+
+            throttle = throttle_past_actions @ weights_throttle #torch.matmul(throttle_past_actions, weights_throttle)
+            steering = steering_past_actions @ weights_steering #torch.matmul(steering_past_actions, weights_steering)
+
+            x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+            return x_4_model, weights_throttle, weights_steering
+        else:
+            x_4_model = x
+            return x_4_model,[],[]
+
+
+    def constrained_linear_layer(self, raw_weights):
+        # Apply softplus to make weights positive
+        positive_weights = torch.nn.functional.softplus(raw_weights)
+        # Normalize the weights along the last dimension so they sum to 1 for each output unit
+        normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
+        # Apply the weights to the input
+        return normalized_weights
+    
+
+    def train_model(self,num_epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w):
+        
+        # start fitting
+        # make contiguous (not sure why)
+        train_x = train_x.contiguous()
+        train_y_vx = train_y_vx.contiguous()
+        train_y_vy = train_y_vy.contiguous()
+        train_y_w = train_y_w.contiguous()
+
+        # define batches for training (each bach will be used to perform a gradient descent step in each iteration. So toal parameters updates are Epochs*n_batches)
+        from torch.utils.data import TensorDataset, DataLoader
+        train_dataset = TensorDataset(train_x, train_y_vx, train_y_vy, train_y_w) # 
+
+        # define data loaders
+        train_loader = DataLoader(train_dataset, batch_size=250, shuffle=True)
+
+        #set to training mode
+        self.model_vx.train()
+        self.model_vy.train()
+        self.model_w.train()
+        self.likelihood_vx.train()
+        self.likelihood_vy.train()
+        self.likelihood_w.train()
+
+
+        # Set up loss object. We're using the VariationalELBO
+        mll_vx = gpytorch.mlls.VariationalELBO(self.likelihood_vx, self.model_vx, num_data=train_y_vx.size(0))
+        mll_vy = gpytorch.mlls.VariationalELBO(self.likelihood_vy, self.model_vy, num_data=train_y_vy.size(0))
+        mll_w = gpytorch.mlls.VariationalELBO(self.likelihood_w, self.model_w, num_data=train_y_w.size(0))
+
+        loss_2_print_vx_vec = []
+        loss_2_print_vy_vec = []
+        loss_2_print_w_vec = []
+        total_loss_vec = []
+
+
+        optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate)
+
+
+        # Print the parameters with their names and shapes
+        print('Parameters to optimize:')
+        for name, param in self.named_parameters():
+            print(f"Parameter name: {name}, Shape: {param.shape}")
 
 
 
+
+        # start training (tqdm is just to show the loading bar)
+        bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
+        epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
+        
+        for i in epochs_iter: #range(num_epochs):
+            #torch.cuda.empty_cache()  # Releases unused cached memory
+
+            # Within each iteration, we will go over each minibatch of data
+            minibatch_iter = tqdm.tqdm(train_loader, desc="Minibatch", leave=False) 
+
+            for x_batch, y_batch_vx ,y_batch_vy, y_batch_w in minibatch_iter: # 
+                # Zero backprop gradients
+                optimizer.zero_grad()  # Clear previous gradients
+
+                # Forward pass
+                output_vx, output_vy, output_w, weights_throttle, weights_steering = self(x_batch)
+                
+                # Calculate individual losses
+                loss_weights = torch.mean(weights_throttle**2) + torch.mean(weights_steering**2)
+                loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
+                loss_vy = -mll_vy(output_vy, y_batch_vy[:,0])
+                loss_w = -mll_w(output_w, y_batch_w[:,0])
+
+                # Combine all losses
+                total_loss = loss_vx + loss_vy + loss_w + loss_weights
+                
+                # Print the current loss for vx (or use other loss types if needed)
+                minibatch_iter.set_postfix(loss=total_loss.item())
+
+                # Backward pass (compute gradients for the total loss)
+                total_loss.backward()
+
+                # Update parameters using the optimizer
+                optimizer.step()
+
+
+            loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
+            loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
+            loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+            total_loss_vec = [*total_loss_vec, total_loss.item()]
+
+            
+        #plot loss functions
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+        ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+        ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+        ax.plot(total_loss_vec,label='total loss',color='k')
+        ax.legend()
+
+
+    def save_model(self,folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt):
+        # SAve model parameters
+
+
+        # analytical version of the model [necessary for solver implementation]
+        # rebuild SVGP using m and S 
+        inducing_locations_x = self.model_vx.variational_strategy.inducing_points.cpu().detach().numpy()
+        outputscale_x = self.model_vx.covar_module.outputscale.item()
+        lengthscale_x = self.model_vx.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
+
+        inducing_locations_y = self.model_vy.variational_strategy.inducing_points.cpu().detach().numpy()
+        outputscale_y = self.model_vy.covar_module.outputscale.item()
+        lengthscale_y = self.model_vy.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
+
+        inducing_locations_w = self.model_w.variational_strategy.inducing_points.cpu().detach().numpy()
+        outputscale_w = self.model_w.covar_module.outputscale.item()
+        lengthscale_w = self.model_w.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
+
+
+        KZZ_x = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x),np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
+        KZZ_y = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y),np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
+        KZZ_w = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w),np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
+
+
+        # call prediction module on inducing locations
+        n_inducing_points = inducing_locations_x.shape[0]
+        jitter_term = 0.0001 * np.eye(n_inducing_points)  # this is very important for numerical stability
+
+
+        preds_zz_x = self.model_vx(self.model_vx.variational_strategy.inducing_points)
+        preds_zz_y = self.model_vy(self.model_vy.variational_strategy.inducing_points)
+        preds_zz_w = self.model_w( self.model_w.variational_strategy.inducing_points)
+
+        m_x = preds_zz_x.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
+        S_x = self.model_vx.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  # preds_zz.covariance_matrix.detach().cpu().numpy() # 
+
+        m_y = preds_zz_y.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
+        S_y = self.model_vy.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+
+        m_w = preds_zz_w.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
+        S_w = self.model_w.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+
+        # Compute the covariance of q(f)
+        # K_XX + k_XZ K_ZZ^{-1/2} (S - I) K_ZZ^{-1/2} k_ZX
+
+        # solve the pre-post multiplication block
+
+        # Define a lower triangular matrix L and a matrix B
+        L_inv_x = np.linalg.inv(np.linalg.cholesky(KZZ_x + jitter_term))
+        #KZZ_inv_x = np.linalg.inv(KZZ_x + jitter_term)
+        right_vec_x = np.linalg.solve(KZZ_x + jitter_term, m_x)
+        middle_x = S_x - np.eye(n_inducing_points)
+
+        L_inv_y = np.linalg.inv(np.linalg.cholesky(KZZ_y + jitter_term))
+        #KZZ_inv_y = np.linalg.inv(KZZ_y + jitter_term)
+        right_vec_y = np.linalg.solve(KZZ_y + jitter_term, m_y)
+        middle_y = S_y - np.eye(n_inducing_points)
+
+        L_inv_w = np.linalg.inv(np.linalg.cholesky(KZZ_w + jitter_term))
+        #KZZ_inv_w = np.linalg.inv(KZZ_w + jitter_term)
+        right_vec_w = np.linalg.solve(KZZ_w + jitter_term, m_w)
+        middle_w = S_w - np.eye(n_inducing_points)
+
+
+        # save quantities to use them later in a solver
+        np.save(folder_path_SVGP_params+'m_x.npy', m_x)
+        np.save(folder_path_SVGP_params+'middle_x.npy', middle_x)
+        np.save(folder_path_SVGP_params+'L_inv_x.npy', L_inv_x)
+        np.save(folder_path_SVGP_params+'right_vec_x.npy', right_vec_x)
+        np.save(folder_path_SVGP_params+'inducing_locations_x.npy', inducing_locations_x)
+        np.save(folder_path_SVGP_params+'outputscale_x.npy', outputscale_x)
+        np.save(folder_path_SVGP_params+'lengthscale_x.npy', lengthscale_x)
+
+        np.save(folder_path_SVGP_params+'m_y.npy', m_y)
+        np.save(folder_path_SVGP_params+'middle_y.npy', middle_y)
+        np.save(folder_path_SVGP_params+'L_inv_y.npy', L_inv_y)
+        np.save(folder_path_SVGP_params+'right_vec_y.npy', right_vec_y)
+        np.save(folder_path_SVGP_params+'inducing_locations_y.npy', inducing_locations_y)
+        np.save(folder_path_SVGP_params+'outputscale_y.npy', outputscale_y)
+        np.save(folder_path_SVGP_params+'lengthscale_y.npy', lengthscale_y)
+
+        np.save(folder_path_SVGP_params+'m_w.npy', m_w)
+        np.save(folder_path_SVGP_params+'middle_w.npy', middle_w)
+        np.save(folder_path_SVGP_params+'L_inv_w.npy', L_inv_w)
+        np.save(folder_path_SVGP_params+'right_vec_w.npy', right_vec_w)
+        np.save(folder_path_SVGP_params+'inducing_locations_w.npy', inducing_locations_w)
+        np.save(folder_path_SVGP_params+'outputscale_w.npy', outputscale_w)
+        np.save(folder_path_SVGP_params+'lengthscale_w.npy', lengthscale_w)
+
+        # save SVGP models in torch format
+        # save the time delay realated parameters
+        time_delay_parameters = np.array([actuator_time_delay_fitting_tag,n_past_actions,dt])
+        np.save(folder_path_SVGP_params + 'time_delay_parameters.npy', time_delay_parameters)
+
+        # save weights
+        if actuator_time_delay_fitting_tag == 2:
+            # save weights
+            raw_weights_throttle = self.raw_weights_throttle.detach().cpu().numpy()
+            raw_weights_steering = self.raw_weights_steering.detach().cpu().numpy()
+            np.save(folder_path_SVGP_params + 'raw_weights_throttle.npy', raw_weights_throttle)
+            np.save(folder_path_SVGP_params + 'raw_weights_steering.npy', raw_weights_steering)
+
+        # vx
+        model_path_vx = folder_path_SVGP_params + 'svgp_model_vx.pth'
+        likelihood_path_vx = folder_path_SVGP_params + 'svgp_likelihood_vx.pth'
+        torch.save(self.model_vx.state_dict(), model_path_vx)
+        torch.save(self.likelihood_vx.state_dict(), likelihood_path_vx)
+        # vy
+        model_path_vy = folder_path_SVGP_params + 'svgp_model_vy.pth'
+        likelihood_path_vy = folder_path_SVGP_params + 'svgp_likelihood_vy.pth'
+        torch.save(self.model_vy.state_dict(), model_path_vy)
+        torch.save(self.likelihood_vy.state_dict(), likelihood_path_vy)
+        # w
+        model_path_w = folder_path_SVGP_params + 'svgp_model_w.pth'
+        likelihood_path_w = folder_path_SVGP_params + 'svgp_likelihood_w.pth'
+        torch.save(self.model_w.state_dict(), model_path_w)
+        torch.save(self.likelihood_w.state_dict(), likelihood_path_w)
+
+        print('------------------------------')
+        print('--- saved model parameters ---')
+        print('------------------------------')
+        print('saved parameters in folder: ', folder_path_SVGP_params)
 
 
 
@@ -2575,7 +2869,6 @@ def train_SVGP_model(num_epochs,
     train_loader_w = DataLoader(train_dataset_w, batch_size=250, shuffle=True)
 
 
-
     # Assign training data to models just to have it all together for later plotting
     model_vx.train_x = train_x 
     model_vx.train_y_vx = train_y_vx
@@ -2585,7 +2878,6 @@ def train_SVGP_model(num_epochs,
 
     model_w.train_x = train_x 
     model_w.train_y_w = train_y_w
-
 
 
     #move to GPU for faster fitting
@@ -2610,22 +2902,13 @@ def train_SVGP_model(num_epochs,
     mll_vy = gpytorch.mlls.VariationalELBO(likelihood_vy, model_vy, num_data=train_y_vy.size(0))#, beta=1)
     mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=train_y_w.size(0))#, beta=1)
 
-    
-    
-
-
-
     loss_2_print_vx_vec = []
     loss_2_print_vy_vec = []
     loss_2_print_w_vec = []
 
-    
-    
     # start training (tqdm is just to show the loading bar)
     bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
     epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
-    
-    
     
     
     for i in epochs_iter: #range(num_epochs):
@@ -2638,7 +2921,6 @@ def train_SVGP_model(num_epochs,
         minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False) # , disable=True
 
         for x_batch_vx, y_batch_vx in minibatch_iter_vx:
-
 
             optimizer_vx.zero_grad()
             output_vx = model_vx(x_batch_vx)

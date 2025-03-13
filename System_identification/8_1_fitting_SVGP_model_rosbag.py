@@ -1,7 +1,8 @@
-from dart_dynamic_models import get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
+from dart_dynamic_models import SVGP_submodel_actuator_dynamics, get_data, plot_raw_data, process_raw_vicon_data,plot_vicon_data\
 ,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten,\
 throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics,generate_tensor_past_actions,\
-SVGPModel_actuator_dynamics, plot_kinemaitcs_data, load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions
+SVGPModel_actuator_dynamics, plot_kinemaitcs_data, load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions,\
+SVGP_unified_model,SVGP_submodel_actuator_dynamics
 
 from matplotlib import pyplot as plt
 import torch
@@ -130,7 +131,7 @@ elif actuator_time_delay_fitting_tag == 3:
 
 else:
     columns_to_extract = ['vx body', 'vy body', 'w'] 
-    train_x_states = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
+    train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
 
     n_past_actions = 50
     refinement_factor = 1 # no need to refine the time interval between data points
@@ -144,9 +145,9 @@ else:
 
 
 # produce y lables
-train_y_vx_full_dataset = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda()
-train_y_vy_full_dataset = torch.unsqueeze(torch.tensor(df['ay body'].to_numpy()),1).cuda()
-train_y_w_full_dataset  = torch.unsqueeze(torch.tensor(df['acc_w'].to_numpy()),1).cuda()
+train_y_vx_full_dataset = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1)#.cuda()
+train_y_vy_full_dataset = torch.unsqueeze(torch.tensor(df['ay body'].to_numpy()),1)#.cuda()
+train_y_w_full_dataset  = torch.unsqueeze(torch.tensor(df['acc_w'].to_numpy()),1)#.cuda()
 
 
 if use_nominal_model: # subtract the nominal model from the y predictions
@@ -201,33 +202,57 @@ train_y_w = train_y_w_full_dataset
 
 
 
-# active learning
-# select an initial subset of the training data
-import random
-# random selection of initial subset of datapoints
-initial_inducing_points_indexes = random.choices(range(train_x.shape[0]), k=n_inducing_points)
-inducing_points = train_x[initial_inducing_points_indexes,:].to(torch.float32)
+
 
 
 
 dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
 
-#initialize models
-model_vx = SVGPModel_actuator_dynamics(inducing_points)
-model_vy = SVGPModel_actuator_dynamics(inducing_points)
-model_w  = SVGPModel_actuator_dynamics(inducing_points)
+# #initialize models
+# model_vx = SVGPModel_actuator_dynamics(inducing_points)
+# model_vy = SVGPModel_actuator_dynamics(inducing_points)
+# model_w  = SVGPModel_actuator_dynamics(inducing_points)
 
-# set up time filtering
-model_vx.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
-model_vy.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
-model_w.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
+# # set up time filtering
+# model_vx.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
+# model_vy.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
+# model_w.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
 
-# define likelyhood and optimizer objects
-raw_likelihood_noises = [0,0,0] # default value not used
-likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[0])
-likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[1])
-likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[2])
+# # define likelyhood and optimizer objects
+# raw_likelihood_noises = [0,0,0] # default value not used
+# likelihood_vx,optimizer_vx = model_vx.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[0])
+# likelihood_vy,optimizer_vy = model_vy.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[1])
+# likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_rate,fit_likelihood_noise_tag,raw_likelihood_noises[2])
 
+
+
+
+
+
+# # generate the inducing points for the three models, since they need a 5 dimensional input
+
+# generate the inducing points for the three models, since they need a 5 dimensional input
+if actuator_time_delay_fitting_tag == 2: # linear layer
+    # extract the first 3 and th
+    th = torch.unsqueeze(train_x[:,2+n_past_actions],1)
+    st = torch.unsqueeze(train_x[:,2+2*n_past_actions],1)
+    train_x_4_inducnig_points = torch.cat((train_x[:,:3],th,st),1)
+elif actuator_time_delay_fitting_tag == 1:
+    train_x_4_inducnig_points = train_x
+
+# select an initial subset of the training data
+import random
+# random selection of initial subset of datapoints
+initial_inducing_points_indexes = random.choices(range(train_x_4_inducnig_points.shape[0]), k=n_inducing_points)
+inducing_points = train_x_4_inducnig_points[initial_inducing_points_indexes,:].to(torch.float32)
+
+
+        # instantiate the 3 models
+submodel_vx = SVGP_submodel_actuator_dynamics(inducing_points)
+submodel_vy = SVGP_submodel_actuator_dynamics(inducing_points)
+submodel_vw = SVGP_submodel_actuator_dynamics(inducing_points)
+SVGP_unified_model_obj = SVGP_unified_model(inducing_points,n_past_actions,dt,actuator_time_delay_fitting_tag,
+                                            submodel_vx,submodel_vy,submodel_vw)
 
 
 
@@ -237,9 +262,9 @@ likelihood_w,optimizer_w = model_w.return_likelyhood_optimizer_objects(learning_
 sdt_x = 3
 sdt_y = 1
 sdt_w = 5
-likelihood_vx.noise = torch.tensor([sdt_x**2], dtype=torch.float32)
-likelihood_vy.noise = torch.tensor([sdt_y**2], dtype=torch.float32)
-likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch.float32)
+SVGP_unified_model_obj.likelihood_vx.noise = torch.tensor([sdt_x**2], dtype=torch.float32)
+SVGP_unified_model_obj.likelihood_vy.noise = torch.tensor([sdt_y**2], dtype=torch.float32)
+SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch.float32)
 
 
 # ---------------------
@@ -247,154 +272,42 @@ likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch.float32)
 
 
 
-# train the SVGP model
-model_vx, model_vy, model_w,\
-likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(epochs,
-                                                            train_x, train_y_vx, train_y_vy, train_y_w,
-                                                            model_vx,model_vy,model_w,
-                                                            likelihood_vx,likelihood_vy,likelihood_w,
-                                                            optimizer_vx,optimizer_vy,optimizer_w)
-    
+# # train the SVGP model
+# model_vx, model_vy, model_w,\
+# likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(epochs,
+#                                                             train_x, train_y_vx, train_y_vy, train_y_w,
+#                                                             model_vx,model_vy,model_w,
+#                                                             likelihood_vx,likelihood_vy,likelihood_w,
+#                                                             optimizer_vx,optimizer_vy,optimizer_w)
+
+# move to cuda if available
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    #SVGP_unified_model_obj.raw_weights_throttle = SVGP_unified_model_obj.raw_weights_throttle.cuda()
+    #SVGP_unified_model_obj.raw_weights_throttle = SVGP_unified_model_obj.raw_weights_steering.cuda()
+    SVGP_unified_model_obj.model_vx.to(device)
+    SVGP_unified_model_obj.model_vy.to(device)
+    SVGP_unified_model_obj.model_w.to(device)
+    SVGP_unified_model_obj.likelihood_vx.to(device)
+    SVGP_unified_model_obj.likelihood_vy.to(device)
+    SVGP_unified_model_obj.likelihood_w.to(device)
+    train_x = train_x.to(device)
+    train_y_vx = train_y_vx.to(device)
+    train_y_vy = train_y_vy.to(device)
+    train_y_w = train_y_w.to(device)
+    train_x_full_dataset = train_x_full_dataset.to(device)
+    train_y_vx_full_dataset = train_y_vx_full_dataset.to(device)
+    train_y_vy_full_dataset = train_y_vy_full_dataset.to(device)
+    train_y_w_full_dataset = train_y_w_full_dataset.to(device)
 
 
 
+SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
 
 
-# save models
-# move to cpu 
-model_vx = model_vx.cpu()
-model_vy = model_vy.cpu()
-model_w = model_w.cpu()
-
-# Get into evaluation (predictive posterior) mode
-model_vx.eval()
-model_vy.eval()
-model_w.eval()
-
-
-# analytical version of the model [necessary for solver implementation]
-# rebuild SVGP using m and S 
-inducing_locations_x = model_vx.variational_strategy.inducing_points.cpu().detach().numpy()
-outputscale_x = model_vx.covar_module.outputscale.item()
-lengthscale_x = model_vx.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
-
-inducing_locations_y = model_vy.variational_strategy.inducing_points.cpu().detach().numpy()
-outputscale_y = model_vy.covar_module.outputscale.item()
-lengthscale_y = model_vy.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
-
-inducing_locations_w = model_w.variational_strategy.inducing_points.cpu().detach().numpy()
-outputscale_w = model_w.covar_module.outputscale.item()
-lengthscale_w = model_w.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
-
-
-
-
-KZZ_x = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x),np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
-KZZ_y = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y),np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
-KZZ_w = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w),np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
-
-
-# call prediction module on inducing locations
-jitter_term = 0.0001 * np.eye(n_inducing_points)  # this is very important for numerical stability
-
-
-preds_zz_x = model_vx(model_vx.variational_strategy.inducing_points)
-preds_zz_y = model_vy(model_vy.variational_strategy.inducing_points)
-preds_zz_w = model_w( model_w.variational_strategy.inducing_points)
-
-m_x = preds_zz_x.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
-S_x = model_vx.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  # preds_zz.covariance_matrix.detach().cpu().numpy() # 
-
-m_y = preds_zz_y.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
-S_y = model_vy.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
-
-m_w = preds_zz_w.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
-S_w = model_w.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
-
-# Compute the covariance of q(f)
-# K_XX + k_XZ K_ZZ^{-1/2} (S - I) K_ZZ^{-1/2} k_ZX
-
-# solve the pre-post multiplication block
-
-# Define a lower triangular matrix L and a matrix B
-L_inv_x = np.linalg.inv(np.linalg.cholesky(KZZ_x + jitter_term))
-#KZZ_inv_x = np.linalg.inv(KZZ_x + jitter_term)
-right_vec_x = np.linalg.solve(KZZ_x + jitter_term, m_x)
-middle_x = S_x - np.eye(n_inducing_points)
-
-L_inv_y = np.linalg.inv(np.linalg.cholesky(KZZ_y + jitter_term))
-#KZZ_inv_y = np.linalg.inv(KZZ_y + jitter_term)
-right_vec_y = np.linalg.solve(KZZ_y + jitter_term, m_y)
-middle_y = S_y - np.eye(n_inducing_points)
-
-L_inv_w = np.linalg.inv(np.linalg.cholesky(KZZ_w + jitter_term))
-#KZZ_inv_w = np.linalg.inv(KZZ_w + jitter_term)
-right_vec_w = np.linalg.solve(KZZ_w + jitter_term, m_w)
-middle_w = S_w - np.eye(n_inducing_points)
-
-
+# # Save model parameters
 if over_write_saved_parameters:
-    # save quantities to use them later in a solver
-    np.save(folder_path_SVGP_params+'m_x.npy', m_x)
-    np.save(folder_path_SVGP_params+'middle_x.npy', middle_x)
-    np.save(folder_path_SVGP_params+'L_inv_x.npy', L_inv_x)
-    np.save(folder_path_SVGP_params+'right_vec_x.npy', right_vec_x)
-    np.save(folder_path_SVGP_params+'inducing_locations_x.npy', inducing_locations_x)
-    np.save(folder_path_SVGP_params+'outputscale_x.npy', outputscale_x)
-    np.save(folder_path_SVGP_params+'lengthscale_x.npy', lengthscale_x)
-
-    np.save(folder_path_SVGP_params+'m_y.npy', m_y)
-    np.save(folder_path_SVGP_params+'middle_y.npy', middle_y)
-    np.save(folder_path_SVGP_params+'L_inv_y.npy', L_inv_y)
-    np.save(folder_path_SVGP_params+'right_vec_y.npy', right_vec_y)
-    np.save(folder_path_SVGP_params+'inducing_locations_y.npy', inducing_locations_y)
-    np.save(folder_path_SVGP_params+'outputscale_y.npy', outputscale_y)
-    np.save(folder_path_SVGP_params+'lengthscale_y.npy', lengthscale_y)
-
-    np.save(folder_path_SVGP_params+'m_w.npy', m_w)
-    np.save(folder_path_SVGP_params+'middle_w.npy', middle_w)
-    np.save(folder_path_SVGP_params+'L_inv_w.npy', L_inv_w)
-    np.save(folder_path_SVGP_params+'right_vec_w.npy', right_vec_w)
-    np.save(folder_path_SVGP_params+'inducing_locations_w.npy', inducing_locations_w)
-    np.save(folder_path_SVGP_params+'outputscale_w.npy', outputscale_w)
-    np.save(folder_path_SVGP_params+'lengthscale_w.npy', lengthscale_w)
-
-    # save SVGP models in torch format
-    # save the time delay realated parameters
-    time_delay_parameters = np.array([actuator_time_delay_fitting_tag,n_past_actions,dt])
-    np.save(folder_path_SVGP_params + 'time_delay_parameters.npy', time_delay_parameters)
-    # vx
-    model_path_vx = folder_path_SVGP_params + 'svgp_model_vx.pth'
-    likelihood_path_vx = folder_path_SVGP_params + 'svgp_likelihood_vx.pth'
-    torch.save(model_vx.state_dict(), model_path_vx)
-    torch.save(likelihood_vx.state_dict(), likelihood_path_vx)
-    # vy
-    model_path_vy = folder_path_SVGP_params + 'svgp_model_vy.pth'
-    likelihood_path_vy = folder_path_SVGP_params + 'svgp_likelihood_vy.pth'
-    torch.save(model_vy.state_dict(), model_path_vy)
-    torch.save(likelihood_vy.state_dict(), likelihood_path_vy)
-    # w
-    model_path_w = folder_path_SVGP_params + 'svgp_model_w.pth'
-    likelihood_path_w = folder_path_SVGP_params + 'svgp_likelihood_w.pth'
-    torch.save(model_w.state_dict(), model_path_w)
-    torch.save(likelihood_w.state_dict(), likelihood_path_w)
-
-    print('------------------------------')
-    print('--- saved model parameters ---')
-    print('------------------------------')
-    print('saved parameters in folder: ', folder_path_SVGP_params)
-
-
-
-
-
-
-# train_x_full_dataset = train_x_full_dataset.cpu()
-
-# with torch.no_grad(): # this actually saves memory allocation cause it doesn't store the gradients
-#     preds_ax = model_vx(train_x_full_dataset)
-#     preds_ay = model_vy(train_x_full_dataset)
-#     preds_aw = model_w(train_x_full_dataset)
+    SVGP_unified_model_obj.save_model(folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt)
 
 
 
@@ -405,7 +318,7 @@ if over_write_saved_parameters:
 from torch.utils.data import DataLoader, TensorDataset
 
 # Assuming train_x_full_dataset is a PyTorch Tensor
-train_x_full_dataset = train_x_full_dataset.cpu()
+#train_x_full_dataset = train_x_full_dataset.cpu()
 batch_size = 2000  # You can adjust this based on your system's capacity
 dataset_to_plot = TensorDataset(train_x_full_dataset)
 dataloader_to_plot = DataLoader(dataset_to_plot, batch_size=batch_size)
@@ -436,14 +349,15 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
     for batch in dataloader_to_plot:
         batch_data = batch[0]
 
-        preds_ax_batch = model_vx(batch_data)
-        preds_ay_batch = model_vy(batch_data)
-        preds_aw_batch = model_w(batch_data)
+        preds_ax_batch, preds_ay_batch, preds_aw_batch, weights_throttle, weights_steering = SVGP_unified_model_obj(batch_data)
+        # preds_ax_batch = SVGP_unified_model_obj.model_vx(batch_data)
+        # preds_ay_batch = SVGP_unified_model_obj.model_vy(batch_data)
+        # preds_aw_batch = SVGP_unified_model_obj.model_w(batch_data)
 
         # get the mean of the predictions
-        preds_ax_batch_mean = preds_ax_batch.mean.numpy()
-        preds_ay_batch_mean = preds_ay_batch.mean.numpy()
-        preds_aw_batch_mean = preds_aw_batch.mean.numpy()
+        preds_ax_batch_mean = preds_ax_batch.mean.cpu().numpy()
+        preds_ay_batch_mean = preds_ay_batch.mean.cpu().numpy()
+        preds_aw_batch_mean = preds_aw_batch.mean.cpu().numpy()
 
         # if we are using the nominal model subtract the nominal model from the predictions
         if use_nominal_model:
@@ -495,18 +409,18 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
         lower_w_batch, upper_w_batch = preds_aw_batch.confidence_region()
 
         # append confidence region bounds
-        lower_x.extend(lower_x_batch.numpy())
-        upper_x.extend(upper_x_batch.numpy())
-        lower_y.extend(lower_y_batch.numpy())
-        upper_y.extend(upper_y_batch.numpy())
-        lower_w.extend(lower_w_batch.numpy())
-        upper_w.extend(upper_w_batch.numpy())
+        lower_x.extend(lower_x_batch.cpu().numpy())
+        upper_x.extend(upper_x_batch.cpu().numpy())
+        lower_y.extend(lower_y_batch.cpu().numpy())
+        upper_y.extend(upper_y_batch.cpu().numpy())
+        lower_w.extend(lower_w_batch.cpu().numpy())
+        upper_w.extend(upper_w_batch.cpu().numpy())
 
 
 # print the maximum standard deviation
-max_std_dev_x = np.max(upper_x_batch.numpy()-lower_x_batch.numpy())/4
-max_std_dev_y = np.max(upper_y_batch.numpy()-lower_y_batch.numpy())/4
-max_std_dev_w = np.max(upper_w_batch.numpy()-lower_w_batch.numpy())/4
+max_std_dev_x = np.max(upper_x_batch.cpu().numpy()-lower_x_batch.cpu().numpy())/4
+max_std_dev_y = np.max(upper_y_batch.cpu().numpy()-lower_y_batch.cpu().numpy())/4
+max_std_dev_w = np.max(upper_w_batch.cpu().numpy()-lower_w_batch.cpu().numpy())/4
 
 print('max std dev ax: ', max_std_dev_x)
 print('max std dev ay: ', max_std_dev_y)
@@ -571,60 +485,86 @@ if use_nominal_model:
 
 
 
-# show linear layer weights
+# # show linear layer weights
+    
 if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
+    fig, (ax1) = plt.subplots(1, 1, figsize=(8, 12), sharex=True)
     # x
     if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = model_vx.transform_parameters_norm_2_real()
-        weights_throttle_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        [time_C_throttle,time_C_steering]  = SVGP_unified_model_obj.transform_parameters_norm_2_real()
+        weights_throttle_vx = SVGP_unified_model_obj.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_vx = SVGP_unified_model_obj.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
         #print out time parameter
         print('model vx')
         print(f'time constant throttle: {time_C_throttle.item()}')
         print(f'time constant steering: {time_C_steering.item()}')
     elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)[0]
-        weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)[0]
+        weights_throttle_vx = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)[0]
+        weights_steering_vx = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)[0]
     ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
     ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
+    
 
 
-    # y
-    if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = model_vy.transform_parameters_norm_2_real()
-        weights_throttle_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-        # print out time parameter
-        print('model vy')
-        print(f'time constant throttle: {time_C_throttle.item()}')
-        print(f'time constant steering: {time_C_steering.item()}')
-    elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)[0]
-        weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)[0]
-    ax2.plot(weights_throttle_vy.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-    ax2.plot(weights_steering_vy.detach().cpu().numpy(),color='orangered',label='steering weights')
 
-    # w
-    if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = model_w.transform_parameters_norm_2_real()
-        weights_throttle_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-        # print out time parameter
-        print('model w')
-        print(f'time constant throttle: {time_C_throttle.item()}')
-        print(f'time constant steering: {time_C_steering.item()}')
+# if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
+#     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
+#     # x
+#     if actuator_time_delay_fitting_tag == 1:
+#         [time_C_throttle,time_C_steering]  = model_vx.transform_parameters_norm_2_real()
+#         weights_throttle_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+#         weights_steering_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+#         #print out time parameter
+#         print('model vx')
+#         print(f'time constant throttle: {time_C_throttle.item()}')
+#         print(f'time constant steering: {time_C_steering.item()}')
+#     elif actuator_time_delay_fitting_tag == 2:
+#         weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)[0]
+#         weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)[0]
+#     ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+#     ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
 
-    elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)[0]
-        weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)[0]
-    ax3.plot(weights_throttle_w.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-    ax3.plot(weights_steering_w.detach().cpu().numpy(),color='orangered',label='steering weights')
 
-    # add legends
-    ax1.legend()
-    ax2.legend()
-    ax3.legend()
+#     # y
+#     if actuator_time_delay_fitting_tag == 1:
+#         [time_C_throttle,time_C_steering]  = model_vy.transform_parameters_norm_2_real()
+#         weights_throttle_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+#         weights_steering_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+#         # print out time parameter
+#         print('model vy')
+#         print(f'time constant throttle: {time_C_throttle.item()}')
+#         print(f'time constant steering: {time_C_steering.item()}')
+#     elif actuator_time_delay_fitting_tag == 2:
+#         weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)[0]
+#         weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)[0]
+#     ax2.plot(weights_throttle_vy.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+#     ax2.plot(weights_steering_vy.detach().cpu().numpy(),color='orangered',label='steering weights')
+
+#     # w
+#     if actuator_time_delay_fitting_tag == 1:
+#         [time_C_throttle,time_C_steering]  = model_w.transform_parameters_norm_2_real()
+#         weights_throttle_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+#         weights_steering_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+#         # print out time parameter
+#         print('model w')
+#         print(f'time constant throttle: {time_C_throttle.item()}')
+#         print(f'time constant steering: {time_C_steering.item()}')
+
+#     elif actuator_time_delay_fitting_tag == 2:
+#         weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)[0]
+#         weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)[0]
+#     ax3.plot(weights_throttle_w.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
+#     ax3.plot(weights_steering_w.detach().cpu().numpy(),color='orangered',label='steering weights')
+
+#     # add legends
+#     ax1.legend()
+#     ax2.legend()
+#     ax3.legend()
+
+
+
+
+
 
 
 
