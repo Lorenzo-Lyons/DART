@@ -982,26 +982,49 @@ def unwrap_hm(x):  # this function is used to unwrap the angles
         raise ValueError("Invalid input type. Expected 'float', 'int', or 'numpy.ndarray'.")
 
 
-def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_repeat):
-    # Initialize a list to store the refined past action values
-    refined_past_actions = []
+# def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_repeat):
+#     # Initialize a list to store the refined past action values
+#     refined_past_actions = []
     
-    # Iterate over the past actions and create the refined past actions directly
-    for i in range(0, n_past_actions):
+#     # Iterate over the past actions and create the refined past actions directly
+#     for i in range(0, n_past_actions):
+#         # Shift the values for each past action step
+#         past_action = df[key_to_repeat].shift(i, fill_value=0)
+        
+#         # Refine the action values by zero-order hold and append them to the refined list
+#         for k in range(refinement_factor):
+#             refined_past_actions.append(past_action)
+
+#     # Convert the refined past actions list into a numpy array (or tensor)
+#     refined_past_actions_matrix = np.stack(refined_past_actions, axis=1)
+    
+#     # Convert the matrix into a tensor and move it to the GPU (if available)
+#     train_x = torch.tensor(refined_past_actions_matrix) #.cuda()
+
+#     return train_x
+
+
+def generate_tensor_past_actions(df, n_past_actions, key_to_repeat):
+    # ordered left to right from the most recent to the oldest
+    #[t0 t-1 t-2 t-3 ... t-n]
+
+    # Initialize a list to store the past action values
+    past_actions = []
+    
+    # Iterate over the past actions and create the past action values directly
+    for i in range(n_past_actions):
         # Shift the values for each past action step
         past_action = df[key_to_repeat].shift(i, fill_value=0)
-        
-        # Refine the action values by zero-order hold and append them to the refined list
-        for k in range(refinement_factor):
-            refined_past_actions.append(past_action)
+        past_actions.append(past_action)
 
-    # Convert the refined past actions list into a numpy array (or tensor)
-    refined_past_actions_matrix = np.stack(refined_past_actions, axis=1)
+    # Convert the past actions list into a numpy array (or tensor)
+    past_actions_matrix = np.stack(past_actions, axis=1)
     
-    # Convert the matrix into a tensor and move it to the GPU (if available)
-    train_x = torch.tensor(refined_past_actions_matrix) #.cuda()
-
+    # Convert the matrix into a tensor
+    train_x = torch.tensor(past_actions_matrix)
+    
     return train_x
+
 
 
 def plot_kinemaitcs_data(df):
@@ -2372,6 +2395,7 @@ class SVGP_unified_model(torch.nn.Sequential):
         loss_2_print_vx_vec = []
         loss_2_print_vy_vec = []
         loss_2_print_w_vec = []
+        loss_2_print_weights = []
         total_loss_vec = []
 
 
@@ -2390,7 +2414,7 @@ class SVGP_unified_model(torch.nn.Sequential):
         bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
         epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
         
-        for i in epochs_iter: #range(num_epochs):
+        for i in epochs_iter: 
             #torch.cuda.empty_cache()  # Releases unused cached memory
 
             # Within each iteration, we will go over each minibatch of data
@@ -2404,13 +2428,33 @@ class SVGP_unified_model(torch.nn.Sequential):
                 output_vx, output_vy, output_w, weights_throttle, weights_steering = self(x_batch)
                 
                 # Calculate individual losses
-                loss_weights = torch.mean(weights_throttle**2) + torch.mean(weights_steering**2)
+                q_weights = 10
+                q_dev_weights = 10
+                # penalize weights that are further in the past
+                # define increasing values 
+                #weights_of_weights = torch.flip(torch.unsqueeze(torch.arange(1, self.n_past_actions+1).float().cuda(),0) / self.n_past_actions,[1])
+                weights_of_weights = torch.ones(1,self.n_past_actions).cuda()
+
+
+                diff_weights_throttle = torch.diff(torch.squeeze(weights_throttle))
+                diff_weights_steering = torch.diff(torch.squeeze(weights_steering))
+                th_weights_squared = weights_throttle**2
+                st_weights_squared = weights_steering**2
+
+                loss_weights = + q_dev_weights * ((torch.sum(diff_weights_throttle**2) + torch.sum(diff_weights_steering**2)))\
+                                - (weights_of_weights @ th_weights_squared + weights_of_weights @ st_weights_squared)
+                loss_weights = loss_weights * q_weights
+
+
+
+
+
                 loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
                 loss_vy = -mll_vy(output_vy, y_batch_vy[:,0])
                 loss_w = -mll_w(output_w, y_batch_w[:,0])
 
                 # Combine all losses
-                total_loss = loss_vx + loss_vy + loss_w + loss_weights
+                total_loss = loss_vx + loss_weights + loss_w + loss_vy
                 
                 # Print the current loss for vx (or use other loss types if needed)
                 minibatch_iter.set_postfix(loss=total_loss.item())
@@ -2425,6 +2469,7 @@ class SVGP_unified_model(torch.nn.Sequential):
             loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
             loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
             loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+            loss_2_print_weights = [*loss_2_print_weights, loss_weights.item()]
             total_loss_vec = [*total_loss_vec, total_loss.item()]
 
             
@@ -2435,6 +2480,7 @@ class SVGP_unified_model(torch.nn.Sequential):
         ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
         ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
         ax.plot(total_loss_vec,label='total loss',color='k')
+        ax.plot(loss_2_print_weights,label='loss weights',color='lime')
         ax.legend()
 
 

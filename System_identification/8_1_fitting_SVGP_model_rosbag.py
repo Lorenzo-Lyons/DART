@@ -44,9 +44,9 @@ reprocess_data = True # set to true to reprocess the data again
 # set these parameters as they will determine the running time of this script
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
-over_write_saved_parameters = True
-epochs = 100 #  epochs for training the SVGP
-learning_rate = 0.02
+over_write_saved_parameters = False
+epochs = 200 #  epochs for training the SVGP 100
+learning_rate = 0.001
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -133,10 +133,10 @@ else:
     columns_to_extract = ['vx body', 'vy body', 'w'] 
     train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
 
-    n_past_actions = 50
-    refinement_factor = 1 # no need to refine the time interval between data points
-    train_x_throttle = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'throttle')
-    train_x_steering = generate_tensor_past_actions(df, n_past_actions,refinement_factor, key_to_repeat = 'steering')
+    n_past_actions = 300 # 2 seconds of past actions
+    #refinement_factor = 1 # no need to refine the time interval between data points
+    train_x_throttle = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'throttle')
+    train_x_steering = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'steering')
 
     train_x_full_dataset = torch.cat((train_x_states,train_x_throttle,train_x_steering),1) # concatenate
 
@@ -207,7 +207,7 @@ train_y_w = train_y_w_full_dataset
 
 
 dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
-
+print('dt: ', dt)
 # #initialize models
 # model_vx = SVGPModel_actuator_dynamics(inducing_points)
 # model_vy = SVGPModel_actuator_dynamics(inducing_points)
@@ -265,20 +265,24 @@ sdt_w = 5
 SVGP_unified_model_obj.likelihood_vx.noise = torch.tensor([sdt_x**2], dtype=torch.float32)
 SVGP_unified_model_obj.likelihood_vy.noise = torch.tensor([sdt_y**2], dtype=torch.float32)
 SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch.float32)
+# first guess weights
+# define as zeros 
+fixed_act_delay_guess_st = 0.5 # this is the time delay in seconds as we can see it from the data
+fixed_act_delay_guess_th = 0.2 # this is the time delay in seconds as we can see it from the data
+smoothing_window = int(5)
+delay_in_steps_st = int(fixed_act_delay_guess_st/dt)
+delay_in_steps_th = int(fixed_act_delay_guess_th/dt)
+
+first_guess_weights_throttle = torch.zeros(1,n_past_actions,requires_grad=True).cuda()
+first_guess_weights_steering = torch.zeros(1,n_past_actions,requires_grad=True).cuda()
+first_guess_weights_throttle[0,delay_in_steps_th-smoothing_window:delay_in_steps_th+smoothing_window] = 1
+first_guess_weights_steering[0,delay_in_steps_st-smoothing_window:delay_in_steps_st+smoothing_window] = 1
+
+#SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
+#SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
 
 
 # ---------------------
-
-
-
-
-# # train the SVGP model
-# model_vx, model_vy, model_w,\
-# likelihood_vx, likelihood_vy, likelihood_w = train_SVGP_model(epochs,
-#                                                             train_x, train_y_vx, train_y_vy, train_y_w,
-#                                                             model_vx,model_vy,model_w,
-#                                                             likelihood_vx,likelihood_vy,likelihood_w,
-#                                                             optimizer_vx,optimizer_vy,optimizer_w)
 
 # move to cuda if available
 if torch.cuda.is_available():
@@ -303,6 +307,16 @@ if torch.cuda.is_available():
 
 
 SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
+
+# # reset initial guess for the weights
+# SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
+# # train again
+# SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
+
+
+
+
+
 
 
 # # Save model parameters
@@ -488,7 +502,7 @@ if use_nominal_model:
 # # show linear layer weights
     
 if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
-    fig, (ax1) = plt.subplots(1, 1, figsize=(8, 12), sharex=True)
+    fig, (ax1) = plt.subplots(1, 1, figsize=(12, 4), sharex=True)
     # x
     if actuator_time_delay_fitting_tag == 1:
         [time_C_throttle,time_C_steering]  = SVGP_unified_model_obj.transform_parameters_norm_2_real()
@@ -504,65 +518,6 @@ if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
     ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
     ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
     
-
-
-
-# if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
-#     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
-#     # x
-#     if actuator_time_delay_fitting_tag == 1:
-#         [time_C_throttle,time_C_steering]  = model_vx.transform_parameters_norm_2_real()
-#         weights_throttle_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-#         weights_steering_vx = model_vx.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-#         #print out time parameter
-#         print('model vx')
-#         print(f'time constant throttle: {time_C_throttle.item()}')
-#         print(f'time constant steering: {time_C_steering.item()}')
-#     elif actuator_time_delay_fitting_tag == 2:
-#         weights_throttle_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_throttle)[0]
-#         weights_steering_vx = model_vx.constrained_linear_layer(model_vx.raw_weights_steering)[0]
-#     ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-#     ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
-
-
-#     # y
-#     if actuator_time_delay_fitting_tag == 1:
-#         [time_C_throttle,time_C_steering]  = model_vy.transform_parameters_norm_2_real()
-#         weights_throttle_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-#         weights_steering_vy = model_vy.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-#         # print out time parameter
-#         print('model vy')
-#         print(f'time constant throttle: {time_C_throttle.item()}')
-#         print(f'time constant steering: {time_C_steering.item()}')
-#     elif actuator_time_delay_fitting_tag == 2:
-#         weights_throttle_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_throttle)[0]
-#         weights_steering_vy = model_vy.constrained_linear_layer(model_vy.raw_weights_steering)[0]
-#     ax2.plot(weights_throttle_vy.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-#     ax2.plot(weights_steering_vy.detach().cpu().numpy(),color='orangered',label='steering weights')
-
-#     # w
-#     if actuator_time_delay_fitting_tag == 1:
-#         [time_C_throttle,time_C_steering]  = model_w.transform_parameters_norm_2_real()
-#         weights_throttle_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-#         weights_steering_w = model_w.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-#         # print out time parameter
-#         print('model w')
-#         print(f'time constant throttle: {time_C_throttle.item()}')
-#         print(f'time constant steering: {time_C_steering.item()}')
-
-#     elif actuator_time_delay_fitting_tag == 2:
-#         weights_throttle_w = model_w.constrained_linear_layer(model_w.raw_weights_throttle)[0]
-#         weights_steering_w = model_w.constrained_linear_layer(model_w.raw_weights_steering)[0]
-#     ax3.plot(weights_throttle_w.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-#     ax3.plot(weights_steering_w.detach().cpu().numpy(),color='orangered',label='steering weights')
-
-#     # add legends
-#     ax1.legend()
-#     ax2.legend()
-#     ax3.legend()
-
-
-
 
 
 
