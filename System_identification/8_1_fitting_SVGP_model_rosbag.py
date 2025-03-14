@@ -45,8 +45,8 @@ reprocess_data = True # set to true to reprocess the data again
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = False
-epochs = 100 #  epochs for training the SVGP 100
-learning_rate = 0.001
+epochs = 400 #  epochs for training the SVGP 20
+learning_rate = 0.001 # 0.01
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -133,7 +133,7 @@ else:
     columns_to_extract = ['vx body', 'vy body', 'w'] 
     train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
 
-    n_past_actions = 300 # 2 seconds of past actions
+    n_past_actions = 300 # 1 seconds of past actions
     #refinement_factor = 1 # no need to refine the time interval between data points
     train_x_throttle = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'throttle')
     train_x_steering = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'steering')
@@ -319,21 +319,55 @@ sdt_w = 5
 SVGP_unified_model_obj.likelihood_vx.noise = torch.tensor([sdt_x**2], dtype=torch.float32)
 SVGP_unified_model_obj.likelihood_vy.noise = torch.tensor([sdt_y**2], dtype=torch.float32)
 SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch.float32)
-# first guess weights
-# define as zeros 
-fixed_act_delay_guess_st = 0.5 # this is the time delay in seconds as we can see it from the data
-fixed_act_delay_guess_th = 0.2 # this is the time delay in seconds as we can see it from the data
-smoothing_window = int(5)
-delay_in_steps_st = int(fixed_act_delay_guess_st/dt)
-delay_in_steps_th = int(fixed_act_delay_guess_th/dt)
 
-first_guess_weights_throttle = torch.zeros(1,n_past_actions,requires_grad=True).cuda()
-first_guess_weights_steering = torch.zeros(1,n_past_actions,requires_grad=True).cuda()
-first_guess_weights_throttle[0,delay_in_steps_th-smoothing_window:delay_in_steps_th+smoothing_window] = 1
-first_guess_weights_steering[0,delay_in_steps_st-smoothing_window:delay_in_steps_st+smoothing_window] = 1
 
-#SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
-#SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
+# # first guess weights
+# # define as zeros 
+# fixed_act_delay_guess_st = 0.3 # this is the time delay in seconds as we can see it from the data
+# fixed_act_delay_guess_th = 0.3 # this is the time delay in seconds as we can see it from the data
+# smoothing_window = int(np.round(0.25/dt)) # 0.1 seconds smoothing window
+# delay_in_steps_st = int(fixed_act_delay_guess_st/dt)
+# delay_in_steps_th = int(fixed_act_delay_guess_th/dt)
+
+# # -10 , 10 is mapped to 0 and 1 in torch.sigmoid so we can use this to set the initial guess
+# first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -10
+# first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -10
+# first_guess_weights_throttle[0,delay_in_steps_th-smoothing_window:delay_in_steps_th+smoothing_window] = 10
+# first_guess_weights_steering[0,delay_in_steps_st-smoothing_window:delay_in_steps_st+smoothing_window] = 10
+
+
+import torch
+
+# Parameters
+fixed_act_delay_guess_st = 0.3  # Time delay (seconds) 0.3
+fixed_act_delay_guess_th = 0.3  # Time delay (seconds) 0.3
+smoothing_window = int(np.round(0.25 / dt))  # 0.1 seconds smoothing window
+delay_in_steps_st = int(fixed_act_delay_guess_st / dt)
+delay_in_steps_th = int(fixed_act_delay_guess_th / dt)
+
+# Define Gaussian Function
+def gaussian_weights(n_past_actions, center, std_dev=10):
+    """Creates a 1D Gaussian distribution centered at `center`."""
+    x = torch.arange(n_past_actions).float().cuda()
+    gauss = torch.exp(-((x - center) ** 2) / (2 * std_dev**2))  # Gaussian formula
+    gauss = (gauss - gauss.min()) / (gauss.max() - gauss.min())  # Normalize to [0, 1]
+    return torch.logit(gauss * 0.98 + 0.01)  # Convert to logit space for sigmoid
+
+# Initialize Weights
+first_guess_weights_throttle = gaussian_weights(n_past_actions, delay_in_steps_th)
+first_guess_weights_steering = gaussian_weights(n_past_actions, delay_in_steps_st)
+
+# Ensure requires_grad=True for optimization
+first_guess_weights_throttle = first_guess_weights_throttle.unsqueeze(0).requires_grad_().cuda()
+first_guess_weights_steering = first_guess_weights_steering.unsqueeze(0).requires_grad_().cuda()
+
+
+
+
+
+# apply first guess
+SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
+SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
 
 
 # ---------------------
@@ -362,10 +396,11 @@ if torch.cuda.is_available():
 
 SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
 
-# # reset initial guess for the weights
-# SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
-# # train again
-# SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
+# reset initial guess for the weights
+#SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
+#SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
+# train again
+#SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
 
 
 
@@ -431,7 +466,8 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
     for batch in dataloader_to_plot:
         batch_data = batch[0]
 
-        preds_ax_batch, preds_ay_batch, preds_aw_batch, weights_throttle, weights_steering = SVGP_unified_model_obj(batch_data)
+        # output_vx,    output_vy,      output_w,       weights_throttle, weights_steering,  non_normalized_w_th, non_normalized_w_st
+        preds_ax_batch, preds_ay_batch, preds_aw_batch, weights_throttle, weights_steering , non_normalized_w_th, non_normalized_w_st = SVGP_unified_model_obj(batch_data)
         # preds_ax_batch = SVGP_unified_model_obj.model_vx(batch_data)
         # preds_ay_batch = SVGP_unified_model_obj.model_vy(batch_data)
         # preds_aw_batch = SVGP_unified_model_obj.model_w(batch_data)
@@ -581,10 +617,18 @@ if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
         print(f'time constant throttle: {time_C_throttle.item()}')
         print(f'time constant steering: {time_C_steering.item()}')
     elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle_vx = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)[0]
-        weights_steering_vx = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)[0]
-    ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
-    ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
+        weights_throttle = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)[0]
+        weights_steering = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)[0]
+
+    time_axis = np.linspace(0,n_past_actions*dt,n_past_actions)
+    ax1.plot(time_axis,np.squeeze(weights_throttle.detach().cpu().numpy()),color='dodgerblue',label='throttle weights')
+    ax1.plot(time_axis,np.squeeze(weights_steering.detach().cpu().numpy()),color='orangered',label='steering weights')
+    ax1.set_xlabel('time delay[s]')
+    ax1.set_ylabel('weight')
+    # set y axis limits
+    # max value
+    max_val = np.max([np.max(np.abs(weights_throttle.detach().cpu().numpy())),np.max(np.abs(weights_steering.detach().cpu().numpy()))])
+    ax1.set_ylim(0,max_val * 1.3)
     ax1.legend()
     
 

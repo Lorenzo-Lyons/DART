@@ -2295,6 +2295,8 @@ class SVGP_unified_model(torch.nn.Sequential):
         # add time delay fitting parameters
         self.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
 
+        self.Hardsigmoid = torch.nn.Sigmoid()
+
 
 
     def setup_time_delay_fitting(self,actuator_time_delay_fitting_tag,n_past_actions,dt):
@@ -2324,13 +2326,13 @@ class SVGP_unified_model(torch.nn.Sequential):
 
     def forward(self, x):
         # extract throttle and steering inputs
-        x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
+        x_4_model, weights_throttle, weights_steering , non_normalized_w_th, non_normalized_w_st = self.produce_th_st_4_model(x)
         output_vx = self.model_vx(x_4_model)
         output_vy = self.model_vy(x_4_model)
         output_w = self.model_w(x_4_model)
 
 
-        return output_vx,output_vy,output_w,weights_throttle,weights_steering
+        return output_vx,output_vy,output_w,weights_throttle,weights_steering, non_normalized_w_th, non_normalized_w_st
 
     def produce_th_st_4_model(self,x):
         # extract throttle and steering inputs
@@ -2344,26 +2346,35 @@ class SVGP_unified_model(torch.nn.Sequential):
                 weights_steering = self.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,self.n_past_actions,self.dt).float()
 
             elif self.actuator_time_delay_fitting_tag == 2: # using linear layer
-                weights_throttle = self.constrained_linear_layer(self.raw_weights_throttle).t()
-                weights_steering = self.constrained_linear_layer(self.raw_weights_steering).t()
+                weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+                weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+                # transpose
+                weights_throttle = weights_throttle.t()
+                weights_steering = weights_steering.t()
+                non_normalized_w_th = non_normalized_w_th.t()
+                non_normalized_w_st = non_normalized_w_st.t()
 
             throttle = throttle_past_actions @ weights_throttle #torch.matmul(throttle_past_actions, weights_throttle)
             steering = steering_past_actions @ weights_steering #torch.matmul(steering_past_actions, weights_steering)
 
             x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
-            return x_4_model, weights_throttle, weights_steering
+            return x_4_model, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st
         else:
             x_4_model = x
-            return x_4_model,[],[]
+            return x_4_model,[],[],[],[]
+        
 
 
     def constrained_linear_layer(self, raw_weights):
         # Apply softplus to make weights positive
-        positive_weights = torch.nn.functional.softplus(raw_weights)
+        #positive_weights = torch.nn.functional.softplus(raw_weights)
+        # pass raw weights through sigmoid
+        positive_weights = self.Hardsigmoid(raw_weights)
+        
         # Normalize the weights along the last dimension so they sum to 1 for each output unit
         normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
         # Apply the weights to the input
-        return normalized_weights
+        return normalized_weights, positive_weights
     
 
     def train_model(self,num_epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w):
@@ -2380,7 +2391,7 @@ class SVGP_unified_model(torch.nn.Sequential):
         train_dataset = TensorDataset(train_x, train_y_vx, train_y_vy, train_y_w) # 
 
         # define data loaders
-        train_loader = DataLoader(train_dataset, batch_size=250, shuffle=True)
+        train_loader = DataLoader(train_dataset, batch_size=500, shuffle=True) #  batch_size=250
 
         #set to training mode
         self.model_vx.train()
@@ -2403,8 +2414,9 @@ class SVGP_unified_model(torch.nn.Sequential):
         total_loss_vec = []
 
 
-        optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate)
-
+        #optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-4)
+        #optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
 
         # Print the parameters with their names and shapes
         print('Parameters to optimize:')
@@ -2429,28 +2441,58 @@ class SVGP_unified_model(torch.nn.Sequential):
                 optimizer.zero_grad()  # Clear previous gradients
 
                 # Forward pass
-                output_vx, output_vy, output_w, weights_throttle, weights_steering = self(x_batch)
+                output_vx, output_vy, output_w, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st = self(x_batch)
                 
                 # Calculate individual losses
-                q_weights = 10
-                q_dev_weights = 100
+                #q_weights = 0.01
+                #q_dev_weights = 1
                 # penalize weights that are further in the past
                 # define increasing values 
                 #weights_of_weights = torch.flip(torch.unsqueeze(torch.arange(1, self.n_past_actions+1).float().cuda(),0) / self.n_past_actions,[1])
                 #weights_of_weights = torch.ones(1,self.n_past_actions).cuda()
 
 
-                diff_weights_throttle = torch.diff(torch.squeeze(weights_throttle))
-                diff_weights_steering = torch.diff(torch.squeeze(weights_steering))
-                th_weights_squared = weights_throttle**2
-                st_weights_squared = weights_steering**2
+                # diff_weights_throttle = torch.diff(torch.squeeze(weights_throttle))
+                # diff_weights_steering = torch.diff(torch.squeeze(weights_steering))
+                # th_weights_squared = (1+non_normalized_w_th)**2
+                # st_weights_squared = (1+non_normalized_w_st)**2
 
-                loss_weights = + q_dev_weights * ((torch.mean(diff_weights_throttle**2) + torch.mean(diff_weights_steering**2)))\
-                                - (torch.mean(th_weights_squared + st_weights_squared))
-                loss_weights = loss_weights * q_weights
+                # loss_weights =  + q_dev_weights * ((torch.mean(diff_weights_throttle**2) + torch.mean(diff_weights_steering**2)))\
+                #                 - q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
+                
+                # trying to enforce the weights to stick together
+                weights_loss_scale = 0.05 # sale teh loss equally to avoid it being dominant
+                q_var_weights = 1
+                q_dev_weights = 50
+                q_weights = 0.001
+
+
+                time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
+                w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
+
+                mean_time_delay_th = torch.mean(w_th_times_time)
+                mean_time_delay_st = torch.mean(w_st_times_time)
+
+                var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
+                var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
+
+                diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
+                diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
+
+                #th_weights_squared = (1+non_normalized_w_th)**2
+                #st_weights_squared = (1+non_normalized_w_st)**2
 
 
 
+
+                loss_weights = q_var_weights * (var_th + var_st)+\
+                             + q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
+                             + q_weights * torch.sum(    (w_th_times_time/self.n_past_actions)**2 + (w_st_times_time/self.n_past_actions)**2    )
+                             #- q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
+
+                #scale the loss
+                loss_weights = weights_loss_scale * loss_weights
 
 
                 loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
@@ -2458,7 +2500,7 @@ class SVGP_unified_model(torch.nn.Sequential):
                 loss_w = -mll_w(output_w, y_batch_w[:,0])
 
                 # Combine all losses
-                total_loss = loss_vx + loss_weights + loss_w + loss_vy
+                total_loss =  loss_weights + loss_vx + loss_w + loss_vy
                 
                 # Print the current loss for vx (or use other loss types if needed)
                 minibatch_iter.set_postfix(loss=total_loss.item())
