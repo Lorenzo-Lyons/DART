@@ -45,7 +45,7 @@ reprocess_data = True # set to true to reprocess the data again
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = False
-epochs = 200 #  epochs for training the SVGP 100
+epochs = 100 #  epochs for training the SVGP 100
 learning_rate = 0.001
 # generate data in tensor form for torch
 # 0 = no time delay fitting
@@ -105,7 +105,7 @@ for bag_file_name in rosbag_files:
 
 
 
-ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
+ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2 = plot_kinemaitcs_data(df)
 
 
 
@@ -173,6 +173,60 @@ if use_nominal_model: # subtract the nominal model from the y predictions
         train_y_vx_full_dataset[kk] = train_y_vx_full_dataset[kk] - acc_x
         train_y_vy_full_dataset[kk] = train_y_vy_full_dataset[kk] - acc_y
         train_y_w_full_dataset[kk] = train_y_w_full_dataset[kk] - acc_w
+
+
+
+
+# to help with the delay tuning process we can repeat the portions of the data where the throttle and steering are chaging more rapidly
+# derive the time derivative of the throttle and steering
+
+from scipy.signal import savgol_filter
+df['ax body filtered'] = savgol_filter(df['ax body'], window_length=30, polyorder=2)
+
+percentile = 80
+
+
+# Define a threshold_accx (e.g., 90th percentile of acc x
+threshold_accx = np.percentile(np.abs(df['ax body filtered'].to_numpy()), percentile)
+# Find regions where the derivative is high
+mask_high_th_dev = np.abs(np.array(df['ax body filtered'])) > threshold_accx
+
+# plot filtered signal
+ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body filtered'].to_numpy(),label='ax filtered',color='navy')
+ax_vx2.fill_between(df['vicon time'].to_numpy(), ax_vx2.get_ylim()[0], ax_vx2.get_ylim()[1], where=mask_high_th_dev, color='navy', alpha=0.1, label='high acc x regions')
+
+
+# find high omega acceleration regions
+# filter omega acc
+df['acc_w filtered'] = savgol_filter(df['acc_w'], window_length=30, polyorder=2)
+# Define a threshold_accx (e.g., 90th percentile of acc x
+threshold_accw = np.percentile(np.abs(df['acc_w filtered'].to_numpy()), percentile)
+
+# Find regions where the derivative is high
+mask_high_th_dev_w = np.abs(np.array(df['acc_w filtered'])) > threshold_accw
+
+# plot filtered signal
+ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w filtered'].to_numpy(),label='aw filtered',color='navy')
+ax_w2.fill_between(df['vicon time'].to_numpy(), ax_w2.get_ylim()[0], ax_w2.get_ylim()[1], where=mask_high_th_dev_w, color='navy', alpha=0.1, label='high acc w regions')
+
+
+# merge the two masks
+mask_high_acc = mask_high_th_dev | mask_high_th_dev_w
+
+
+
+# re-add this point to the training data so to give more importance to these regions
+# get the inxes of the high acceleration regions
+indexes_high_dev = np.where(mask_high_acc)[0]
+# add the indexes to the training data a certain number of times
+high_acc_repetition = 20
+original_data_length = train_x_full_dataset.shape[0]
+for _ in range(high_acc_repetition):
+    train_x_full_dataset = torch.cat((train_x_full_dataset,train_x_full_dataset[indexes_high_dev,:]),0)
+    train_y_vx_full_dataset = torch.cat((train_y_vx_full_dataset,train_y_vx_full_dataset[indexes_high_dev,:]),0)
+    train_y_vy_full_dataset = torch.cat((train_y_vy_full_dataset,train_y_vy_full_dataset[indexes_high_dev,:]),0)
+    train_y_w_full_dataset = torch.cat((train_y_w_full_dataset,train_y_w_full_dataset[indexes_high_dev,:]),0)
+
 
 
 
@@ -323,6 +377,20 @@ SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, tra
 if over_write_saved_parameters:
     SVGP_unified_model_obj.save_model(folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt)
 
+
+
+
+
+# cut training data to the original length if needed
+if high_acc_repetition > 0:
+    train_x = train_x[:original_data_length,:]
+    train_y_vx = train_y_vx[:original_data_length,:]
+    train_y_vy = train_y_vy[:original_data_length,:]
+    train_y_w = train_y_w[:original_data_length,:]
+    train_x_full_dataset = train_x_full_dataset[:original_data_length,:]
+    train_y_vx_full_dataset = train_y_vx_full_dataset[:original_data_length,:]
+    train_y_vy_full_dataset = train_y_vy_full_dataset[:original_data_length,:]
+    train_y_w_full_dataset = train_y_w_full_dataset[:original_data_length,:]
 
 
 
@@ -517,6 +585,7 @@ if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
         weights_steering_vx = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)[0]
     ax1.plot(weights_throttle_vx.detach().cpu().numpy(),color='dodgerblue',label='throttle weights')
     ax1.plot(weights_steering_vx.detach().cpu().numpy(),color='orangered',label='steering weights')
+    ax1.legend()
     
 
 

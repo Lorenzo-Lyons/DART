@@ -1075,6 +1075,10 @@ def plot_kinemaitcs_data(df):
 
     # plot raw vicon data
     fig1, ((ax1, ax2, ax3 , ax4)) = plt.subplots(4, 1, figsize=(10, 6), constrained_layout=True)
+    # get axis for velocity data
+    ax_vx2 = ax2
+    ax_w2 = ax3
+
     ax1.set_title('Velocity data')
     #ax1.plot(plotting_time_vec, df['vx_abs'].to_numpy(), label="Vx abs data", color='lightblue')
     #ax1.plot(plotting_time_vec, df['vy_abs'].to_numpy(), label="Vy abs data", color='rosybrown')
@@ -1114,7 +1118,7 @@ def plot_kinemaitcs_data(df):
     ax4.plot(plotting_time_vec, df['vicon yaw'].to_numpy(), label="theta raw data", color='darkgreen')
     ax4.legend()
 
-    return ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w
+    return ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2
 
 
 
@@ -2429,11 +2433,11 @@ class SVGP_unified_model(torch.nn.Sequential):
                 
                 # Calculate individual losses
                 q_weights = 10
-                q_dev_weights = 10
+                q_dev_weights = 100
                 # penalize weights that are further in the past
                 # define increasing values 
                 #weights_of_weights = torch.flip(torch.unsqueeze(torch.arange(1, self.n_past_actions+1).float().cuda(),0) / self.n_past_actions,[1])
-                weights_of_weights = torch.ones(1,self.n_past_actions).cuda()
+                #weights_of_weights = torch.ones(1,self.n_past_actions).cuda()
 
 
                 diff_weights_throttle = torch.diff(torch.squeeze(weights_throttle))
@@ -2441,8 +2445,8 @@ class SVGP_unified_model(torch.nn.Sequential):
                 th_weights_squared = weights_throttle**2
                 st_weights_squared = weights_steering**2
 
-                loss_weights = + q_dev_weights * ((torch.sum(diff_weights_throttle**2) + torch.sum(diff_weights_steering**2)))\
-                                - (weights_of_weights @ th_weights_squared + weights_of_weights @ st_weights_squared)
+                loss_weights = + q_dev_weights * ((torch.mean(diff_weights_throttle**2) + torch.mean(diff_weights_steering**2)))\
+                                - (torch.mean(th_weights_squared + st_weights_squared))
                 loss_weights = loss_weights * q_weights
 
 
