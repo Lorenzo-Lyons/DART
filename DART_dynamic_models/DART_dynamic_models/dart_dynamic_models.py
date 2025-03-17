@@ -334,6 +334,38 @@ class model_functions():
         return x_dot
 
 
+    def dynamic_bicycle(self, th, st, vx, vy, w ):  
+        # this function takes the state input:z = [th st vx vy w] ---> output: [acc_x,acc_y,acc_w] in the car body frame
+
+
+        #evaluate steering angle 
+        steering_angle = self.steering_2_steering_angle(st,self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
+
+        # # evaluate longitudinal forces
+        Fx_wheels = + self.motor_force(th,vx,self.a_m_self,self.b_m_self,self.c_m_self)\
+                    + self.rolling_friction(vx,self.a_f_self,self.b_f_self,self.c_f_self,self.d_f_self)\
+                    + self.F_friction_due_to_steering(steering_angle,vx,self.a_stfr_self,self.b_stfr_self,self.d_stfr_self,self.e_stfr_self)
+
+        c_front = (self.m_front_wheel_self)/self.m_self
+        c_rear = (self.m_rear_wheel_self)/self.m_self
+
+        # redistribute Fx to front and rear wheels according to normal load
+        Fx_front = Fx_wheels * c_front
+        Fx_rear = Fx_wheels * c_rear
+
+        #evaluate slip angles
+        alpha_f,alpha_r = self.evaluate_slip_angles(vx,vy,w,self.lf_self,self.lr_self,steering_angle)
+
+        #lateral forces
+        Fy_wheel_f = self.lateral_tire_force(alpha_f,self.d_t_f_self,self.c_t_f_self,self.b_t_f_self,self.m_front_wheel_self)
+        Fy_wheel_r = self.lateral_tire_force(alpha_r,self.d_t_r_self,self.c_t_r_self,self.b_t_r_self,self.m_rear_wheel_self)
+
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,self.lf_self,self.lr_self,self.m_self,self.Jz_self)
+        
+        return acc_x,acc_y,acc_w
+
+
+
 
 
 

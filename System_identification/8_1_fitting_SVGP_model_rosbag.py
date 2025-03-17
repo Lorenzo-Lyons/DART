@@ -2,7 +2,7 @@ from dart_dynamic_models import SVGP_submodel_actuator_dynamics, get_data, plot_
 ,dyn_model_culomb_tires,produce_long_term_predictions,train_SVGP_model,rebuild_Kxy_RBF_vehicle_dynamics,RBF_kernel_rewritten,\
 throttle_dynamics_data_processing,steering_dynamics_data_processing,process_vicon_data_kinematics,generate_tensor_past_actions,\
 SVGPModel_actuator_dynamics, plot_kinemaitcs_data, load_SVGPModel_actuator_dynamics,dyn_model_SVGP_4_long_term_predictions,\
-SVGP_unified_model,SVGP_submodel_actuator_dynamics
+SVGP_unified_model,SVGP_submodel_actuator_dynamics, model_functions
 
 from matplotlib import pyplot as plt
 import torch
@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import os
 import tqdm
+mf = model_functions() # instantiate the model functions class
+
 
 
 if torch.cuda.is_available():
@@ -46,12 +48,13 @@ reprocess_data = True # set to true to reprocess the data again
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
 evaluate_long_term_predictions = True
-epochs = 200 #  epochs for training the SVGP 200
+epochs = 100 #  epochs for training the SVGP 200
 learning_rate =  0.0015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
 # 2 = linear layer time delay fitting
+# legacy 3rd option
 # 3 = GP takes as input the time-filtered inputs obtained with the input dynamics taken from the physics-based model.
 
 actuator_time_delay_fitting_tag = 2
@@ -64,8 +67,6 @@ fit_on_subsampled_dataset_tag = False
 
 # use nominal model (using the dynamic bicycle model as the mean function)
 use_nominal_model = True
-
-
 
 
 # process data
@@ -117,31 +118,34 @@ ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2 = plot_kinemaitcs_dat
 
 # train the SVGP model
 n_inducing_points = 500
-n_past_actions = 0 # default value
 
 
 
 
 if actuator_time_delay_fitting_tag == 0:
-    columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering'] 
-    train_x_full_dataset = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
+    n_past_actions = 1 
+
+    # columns_to_extract = ['vx body', 'vy body', 'w', 'throttle' ,'steering'] 
+    # train_x_full_dataset = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
 
 elif actuator_time_delay_fitting_tag == 3:
     columns_to_extract = ['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered'] 
     train_x_full_dataset = torch.tensor(df[columns_to_extract].to_numpy()).cuda()
 
 else:
-    columns_to_extract = ['vx body', 'vy body', 'w'] 
-    train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
+    # columns_to_extract = ['vx body', 'vy body', 'w'] 
+    # train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
 
     n_past_actions = 300 # 1 seconds of past actions
     #refinement_factor = 1 # no need to refine the time interval between data points
-    train_x_throttle = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'throttle')
-    train_x_steering = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'steering')
-
-    train_x_full_dataset = torch.cat((train_x_states,train_x_throttle,train_x_steering),1) # concatenate
 
 
+columns_to_extract = ['vx body', 'vy body', 'w'] 
+train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
+train_x_throttle = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'throttle')
+train_x_steering = generate_tensor_past_actions(df, n_past_actions, key_to_repeat = 'steering')
+
+train_x_full_dataset = torch.cat((train_x_states,train_x_throttle,train_x_steering),1) # concatenate
 
 
 
@@ -153,27 +157,39 @@ train_y_w_full_dataset  = torch.unsqueeze(torch.tensor(df['acc_w'].to_numpy()),1
 
 if use_nominal_model: # subtract the nominal model from the y predictions
     # evaluate the dynamic bicycle model on the training data
-    steering_friction_flag = True
-    pitch_dynamics_flag = False # don't modify these as they need to match what is used in the DART simulator node
-    nominal_model_dyn_bike = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
+    #steering_friction_flag = True
+    #pitch_dynamics_flag = False # don't modify these as they need to match what is used in the DART simulator node
+    #nominal_model_dyn_bike = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
+    nom_pred_x = np.zeros(train_y_vx_full_dataset.shape[0])
+    nom_pred_y = np.zeros(train_y_vy_full_dataset.shape[0])
+    nom_pred_w = np.zeros(train_y_w_full_dataset.shape[0])
 
     for kk in range(train_y_vx_full_dataset.shape[0]):
         # make prediction using nominal model
-        state_action_k = np.array([*train_x_full_dataset[kk,:].cpu().numpy(),0.0,0.0])
+        #state_action_k = np.array([*train_x_full_dataset[kk,:].cpu().numpy(),0.0,0.0])
         # add dummy values for the throttle and steering commands in the nominal model
         # the latter takes in state_action = [vx vy w throttle steering throttle_command steering_command]
-        pred_nom = nominal_model_dyn_bike.forward(state_action_k)
-        acc_x = pred_nom[0]
-        acc_y = pred_nom[1]
-        acc_w = pred_nom[2]
-        # these last two are not used
-        throttle_dot = pred_nom[3]
-        steering_dot = pred_nom[4]
+        #pred_nom = nominal_model_dyn_bike.forward(state_action_k)
+        #unpack state
+        th = train_x_throttle[kk,0].numpy().item()
+        st = train_x_steering[kk,0].numpy().item()
+        vx = train_x_states[kk,0].numpy().item()
+        vy = train_x_states[kk,1].numpy().item()
+        w =  train_x_states[kk,2].numpy().item()
+
+        acc_x, acc_y, acc_w = mf.dynamic_bicycle(th, st, vx, vy, w)
 
         # subtract the nominal model from the data (Do this in place to save memory)
         train_y_vx_full_dataset[kk] = train_y_vx_full_dataset[kk] - acc_x
         train_y_vy_full_dataset[kk] = train_y_vy_full_dataset[kk] - acc_y
         train_y_w_full_dataset[kk] = train_y_w_full_dataset[kk] - acc_w
+
+        # store the nominal model predictions
+        nom_pred_x[kk] = acc_x
+        nom_pred_y[kk] = acc_y
+        nom_pred_w[kk] = acc_w
+
+
 
 
 
@@ -347,9 +363,9 @@ SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch
 import torch
 
 # Parameters
-fixed_act_delay_guess_st = 0.3  # Time delay (seconds) 0.3
-fixed_act_delay_guess_th = 0.3  # Time delay (seconds) 0.3
-smoothing_window = int(np.round(0.25 / dt))  # 0.1 seconds smoothing window
+fixed_act_delay_guess_st = 0.1  # Time delay (seconds) 0.3
+fixed_act_delay_guess_th = 0.2  # Time delay (seconds) 0.3
+smoothing_window = int(np.round(0.1 / dt))  # 0.1 seconds smoothing window
 delay_in_steps_st = int(fixed_act_delay_guess_st / dt)
 delay_in_steps_th = int(fixed_act_delay_guess_th / dt)
 
@@ -488,36 +504,36 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
         preds_aw_batch_mean = preds_aw_batch.mean.cpu().numpy()
 
         # if we are using the nominal model subtract the nominal model from the predictions
-        if use_nominal_model:
-            #evalaute nominal model predictions on the batch data
+        # if use_nominal_model:
+        #     #evalaute nominal model predictions on the batch data
 
-            y_nominal_vx_batch = np.zeros(batch_data.shape[0])
-            y_nominal_vy_batch = np.zeros(batch_data.shape[0])
-            y_nominal_w_batch = np.zeros(batch_data.shape[0])
+        #     y_nominal_vx_batch = np.zeros(batch_data.shape[0])
+        #     y_nominal_vy_batch = np.zeros(batch_data.shape[0])
+        #     y_nominal_w_batch = np.zeros(batch_data.shape[0])
 
-            for kk in range(batch_data.shape[0]):
+        #     for kk in range(batch_data.shape[0]):
 
-                # make prediction using nominal model
-                state_action_k = np.array([*batch_data[kk,:].cpu().numpy(),0.0,0.0])
-                # add dummy values for the throttle and steering commands in the nominal model
-                # the latter takes in state_action = [vx vy w throttle steering throttle_command steering_command]
-                pred_nom = nominal_model_dyn_bike.forward(state_action_k)
-                acc_x = pred_nom[0]
-                acc_y = pred_nom[1]
-                acc_w = pred_nom[2]
-                # these last two are not used
-                throttle_dot = pred_nom[3]
-                steering_dot = pred_nom[4]
+        #         # make prediction using nominal model
+        #         state_action_k = np.array([*batch_data[kk,:].cpu().numpy(),0.0,0.0])
+        #         # add dummy values for the throttle and steering commands in the nominal model
+        #         # the latter takes in state_action = [vx vy w throttle steering throttle_command steering_command]
+        #         pred_nom = nominal_model_dyn_bike.forward(state_action_k)
+        #         acc_x = pred_nom[0]
+        #         acc_y = pred_nom[1]
+        #         acc_w = pred_nom[2]
+        #         # these last two are not used
+        #         throttle_dot = pred_nom[3]
+        #         steering_dot = pred_nom[4]
 
-                #store the nominal model predictions
-                y_nominal_vx_batch[kk] = acc_x
-                y_nominal_vy_batch[kk] = acc_y
-                y_nominal_w_batch[kk] = acc_w
+        #         #store the nominal model predictions
+        #         y_nominal_vx_batch[kk] = acc_x
+        #         y_nominal_vy_batch[kk] = acc_y
+        #         y_nominal_w_batch[kk] = acc_w
 
-                # subtract the nominal model from the data (Do this in place to save memory)
-                preds_ax_batch_mean[kk] = preds_ax_batch_mean[kk] + acc_x
-                preds_ay_batch_mean[kk] = preds_ay_batch_mean[kk] + acc_y
-                preds_aw_batch_mean[kk] = preds_aw_batch_mean[kk] + acc_w
+        #         # subtract the nominal model from the data (Do this in place to save memory)
+        #         preds_ax_batch_mean[kk] = preds_ax_batch_mean[kk] + acc_x
+        #         preds_ay_batch_mean[kk] = preds_ay_batch_mean[kk] + acc_y
+        #         preds_aw_batch_mean[kk] = preds_aw_batch_mean[kk] + acc_w
 
         
 
@@ -526,10 +542,10 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
         preds_ay_mean.extend(preds_ay_batch_mean) 
         preds_aw_mean.extend(preds_aw_batch_mean)
 
-        if use_nominal_model:
-            y_nominal_vx.extend(y_nominal_vx_batch)
-            y_nominal_vy.extend(y_nominal_vy_batch)
-            y_nominal_w.extend(y_nominal_w_batch)
+        # if use_nominal_model:
+        #     y_nominal_vx.extend(y_nominal_vx_batch)
+        #     y_nominal_vy.extend(y_nominal_vy_batch)
+        #     y_nominal_w.extend(y_nominal_w_batch)
 
         # plotting
         lower_x_batch, upper_x_batch = preds_ax_batch.confidence_region()
@@ -563,25 +579,138 @@ np.save(folder_path_SVGP_params + 'max_stdev_w.npy', max_std_dev_w)
 
 
 
-# plot fitting results
-# ax_acc_x.cla()  # Clear the axis
-# ax_acc_y.cla()  # Clear the axis
-# ax_acc_w.cla()  # Clear the axis
+# # show linear layer weights
+    
+if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
+    fig, (ax1) = plt.subplots(1, 1, figsize=(12, 4), sharex=True)
+    # x
+    if actuator_time_delay_fitting_tag == 1:
+        [time_C_throttle,time_C_steering]  = SVGP_unified_model_obj.transform_parameters_norm_2_real()
+        weights_throttle_vx = SVGP_unified_model_obj.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
+        weights_steering_vx = SVGP_unified_model_obj.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
+        #print out time parameter
+        print('model vx')
+        print(f'time constant throttle: {time_C_throttle.item()}')
+        print(f'time constant steering: {time_C_steering.item()}')
+    elif actuator_time_delay_fitting_tag == 2:
+        weights_th_numpy, non_normalized_w_th = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)
+        weights_st_numpy, non_normalized_w_st = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)
+        # make into numpy
+        weights_th_numpy = np.transpose(weights_th_numpy.cpu().detach().numpy())
+        weights_st_numpy = np.transpose(weights_st_numpy.cpu().detach().numpy())
 
-# # add accelerations
-# ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body'].to_numpy(),label='ax',color='dodgerblue')
-# ax_acc_y.plot(df['vicon time'].to_numpy(),df['ay body'].to_numpy(),label='ay',color='orangered')
-# ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w'].to_numpy(),label='aw',color='orchid')
+        # evalaute the filtered inputs
+        th_filtered = np.zeros(train_x.shape[0])
+        st_filtered = np.zeros(train_x.shape[0])
+        for i in range(train_x.shape[0]):
+            # produce action to pass to the model
+            data_row = np.expand_dims(train_x.cpu().numpy()[i,:],0)
+            th_past  = data_row[0, 3 : 3 + n_past_actions]
+            st_past  = data_row[0, 3 + n_past_actions :]
+
+            th_filtered[i] = np.expand_dims(th_past,0) @ weights_th_numpy
+            st_filtered[i] = np.expand_dims(st_past,0) @ weights_st_numpy
+
+
+
+        #weights_throttle = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)[0]
+        #weights_steering = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)[0]
+
+    time_axis = np.linspace(0,n_past_actions*dt,n_past_actions)
+    ax1.plot(time_axis,np.squeeze(weights_th_numpy),color='dodgerblue',label='throttle weights')
+    ax1.plot(time_axis,np.squeeze(weights_st_numpy),color='orangered',label='steering weights')
+    ax1.set_xlabel('time delay[s]')
+    ax1.set_ylabel('weight')
+    # set y axis limits
+    # max value
+    max_val = np.max([np.max(np.abs(weights_throttle.detach().cpu().numpy())),np.max(np.abs(weights_steering.detach().cpu().numpy()))])
+    ax1.set_ylim(0,max_val * 1.3)
+    ax1.legend()
+
+    # plot the filtered inputs
+    if actuator_time_delay_fitting_tag == 2:
+        fig, (ax1,ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+        ax1.plot(df['vicon time'].to_numpy(),train_x_throttle[:,0].cpu().numpy(),color='gray',label='throttle')
+        ax1.plot(df['vicon time'].to_numpy(),th_filtered,color='dodgerblue',label='throttle filtered')
+        ax1.set_ylabel('throttle')
+        ax1.legend()
+        ax1.set_xlabel('time [s]')
+
+        
+        ax2.plot(df['vicon time'].to_numpy(),train_x_steering[:,0].cpu().numpy(),color='gray',label='steering')
+        ax2.plot(df['vicon time'].to_numpy(),st_filtered,color='orangered',label='steering filtered')
+        ax2.set_ylabel('steering')
+        ax2.legend()
+        ax2.set_xlabel('time [s]')
 
 
 
 
-# rescale the output data
-# preds_ax_mean = np.array(preds_ax_mean) * Delata_y_vx + mean_y_vx
-# preds_ay_mean = np.array(preds_ay_mean) * Delata_y_vy + mean_y_vy
-# preds_aw_mean = np.array(preds_aw_mean) * Delata_y_w + mean_y_w
 
 
+
+
+
+
+
+
+
+if use_nominal_model:
+    # re-evaluate the nominal model predictions with the filtered inputs
+    if actuator_time_delay_fitting_tag == 2:
+        weights_th_numpy, non_normalized_w_th = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)
+        weights_st_numpy, non_normalized_w_st = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)
+        # make into numpy
+        weights_th_numpy = np.transpose(weights_th_numpy.cpu().detach().numpy())
+        weights_st_numpy = np.transpose(weights_st_numpy.cpu().detach().numpy())
+
+        nom_pred_x_filtered_input = np.zeros(train_x.shape[0])
+        nom_pred_y_filtered_input = np.zeros(train_x.shape[0])
+        nom_pred_w_filtered_input = np.zeros(train_x.shape[0])
+
+        for i in range(train_x.shape[0]):
+            # produce action to pass to the model
+            data_row = np.expand_dims(train_x.cpu().numpy()[i,:],0)
+            th_past  = data_row[0, 3 : 3 + n_past_actions]
+            st_past  = data_row[0, 3 + n_past_actions :]
+
+            th = np.expand_dims(th_past,0) @ weights_th_numpy
+            st = np.expand_dims(st_past,0) @ weights_st_numpy
+
+            vx = data_row[0][0]
+            vy = data_row[0][1]
+            w = data_row[0][2]
+
+            acc_x, acc_y, acc_w = mf.dynamic_bicycle(th, st, vx, vy, w)
+            # store for later use
+            nom_pred_x_filtered_input[i] = acc_x
+            nom_pred_y_filtered_input[i] = acc_y
+            nom_pred_w_filtered_input[i] = acc_w
+
+    # add the nominal model predictons
+    preds_ax_mean = preds_ax_mean + nom_pred_x_filtered_input
+    preds_ay_mean = preds_ay_mean + nom_pred_y_filtered_input
+    preds_aw_mean = preds_aw_mean + nom_pred_w_filtered_input
+    # adjust the confidence bounds
+    lower_x = lower_x + nom_pred_x_filtered_input
+    upper_x = upper_x + nom_pred_x_filtered_input
+    lower_y = lower_y + nom_pred_y_filtered_input
+    upper_y = upper_y + nom_pred_y_filtered_input
+    lower_w = lower_w + nom_pred_w_filtered_input
+    upper_w = upper_w + nom_pred_w_filtered_input
+else:
+
+    # add the nominal model predictons
+    preds_ax_mean = preds_aw_mean + nom_pred_x
+    preds_ay_mean = preds_aw_mean + nom_pred_y
+    preds_aw_mean = preds_aw_mean + nom_pred_w
+    # adjust the confidence bounds
+    lower_x = lower_x + nom_pred_x
+    upper_x = upper_x + nom_pred_x
+    lower_y = lower_y + nom_pred_y
+    upper_y = upper_y + nom_pred_y
+    lower_w = lower_w + nom_pred_w
+    upper_w = upper_w + nom_pred_w
 
 
 
@@ -604,46 +733,24 @@ ax_acc_w.legend()
 
 if use_nominal_model:
     # add nominal model predictions to plot
-    ax_acc_x.plot(df['vicon time'].to_numpy(),y_nominal_vx,color='gray',label='nominal model',linestyle='--')
-    ax_acc_y.plot(df['vicon time'].to_numpy(),y_nominal_vy,color='gray',label='nominal model',linestyle='--')
-    ax_acc_w.plot(df['vicon time'].to_numpy(),y_nominal_w,color='gray',label='nominal model',linestyle='--')
+    ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x,color='gray',label='nominal model',linestyle='--')
+    ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y,color='gray',label='nominal model',linestyle='--')
+    ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w,color='gray',label='nominal model',linestyle='--')
+    if actuator_time_delay_fitting_tag == 2:
+        ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x_filtered_input,color='lightblue',label='nominal model',linestyle='--')
+        ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y_filtered_input,color='lightblue',label='nominal model',linestyle='--')
+        ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w_filtered_input,color='lightblue',label='nominal model',linestyle='--')
 
 
 
 
 
 
-# # show linear layer weights
-    
-if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
-    fig, (ax1) = plt.subplots(1, 1, figsize=(12, 4), sharex=True)
-    # x
-    if actuator_time_delay_fitting_tag == 1:
-        [time_C_throttle,time_C_steering]  = SVGP_unified_model_obj.transform_parameters_norm_2_real()
-        weights_throttle_vx = SVGP_unified_model_obj.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,n_past_actions,dt)
-        weights_steering_vx = SVGP_unified_model_obj.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,n_past_actions,dt)
-        #print out time parameter
-        print('model vx')
-        print(f'time constant throttle: {time_C_throttle.item()}')
-        print(f'time constant steering: {time_C_steering.item()}')
-    elif actuator_time_delay_fitting_tag == 2:
-        weights_throttle = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_throttle)[0]
-        weights_steering = SVGP_unified_model_obj.constrained_linear_layer(SVGP_unified_model_obj.raw_weights_steering)[0]
 
-    time_axis = np.linspace(0,n_past_actions*dt,n_past_actions)
-    ax1.plot(time_axis,np.squeeze(weights_throttle.detach().cpu().numpy()),color='dodgerblue',label='throttle weights')
-    ax1.plot(time_axis,np.squeeze(weights_steering.detach().cpu().numpy()),color='orangered',label='steering weights')
-    ax1.set_xlabel('time delay[s]')
-    ax1.set_ylabel('weight')
-    # set y axis limits
-    # max value
-    max_val = np.max([np.max(np.abs(weights_throttle.detach().cpu().numpy())),np.max(np.abs(weights_steering.detach().cpu().numpy()))])
-    ax1.set_ylim(0,max_val * 1.3)
-    ax1.legend()
     
 
 
-
+plt.show()
 
 
 
