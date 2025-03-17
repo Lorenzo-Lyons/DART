@@ -2259,7 +2259,38 @@ class SVGP_analytic:
         
         return mean[0], cov
     
+class SVGP_unified_analytic:
+        def __init__(self):
+            pass
+        def load_parameters(self, folder_path):
+            print('SVGP unified model with actuator dynamics')
+            print('Loading SVGP saved parameters from folder:', folder_path)
 
+            # Define the parameter names for each dimension (x, y, w)
+            param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale','max_stdev']
+            dimensions = ['x', 'y', 'w']
+
+            # Initialize an empty dictionary to store all parameters
+            svgp_params = {}
+
+            # Loop through each dimension and parameter name to load the .npy files
+            print('')
+            print('Loading SVGP saved parameters from folder:', folder_path)
+            print('')
+            # load actuator dynamics parameters
+
+            for dim in dimensions:
+                svgp_params[dim] = {}
+                for param in param_names:
+                    file_path = os.path.join(folder_path, f"{param}_{dim}.npy")
+                    if os.path.exists(file_path):
+                        svgp_params[dim][param] = np.load(file_path)
+                        # assign to self
+                        setattr(self, f"{param}_{dim}", svgp_params[dim][param])
+                        print(f"Loaded {param}_{dim}: shape {svgp_params[dim][param].shape}")
+                    else:
+                        print(f"Warning: {param}_{dim}.npy not found in {folder_path}")
+            print('')
 
 
 

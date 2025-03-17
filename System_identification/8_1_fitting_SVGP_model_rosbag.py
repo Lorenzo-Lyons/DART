@@ -44,9 +44,10 @@ reprocess_data = True # set to true to reprocess the data again
 # set these parameters as they will determine the running time of this script
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
-over_write_saved_parameters = False
-epochs = 400 #  epochs for training the SVGP 20
-learning_rate = 0.001 # 0.01
+over_write_saved_parameters = True
+evaluate_long_term_predictions = True
+epochs = 200 #  epochs for training the SVGP 200
+learning_rate =  0.0015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -62,7 +63,7 @@ fit_likelihood_noise_tag = True  # this doesn't really make much difference
 fit_on_subsampled_dataset_tag = False
 
 # use nominal model (using the dynamic bicycle model as the mean function)
-use_nominal_model = False
+use_nominal_model = True
 
 
 
@@ -222,10 +223,17 @@ indexes_high_dev = np.where(mask_high_acc)[0]
 high_acc_repetition = 20
 original_data_length = train_x_full_dataset.shape[0]
 for _ in range(high_acc_repetition):
-    train_x_full_dataset = torch.cat((train_x_full_dataset,train_x_full_dataset[indexes_high_dev,:]),0)
-    train_y_vx_full_dataset = torch.cat((train_y_vx_full_dataset,train_y_vx_full_dataset[indexes_high_dev,:]),0)
-    train_y_vy_full_dataset = torch.cat((train_y_vy_full_dataset,train_y_vy_full_dataset[indexes_high_dev,:]),0)
-    train_y_w_full_dataset = torch.cat((train_y_w_full_dataset,train_y_w_full_dataset[indexes_high_dev,:]),0)
+    # add a very small random jitter to avoid ill conditioning in the Kxx matrix later on
+    jitter_level = 1e-4
+    jitter_x = torch.randn(indexes_high_dev.shape[0],train_x_full_dataset.shape[1])*jitter_level
+    jitter_y_vx = torch.randn(indexes_high_dev.shape[0],train_y_vx_full_dataset.shape[1])*jitter_level
+    jitter_y_vy = torch.randn(indexes_high_dev.shape[0],train_y_vy_full_dataset.shape[1])*jitter_level
+    jitter_y_w = torch.randn(indexes_high_dev.shape[0],train_y_w_full_dataset.shape[1])*jitter_level
+
+    train_x_full_dataset = torch.cat((train_x_full_dataset,train_x_full_dataset[indexes_high_dev,:]+jitter_x),0)
+    train_y_vx_full_dataset = torch.cat((train_y_vx_full_dataset,train_y_vx_full_dataset[indexes_high_dev,:]+jitter_y_vx),0)
+    train_y_vy_full_dataset = torch.cat((train_y_vy_full_dataset,train_y_vy_full_dataset[indexes_high_dev,:]+jitter_y_vy),0)
+    train_y_w_full_dataset = torch.cat((train_y_w_full_dataset,train_y_w_full_dataset[indexes_high_dev,:]+jitter_y_w),0)
 
 
 
@@ -410,6 +418,8 @@ SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, tra
 
 # # Save model parameters
 if over_write_saved_parameters:
+    print('')
+    print('saving model parameters')
     SVGP_unified_model_obj.save_model(folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt)
 
 
@@ -636,31 +646,21 @@ if actuator_time_delay_fitting_tag == 1 or actuator_time_delay_fitting_tag == 2:
 
 
 
-plt.show()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# load the model as it could be used later in long term predictions
+if check_SVGP_analytic_rebuild or evaluate_long_term_predictions: 
+    from dart_dynamic_models import SVGP_unified_analytic
+    # instantiate the SVGP model analytic version
+    SVGP_unified_analytic_obj = SVGP_unified_analytic()
+    # load the parameters
+    SVGP_unified_analytic_obj.load_parameters(folder_path_SVGP_params)
 
 
 if check_SVGP_analytic_rebuild:
+    print('')
+    print('re-evalauting SVGP using numpy array formulation')
+
     # storing for later plot
     two_sigma_cov_rebuilt_x = np.zeros(train_x.shape[0])
     mean_mS_x = np.zeros(train_x.shape[0])
@@ -671,52 +671,34 @@ if check_SVGP_analytic_rebuild:
 
     print('re-evalauting SVGP using numpy array formulation')
     analytic_predictions_iter = tqdm.tqdm(range(train_x.shape[0]), desc="analytic predictions")
+
     for i in analytic_predictions_iter:
-        loc = np.expand_dims(train_x.cpu().numpy()[i,:],0)
+        # produce action to pass to the model
+        data_row = np.expand_dims(train_x.cpu().numpy()[i,:],0)
+        th_past  = data_row[0, 3 : 3 + SVGP_unified_analytic_obj.n_past_actions]
+        st_past  = data_row[0, 3 + SVGP_unified_analytic_obj.n_past_actions :]
 
-        kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
+        th = np.expand_dims(th_past,0) @ SVGP_unified_analytic_obj.weights_throttle
+        st = np.expand_dims(st_past,0) @ SVGP_unified_analytic_obj.weights_steering
 
-        #X = solve_triangular(L, kXZ.T, lower=True)
-        X_x = L_inv_x @ kXZ_x.T
 
-        # prediction
-        KXX_x = RBF_kernel_rewritten(loc[0],loc[0],outputscale_x,lengthscale_x)
-        cov_mS_x = KXX_x + X_x.T @ middle_x @ X_x
+        vx = data_row[0][0]
+        vy = data_row[0][1]
+        w = data_row[0][2]
+        x_star = np.expand_dims(np.array([vx,vy,w,th.item(),st.item()]),0)
+        # prediction using the SVGP model analytic
+        mean_x, mean_y, mean_w, cov_mS_x, cov_mS_y, cov_mS_w = SVGP_unified_analytic_obj.predictive_mean_cov(x_star)
 
         # store for plotting
+        # x
         two_sigma_cov_rebuilt_x[i] = np.sqrt(cov_mS_x) * 2
-        mean_mS_x[i] = kXZ_x @ right_vec_x
-
-
-
-
-        kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
-
-        #X = solve_triangular(L, kXZ.T, lower=True)
-        X_y = L_inv_y @ kXZ_y.T
-
-        # prediction
-        KXX_y = RBF_kernel_rewritten(loc[0],loc[0],outputscale_y,lengthscale_y)
-        cov_mS_y = KXX_y + X_y.T @ middle_y @ X_y
-
-        # store for plotting
+        mean_mS_x[i] = mean_x
+        # y
         two_sigma_cov_rebuilt_y[i] = np.sqrt(cov_mS_y) * 2
-        mean_mS_y[i] = kXZ_y @ right_vec_y
-
-
-
-        kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(loc,np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
-
-        #X = solve_triangular(L, kXZ.T, lower=True)
-        X_w = L_inv_w @ kXZ_w.T
-
-        # prediction
-        KXX_w = RBF_kernel_rewritten(loc[0],loc[0],outputscale_w,lengthscale_w)
-        cov_mS_w = KXX_w + X_w.T @ middle_w @ X_w
-
-        # store for plotting
+        mean_mS_y[i] = mean_y
+        # w
         two_sigma_cov_rebuilt_w[i] = np.sqrt(cov_mS_w) * 2
-        mean_mS_w[i] = kXZ_w @ right_vec_w
+        mean_mS_w[i] = mean_w
 
 
 
@@ -758,50 +740,45 @@ ax_acc_w.legend()
 
 
 
-
-
-print('Producing long term predictions')
-# copy the thorottle and steering commands from the filtered data
-if actuator_time_delay_fitting_tag == 0:
-    df['throttle filtered'] = df['throttle']
-    df['steering filtered'] = df['steering']
-elif actuator_time_delay_fitting_tag == 2:
-    # NOTE this really would need to be that there is only 1 steering and throttle filtered that all models use
-    # but now using the same as the one used for the model fitting
-    df['throttle filtered'] = (train_x_throttle.float().cpu() @ weights_throttle_vx).detach().numpy()
-    df['steering filtered'] = (train_x_steering.float().cpu() @ weights_throttle_w).detach().numpy()
-
-
+if evaluate_long_term_predictions:
+    print('Producing long term predictions')
+    # copy the thorottle and steering commands from the filtered data
+    if actuator_time_delay_fitting_tag == 0:
+        df['throttle filtered'] = df['throttle']
+        df['steering filtered'] = df['steering']
+    elif actuator_time_delay_fitting_tag == 2:
+        # NOTE this really would need to be that there is only 1 steering and throttle filtered that all models use
+        # but now using the same as the one used for the model fitting
+        df['throttle filtered'] = (train_x_throttle.float().cpu() @ weights_throttle.t().float().cpu()).detach().numpy()
+        df['steering filtered'] = (train_x_steering.float().cpu() @ weights_steering.t().float().cpu()).detach().numpy()
 
 
 
 
-columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
-input_data_long_term_predictions = df[columns_to_extract].to_numpy()
-prediction_window = 1.5 # [s]
-jumps = 25 #25
+    columns_to_extract = ['vicon time', 'vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered', 'throttle' ,'steering','vicon x','vicon y','vicon yaw']
+    input_data_long_term_predictions = df[columns_to_extract].to_numpy()
+    prediction_window = 1.5 # [s]
+    jumps = 25 #25
 
+    forward_function = SVGP_unified_analytic_obj.forward_4_long_term_prediction
 
-model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics(folder_path_SVGP_params)
-dynamic_model = dyn_model_SVGP_4_long_term_predictions(model_vx,model_vy,model_w)
+    forward_propagate_indexes = [1,2,3] # [1,2,3,4,5] # # 1 = vx, 2=vy, 3=w, 4=throttle, 5=steering
 
-forward_propagate_indexes = [1,2,3] # [1,2,3,4,5] # # 1 = vx, 2=vy, 3=w, 4=throttle, 5=steering
-
-long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, dynamic_model,prediction_window,jumps,forward_propagate_indexes)
+    long_term_predictions = produce_long_term_predictions(input_data_long_term_predictions, forward_function,prediction_window,jumps,forward_propagate_indexes)
 
 
 
 
-# plot long term predictions
+    # plot long term predictions
 
-print('plotting long term predictions')
+    print('plotting long term predictions')
 
-for pred in tqdm.tqdm(long_term_predictions, desc="Rollouts"):
+    for pred in tqdm.tqdm(long_term_predictions, desc="Rollouts"):
 
-    #velocities
-    ax_vx.plot(pred[:,0],pred[:,1],color='k',alpha=0.2)
-    ax_vy.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
-    ax_w.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
+        #velocities
+        ax_vx.plot(pred[:,0],pred[:,1],color='k',alpha=0.2)
+        ax_vy.plot(pred[:,0],pred[:,2],color='k',alpha=0.2)
+        ax_w.plot(pred[:,0],pred[:,3],color='k',alpha=0.2)
 
 
 

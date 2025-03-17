@@ -23,7 +23,7 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 10 # epochs for training the SVGP
+epochs = 10 # epochs for training the SVGP 10
 learning_rate = 0.05
 # generate data in tensor form for torch
 # 0 = no time delay fitting

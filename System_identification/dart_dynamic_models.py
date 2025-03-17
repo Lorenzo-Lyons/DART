@@ -1793,7 +1793,10 @@ def plot_motor_friction_curves(df,acceleration_curve_model_obj,fitting_friction)
 
 
 
-def produce_long_term_predictions(input_data, model,prediction_window,jumps,forward_propagate_indexes):
+def produce_long_term_predictions(input_data, forward_function,prediction_window,jumps,forward_propagate_indexes):
+
+    # forward_function is what will perform acc_x, acc_y, acc_w = forward_function(vx,vy,w,steering,throttle)
+
     # plotting long term predictions on data
     # each prediction window starts from a data point and then the quantities are propagated according to the provided model,
     # so they are not tied to the Vx Vy W data in any way. Though the throttle and steering inputs are taken from the data of course.
@@ -1837,10 +1840,10 @@ def produce_long_term_predictions(input_data, model,prediction_window,jumps,forw
             elpsed_time_long_term_pred = elpsed_time_long_term_pred + dt
 
             #produce propagated state
-            state_action_k = long_term_pred[k,1:n_states+n_inputs+1]
+            state_action_k = long_term_pred[k,1:n_states+n_inputs + 1]
             
             # run it through the model
-            accelerations = model.forward(state_action_k) # absolute accelerations in the current vehicle frame of reference
+            accelerations = forward_function(state_action_k) # absolute accelerations in the current vehicle frame of reference
             
             # evaluate new state
             new_state_new_frame_candidate = long_term_pred[k,1:n_states+1] + accelerations * dt 
@@ -2330,9 +2333,8 @@ class SVGP_unified_model(torch.nn.Sequential):
         output_vx = self.model_vx(x_4_model)
         output_vy = self.model_vy(x_4_model)
         output_w = self.model_w(x_4_model)
-
-
         return output_vx,output_vy,output_w,weights_throttle,weights_steering, non_normalized_w_th, non_normalized_w_st
+        
 
     def produce_th_st_4_model(self,x):
         # extract throttle and steering inputs
@@ -2621,16 +2623,26 @@ class SVGP_unified_model(torch.nn.Sequential):
 
         # save SVGP models in torch format
         # save the time delay realated parameters
-        time_delay_parameters = np.array([actuator_time_delay_fitting_tag,n_past_actions,dt])
-        np.save(folder_path_SVGP_params + 'time_delay_parameters.npy', time_delay_parameters)
+        #time_delay_parameters = np.array([actuator_time_delay_fitting_tag,n_past_actions,dt])
+        #np.save(folder_path_SVGP_params + 'time_delay_parameters.npy', time_delay_parameters)
+        np.save(folder_path_SVGP_params + 'actuator_time_delay_fitting_tag.npy', actuator_time_delay_fitting_tag)
+        np.save(folder_path_SVGP_params + 'n_past_actions.npy', n_past_actions)
+        np.save(folder_path_SVGP_params + 'dt.npy', dt)
+
 
         # save weights
         if actuator_time_delay_fitting_tag == 2:
             # save weights
-            raw_weights_throttle = self.raw_weights_throttle.detach().cpu().numpy()
-            raw_weights_steering = self.raw_weights_steering.detach().cpu().numpy()
-            np.save(folder_path_SVGP_params + 'raw_weights_throttle.npy', raw_weights_throttle)
-            np.save(folder_path_SVGP_params + 'raw_weights_steering.npy', raw_weights_steering)
+            #raw_weights_throttle = self.raw_weights_throttle.detach().cpu().numpy()
+            #raw_weights_steering = self.raw_weights_steering.detach().cpu().numpy()
+            # evaluate the weights
+            weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+            weights_throttle = weights_throttle.t().detach().cpu().numpy()
+            weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+            weights_steering = weights_steering.t().detach().cpu().numpy()
+
+            np.save(folder_path_SVGP_params + 'weights_throttle.npy', weights_throttle)
+            np.save(folder_path_SVGP_params + 'weights_steering.npy', weights_steering)
 
         # vx
         model_path_vx = folder_path_SVGP_params + 'svgp_model_vx.pth'
@@ -2652,6 +2664,115 @@ class SVGP_unified_model(torch.nn.Sequential):
         print('--- saved model parameters ---')
         print('------------------------------')
         print('saved parameters in folder: ', folder_path_SVGP_params)
+
+
+# put SVGP unified analytical here
+class SVGP_unified_analytic:
+        def __init__(self):
+            pass
+        def load_parameters(self, folder_path):
+            print('SVGP unified model with actuator dynamics')
+            print('Loading SVGP saved parameters from folder:', folder_path)
+
+            # Define the parameter names for each dimension (x, y, w)
+            param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale','max_stdev']
+            dimensions = ['x', 'y', 'w']
+
+            # Initialize an empty dictionary to store all parameters
+            svgp_params = {}
+
+            # Loop through each dimension and parameter name to load the .npy files
+            print('')
+            print('Loading SVGP saved parameters from folder:', folder_path)
+            print('')
+
+            # load actuator dynamics parameters
+            setattr(self, "dt", np.load(os.path.join(folder_path, "dt.npy")))
+            self.dt = self.dt.item() # convert to item to set it as a scalar
+            setattr(self, "n_past_actions", np.load(os.path.join(folder_path, "n_past_actions.npy")))
+            setattr(self, "actuator_time_delay_fitting_tag", np.load(os.path.join(folder_path, "actuator_time_delay_fitting_tag.npy")))
+            if self.actuator_time_delay_fitting_tag==2:
+                setattr(self, "weights_throttle", np.load(os.path.join(folder_path, "weights_throttle.npy")))
+                setattr(self, "weights_steering", np.load(os.path.join(folder_path, "weights_steering.npy")))
+
+
+
+            for dim in dimensions:
+                svgp_params[dim] = {}
+                for param in param_names:
+                    file_path = os.path.join(folder_path, f"{param}_{dim}.npy")
+                    if os.path.exists(file_path):
+                        svgp_params[dim][param] = np.load(file_path)
+                        # assign to self
+                        setattr(self, f"{param}_{dim}", svgp_params[dim][param])
+                        print(f"Loaded {param}_{dim}: shape {svgp_params[dim][param].shape}")
+                    else:
+                        print(f"Warning: {param}_{dim}.npy not found in {folder_path}")
+            print('')
+
+        def predictive_mean_only(self,x_star):
+            # x_star = [th st vx vy w]
+            # output is acc_vx, acc_vy, acc_w
+
+            kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
+            kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
+            kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+            # prediction
+            mean_x = kXZ_x @ self.right_vec_x
+            mean_y = kXZ_y @ self.right_vec_y
+            mean_w = kXZ_w @ self.right_vec_w
+
+            return mean_x, mean_y, mean_w
+        
+        def forward_4_long_term_prediction(self,state_action):
+            # state_action = [vx, vy, w, throttle_filtered, steering_filtered, throttle, steering]
+            x_star = np.expand_dims(state_action[:5],0)
+            mean_x, mean_y, mean_w = self.predictive_mean_only(x_star)
+            accelerations = np.array([mean_x.item(), mean_y.item(), mean_w.item(),0.0,0.0]) # last two dummy values for the th and st dynamics that are computed offline
+            return accelerations
+
+
+        
+        def predictive_mean_cov(self,x_star):
+            # x_star = [th st vx vy w]
+            # output is acc_vx, acc_vy, acc_w
+
+            # x
+            kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
+            X_x = self.L_inv_x @ kXZ_x.T
+            KXX_x = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale_x,self.lengthscale_x)
+            # prediction
+            mean_x = kXZ_x @ self.right_vec_x
+            cov_mS_x = KXX_x + X_x.T @ self.middle_x @ X_x
+
+            # y
+            kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
+            X_y = self.L_inv_y @ kXZ_y.T
+            KXX_y = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale_y,self.lengthscale_y)
+            # prediction
+            mean_y = kXZ_y @ self.right_vec_y
+            cov_mS_y = KXX_y + X_y.T @ self.middle_y @ X_y
+
+            # w
+            kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+            X_w = self.L_inv_w @ kXZ_w.T
+            KXX_w = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale_w,self.lengthscale_w)
+            # prediction
+            mean_w = kXZ_w @ self.right_vec_w
+            cov_mS_w = KXX_w + X_w.T @ self.middle_w @ X_w
+
+        
+            return mean_x, mean_y, mean_w, cov_mS_x, cov_mS_y, cov_mS_w
+
+
+
+
+
+
+
+
+
+
 
 
 
