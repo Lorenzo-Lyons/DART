@@ -51,8 +51,8 @@ over_write_saved_parameters = True
 evaluate_long_term_predictions = False
 epochs = 1000 #100 #  epochs for training the SVGP 200
 training_refinement = 5
-learning_rate =  0.001 #0.015 # 0.0015
-live_plot_weights = False
+learning_rate =  0.003 #0.0003
+live_plot_weights = True
 
 # decide which model to train
 train_th = False

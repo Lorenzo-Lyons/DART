@@ -2402,7 +2402,7 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
         # Apply softplus to make weights positive
         #positive_weights = torch.nn.functional.softplus(raw_weights)
         # pass raw weights through sigmoid
-        positive_weights = self.Hardsigmoid(raw_weights)
+        positive_weights = raw_weights ** 2
         
         # Normalize the weights along the last dimension so they sum to 1 for each output unit
         normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
@@ -2497,33 +2497,34 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
                 weights_loss_scale = 0.05 # sale the loss equally to avoid it being dominant 0.05
                 q_var_weights = 1
                 q_dev_weights = 50
-                q_weights = 0.001
+                q_weights = 1
 
 
-                time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
-                w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
-                w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
+                # time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                # w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
+                # w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
 
-                mean_time_delay_th = torch.mean(w_th_times_time)
-                mean_time_delay_st = torch.mean(w_st_times_time)
+                # mean_time_delay_th = torch.mean(w_th_times_time)
+                # mean_time_delay_st = torch.mean(w_st_times_time)
 
-                var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
-                var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
+                # var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
+                # var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
 
-                diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
-                diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
-
-                #th_weights_squared = (1+non_normalized_w_th)**2
-                #st_weights_squared = (1+non_normalized_w_st)**2
+                # diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
+                # diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
 
 
 
 
-                loss_weights = q_var_weights * (var_th + var_st)+\
-                             + q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
-                             + q_weights * torch.sum(    (w_th_times_time/self.n_past_actions)**2 + (w_st_times_time/self.n_past_actions)**2    )
-                             #- q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
+                # loss_weights = q_var_weights * (var_th + var_st)+\
+                #              + q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
+                #              + q_weights * torch.sum(    (w_th_times_time/self.n_past_actions)**2 + (w_st_times_time/self.n_past_actions)**2    )
+                #              #- q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
 
+                loss_weights_th = - 0.1 * q_weights * torch.norm(weights_throttle, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_st = - 0.1 * q_weights * torch.norm(weights_steering, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+
+                loss_weights = loss_weights_th + loss_weights_st
                 #scale the loss
                 loss_weights = weights_loss_scale * loss_weights
 
@@ -2984,33 +2985,33 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
  
                 
                 # trying to enforce the weights to stick together
-                weights_loss_scale = 10 # sale the loss equally to avoid it being dominant 0.05
+                weights_loss_scale = 1 # sale the loss equally to avoid it being dominant 0.05
                 q_var_weights = 10
                 q_dev_weights = 0.1
                 q_weights = 1
 
-                time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
-                w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
-                w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
+                # time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                # w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
+                # w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
 
-                mean_time_delay_th = torch.mean(w_th_times_time)
-                mean_time_delay_st = torch.mean(w_st_times_time)
+                # mean_time_delay_th = torch.mean(w_th_times_time)
+                # mean_time_delay_st = torch.mean(w_st_times_time)
 
-                var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
-                var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
+                # var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
+                # var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
 
-                diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
-                diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
+                # diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
+                # diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
 
-                # for discouraging weights far from the time now
-                weights_of_weights = torch.arange(10,10+self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
-                w_th_weighted = weights_of_weights * torch.squeeze(non_normalized_w_th)
-                w_st_weighted  = weights_of_weights * torch.squeeze(non_normalized_w_st)
+                # # for discouraging weights far from the time now
+                # weights_of_weights = torch.arange(10,10+self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                # w_th_weighted = weights_of_weights * torch.squeeze(non_normalized_w_th)
+                # w_st_weighted  = weights_of_weights * torch.squeeze(non_normalized_w_st)
 
 
 
-                loss_weights_th = - 0.1 * q_weights * torch.norm(weights_throttle, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
-                loss_weights_st = - 0.1 * q_weights * torch.norm(weights_steering, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_th = - 1 * q_weights * torch.norm(weights_throttle, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_st = - 1 * q_weights * torch.norm(weights_steering, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
 
                                 #+ q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
                 #+ q_weights * torch.sum( (w_th_weighted/self.n_past_actions )**2 + (w_st_weighted/self.n_past_actions )**2    ) # /self.n_past_actions 
@@ -3103,15 +3104,15 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
         np.save(folder_2_save_params + 'n_past_actions.npy', n_past_actions)
         np.save(folder_2_save_params + 'dt.npy', dt)
 
-        weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
-        weights_throttle = weights_throttle.t().detach().cpu().numpy()
-        weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
-        weights_steering = weights_steering.t().detach().cpu().numpy()
+        # weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+        # weights_throttle = weights_throttle.t().detach().cpu().numpy()
+        # weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+        # weights_steering = weights_steering.t().detach().cpu().numpy()
 
         if train_th==True:
-            np.save(folder_2_save_params + 'weights_throttle.npy', weights_throttle)
+            np.save(folder_2_save_params + 'raw_weights_throttle.npy', self.raw_weights_throttle.detach().cpu().numpy())
         if train_st==True:
-            np.save(folder_2_save_params + 'weights_steering.npy', weights_steering)
+            np.save(folder_2_save_params + 'raw_weights_steering.npy', self.raw_weights_steering.detach().cpu().numpy())
 
         print('------------------------------')
         print('--- saved model parameters ---')

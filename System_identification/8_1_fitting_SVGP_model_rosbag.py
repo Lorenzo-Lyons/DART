@@ -47,8 +47,8 @@ reprocess_data = True # set to true to reprocess the data again
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = False
 evaluate_long_term_predictions = True
-epochs = 1 #100 #  epochs for training the SVGP 200
-learning_rate =  0.00001 #0.015 # 0.0015
+epochs = 1000 #100 #  epochs for training the SVGP 200
+learning_rate =  0.001 #0.015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -135,9 +135,19 @@ elif actuator_time_delay_fitting_tag == 3:
 else:
     # columns_to_extract = ['vx body', 'vy body', 'w'] 
     # train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
-
-    n_past_actions =  50 # 100 Hz seconds of past actions   300
+    # load first guess from folder
+    folder_path_act_dyn_params = os.path.join('Data',rosbag_folder,'actuator_dynamics_saved_parameters/')
+    first_guess_weights_throttle = np.load(folder_path_SVGP_params + 'weights_throttle.npy')
+    first_guess_weights_steering = np.load(folder_path_SVGP_params + 'weights_steering.npy')
+    n_past_actions = np.load(folder_path_SVGP_params + 'n_past_actions.npy')
+    #n_past_actions =  100 # 100 Hz seconds of past actions   300
     #refinement_factor = 1 # no need to refine the time interval between data points
+
+
+
+
+
+
 
 
 columns_to_extract = ['vx body', 'vy body', 'w'] 
@@ -236,7 +246,7 @@ mask_high_acc = mask_high_th_dev | mask_high_th_dev_w
 # get the inxes of the high acceleration regions
 indexes_high_dev = np.where(mask_high_acc)[0]
 # add the indexes to the training data a certain number of times
-high_acc_repetition = 3 # 20
+high_acc_repetition = 4 # 20
 original_data_length = train_x_full_dataset.shape[0]
 for _ in range(high_acc_repetition):
     # add a very small random jitter to avoid ill conditioning in the Kxx matrix later on
@@ -388,11 +398,13 @@ SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch
 
 # first guess no delay
 # hardsigmoid maps to -3 to 3 --> 0 to 1
-max_val_sigmoid = 2.99999
-first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
-first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
-first_guess_weights_throttle[0,8] = max_val_sigmoid
-first_guess_weights_steering[0,10] = max_val_sigmoid
+# max_val_sigmoid = 2.99999
+# first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
+# first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
+# first_guess_weights_throttle[0,8] = max_val_sigmoid
+# first_guess_weights_steering[0,10] = max_val_sigmoid
+
+# apply first guess
 
 
 
@@ -400,8 +412,8 @@ first_guess_weights_steering[0,10] = max_val_sigmoid
 
 
 # apply first guess
-SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
-SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
+#SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
+#SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
 
 
 # ---------------------
