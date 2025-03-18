@@ -2797,6 +2797,156 @@ class SVGP_unified_analytic:
 
 
 
+class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions):
+    def __init__(self,n_past_actions,dt):
+        
+        super().__init__() # this will also add the same parameters to this class
+        self.n_past_actions = n_past_actions
+        self.dt = dt
+
+        # default initialization of constant weights
+        if torch.cuda.is_available():
+            self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda()*0.5)
+            self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda()*0.5)
+        else:
+            self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions)*0.5)
+            self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions)*0.5)
+
+        self.Hardsigmoid = torch.nn.Hardsigmoid()
+
+    def constrained_linear_layer(self, raw_weights):
+        # Apply softplus to make weights positive
+        #positive_weights = torch.nn.functional.softplus(raw_weights)
+        # pass raw weights through sigmoid
+        
+        #positive_weights = self.Hardsigmoid(raw_weights)
+        # just square up the weights
+        positive_weights = raw_weights**2
+        #positive_weights = torch.abs(raw_weights)
+        
+        # Normalize the weights along the last dimension so they sum to 1 for each output unit
+        normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
+        # Apply the weights to the input
+        return normalized_weights, positive_weights
+
+
+    def produce_th_st_4_model(self,x):
+        # extract throttle and steering inputs
+
+        throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
+        steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
+
+        weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+        weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+
+        # transpose
+        weights_throttle = weights_throttle.t()
+        weights_steering = weights_steering.t()
+        non_normalized_w_th = non_normalized_w_th.t()
+        non_normalized_w_st = non_normalized_w_st.t()
+
+        throttle = throttle_past_actions @ weights_throttle #torch.matmul(throttle_past_actions, weights_throttle)
+        steering = steering_past_actions @ weights_steering #torch.matmul(steering_past_actions, weights_steering)
+
+
+
+
+        x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+        return x_4_model, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st
+
+
+    def forward(self, x):
+        # extract throttle and steering inputs
+        x_4_model, weights_throttle, weights_steering , non_normalized_w_th, non_normalized_w_st = self.produce_th_st_4_model(x)
+        # replace with dynamic_bycicle model
+        vx = x_4_model[:,0]
+        vy = x_4_model[:,1]
+        w = x_4_model[:,2]
+        th = x_4_model[:,3]
+        st = x_4_model[:,4]
+
+        acc_x, acc_y, acc_w = self.dynamic_bicycle(th, st, vx, vy, w)
+
+        return acc_x, acc_y, acc_w,weights_throttle,weights_steering, non_normalized_w_th, non_normalized_w_st
+
+    def train_model(self,num_epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w, live_plot_weights,train_th,train_st):
+        
+        # start fitting
+        # make contiguous (not sure why)
+        train_x = train_x.contiguous()
+        train_y_vx = train_y_vx.contiguous()
+        train_y_vy = train_y_vy.contiguous()
+        train_y_w = train_y_w.contiguous()
+
+        # define batches for training (each bach will be used to perform a gradient descent step in each iteration. So toal parameters updates are Epochs*n_batches)
+        from torch.utils.data import TensorDataset, DataLoader
+        train_dataset = TensorDataset(train_x, train_y_vx, train_y_vy, train_y_w) # 
+
+        # define data loaders
+        train_loader = DataLoader(train_dataset, batch_size=1000, shuffle=True) #  batch_size=250
+
+        # Set up loss object. We're using the VariationalELBO
+        mse_loss = torch.nn.MSELoss()
+
+        loss_2_print_vx_vec = []
+        loss_2_print_vy_vec = []
+        loss_2_print_w_vec = []
+        loss_2_print_weights = []
+        total_loss_vec = []
+
+        #optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
+        #optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
+
+
+
+
+        # Print the parameters with their names and shapes
+        print('Parameters to optimize:')
+        for name, param in self.named_parameters():
+            print(f"Parameter name: {name}, Shape: {param.shape}")
+
+        import matplotlib.pyplot as plt
+        if live_plot_weights:
+            
+            from IPython.display import display, clear_output
+            # Define time axis
+            time_axis = np.linspace(0, self.n_past_actions * self.dt, self.n_past_actions)
+            # Initialize plot
+            plt.ion()  # Interactive mode on
+            fig, ax1 = plt.subplots(figsize=(10, 5))  # Width = 10, Height = 5
+
+
+            line_th, = ax1.plot([], [], color='dodgerblue', label='Throttle Weights')
+            line_st, = ax1.plot([], [], color='orangered', label='Steering Weights')
+
+            ax1.set_xlabel("Time Delay [s]")
+            ax1.set_ylabel("Weight")
+            ax1.legend()
+            ax1.set_title("Live Plot of Weights Over Time")
+            # set the limits to 0 1
+            #ax1.set_ylim(0, 1.3)
+
+            # plot initial weights
+            weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+            weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+
+            # weights for plotting
+            # Convert to numpy for plotting
+            weights_th_numpy = non_normalized_w_th.detach().cpu().numpy().squeeze()
+            weights_st_numpy = non_normalized_w_st.detach().cpu().numpy().squeeze()
+
+            # Live update plot every few iterations
+            line_th.set_xdata(time_axis)
+            line_th.set_ydata(weights_th_numpy)
+            line_st.set_xdata(time_axis)
+            line_st.set_ydata(weights_st_numpy)
+
+            #ax1.relim()  # Recalculate limits
+            ax1.autoscale_view(True, True, True)  # Autoscale axes
+            display(fig)
+            fig.canvas.manager.window.raise_()
+            plt.pause(1)
 
 
 
@@ -2808,7 +2958,165 @@ class SVGP_unified_analytic:
 
 
 
+        # start training (tqdm is just to show the loading bar)
+        bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
+        epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
+        
+        for i in epochs_iter: 
+            #torch.cuda.empty_cache()  # Releases unused cached memory
 
+            # Within each iteration, we will go over each minibatch of data
+            minibatch_iter = tqdm.tqdm(train_loader, desc="Minibatch", leave=False) 
+
+            for x_batch, y_batch_vx ,y_batch_vy, y_batch_w in minibatch_iter: # 
+
+
+
+                # Zero backprop gradients
+                optimizer.zero_grad()  # Clear previous gradients
+
+                # Forward pass
+                acc_x, acc_y, acc_w, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st = self(x_batch)
+                
+
+
+                # Calculate individual losses
+ 
+                
+                # trying to enforce the weights to stick together
+                weights_loss_scale = 10 # sale the loss equally to avoid it being dominant 0.05
+                q_var_weights = 10
+                q_dev_weights = 0.1
+                q_weights = 1
+
+                time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
+                w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
+
+                mean_time_delay_th = torch.mean(w_th_times_time)
+                mean_time_delay_st = torch.mean(w_st_times_time)
+
+                var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
+                var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
+
+                diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
+                diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
+
+                # for discouraging weights far from the time now
+                weights_of_weights = torch.arange(10,10+self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                w_th_weighted = weights_of_weights * torch.squeeze(non_normalized_w_th)
+                w_st_weighted  = weights_of_weights * torch.squeeze(non_normalized_w_st)
+
+
+
+                loss_weights_th = - 0.1 * q_weights * torch.norm(weights_throttle, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_st = - 0.1 * q_weights * torch.norm(weights_steering, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+
+                                #+ q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
+                #+ q_weights * torch.sum( (w_th_weighted/self.n_past_actions )**2 + (w_st_weighted/self.n_past_actions )**2    ) # /self.n_past_actions 
+                #
+                                
+                                #+q_var_weights * (var_th + var_st)
+                             
+                             #- q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
+
+                #scale the loss
+                loss_weights_th = weights_loss_scale * loss_weights_th
+                loss_weights_st = weights_loss_scale * loss_weights_st
+
+
+                loss_vx = mse_loss(acc_x, y_batch_vx[:,0])
+                loss_vy = mse_loss(acc_y, y_batch_vy[:,0])
+                loss_w =  mse_loss(acc_w, y_batch_w[:,0])
+
+                # Combine all losses
+                if train_st==True and train_th==True:
+                    total_loss =  loss_weights_th + loss_weights_st + loss_vx + loss_w + loss_vy
+                elif train_st==True and train_th==False:
+                    total_loss =  loss_weights_st + loss_w + loss_vy
+                elif train_st==False and train_th==True:
+                    total_loss =  loss_weights_th + loss_vx 
+                #total_loss =   loss_vx + loss_weights_th
+                #total_loss = loss_vy + loss_w + loss_weights_st
+                
+                # Print the current loss for vx (or use other loss types if needed)
+                minibatch_iter.set_postfix(loss=total_loss.item())
+
+                # Backward pass (compute gradients for the total loss)
+                total_loss.backward()
+
+                # Update parameters using the optimizer
+                optimizer.step()
+
+
+            # weights for plotting
+            if live_plot_weights:
+                # Convert to numpy for plotting
+                weights_th_numpy = weights_throttle.detach().cpu().numpy().squeeze()
+                weights_st_numpy = weights_steering.detach().cpu().numpy().squeeze()
+
+                # Live update plot every few iterations
+                if len(weights_th_numpy) == len(time_axis):  # Ensure matching dimensions
+                    clear_output(wait=True)
+                    line_th.set_xdata(time_axis)
+                    line_th.set_ydata(weights_th_numpy)
+                    line_st.set_xdata(time_axis)
+                    line_st.set_ydata(weights_st_numpy)
+
+                    ax1.relim()  # Recalculate limits
+                    ax1.autoscale_view(True, True, True)  # Autoscale axes
+                    ax1.set_title(f"Live Plot of Weights Over Time - Epoch {i + 1}")
+                    #display(fig)
+                    fig.canvas.manager.window.raise_()
+                    
+                    plt.pause(0.01)
+
+
+
+            
+
+            loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
+            loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
+            loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+            loss_2_print_weights = [*loss_2_print_weights, loss_weights_th.item()+loss_weights_st.item()]
+            total_loss_vec = [*total_loss_vec, total_loss.item()]
+
+
+        if live_plot_weights:
+            plt.ioff()  # Turn off interactive mode
+            plt.close(fig)  # Close the figure
+
+        #plot loss functions
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+        ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+        ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+        ax.plot(loss_2_print_weights,label='loss weights',color='lime')
+        ax.plot(total_loss_vec,label='total loss',color='k')
+        
+        ax.legend()
+
+
+    def save_model(self,folder_2_save_params,n_past_actions,dt,train_th,train_st):
+
+        np.save(folder_2_save_params + 'n_past_actions.npy', n_past_actions)
+        np.save(folder_2_save_params + 'dt.npy', dt)
+
+        weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+        weights_throttle = weights_throttle.t().detach().cpu().numpy()
+        weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+        weights_steering = weights_steering.t().detach().cpu().numpy()
+
+        if train_th==True:
+            np.save(folder_2_save_params + 'weights_throttle.npy', weights_throttle)
+        if train_st==True:
+            np.save(folder_2_save_params + 'weights_steering.npy', weights_steering)
+
+        print('------------------------------')
+        print('--- saved model parameters ---')
+        print('------------------------------')
+        print('saved parameters in folder: ', folder_2_save_params)
 
 
 
