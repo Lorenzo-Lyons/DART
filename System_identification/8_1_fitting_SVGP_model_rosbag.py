@@ -42,14 +42,13 @@ reprocess_data = True # set to true to reprocess the data again
 
 
 
-
 # set these parameters as they will determine the running time of this script
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
-over_write_saved_parameters = True
+over_write_saved_parameters = False
 evaluate_long_term_predictions = True
-epochs = 100 #  epochs for training the SVGP 200
-learning_rate =  0.0015 # 0.0015
+epochs = 1 #100 #  epochs for training the SVGP 200
+learning_rate =  0.00001 #0.015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -76,7 +75,8 @@ steps_shift = 1 # decide to filter more or less the vicon data
 
 
 
-
+# plot settings
+thick_line_width = 2
 
 
 
@@ -136,7 +136,7 @@ else:
     # columns_to_extract = ['vx body', 'vy body', 'w'] 
     # train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
 
-    n_past_actions = 300 # 1 seconds of past actions
+    n_past_actions =  50 # 100 Hz seconds of past actions   300
     #refinement_factor = 1 # no need to refine the time interval between data points
 
 
@@ -236,7 +236,7 @@ mask_high_acc = mask_high_th_dev | mask_high_th_dev_w
 # get the inxes of the high acceleration regions
 indexes_high_dev = np.where(mask_high_acc)[0]
 # add the indexes to the training data a certain number of times
-high_acc_repetition = 20
+high_acc_repetition = 3 # 20
 original_data_length = train_x_full_dataset.shape[0]
 for _ in range(high_acc_repetition):
     # add a very small random jitter to avoid ill conditioning in the Kxx matrix later on
@@ -360,30 +360,40 @@ SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch
 # first_guess_weights_steering[0,delay_in_steps_st-smoothing_window:delay_in_steps_st+smoothing_window] = 10
 
 
-import torch
 
-# Parameters
-fixed_act_delay_guess_st = 0.1  # Time delay (seconds) 0.3
-fixed_act_delay_guess_th = 0.2  # Time delay (seconds) 0.3
-smoothing_window = int(np.round(0.1 / dt))  # 0.1 seconds smoothing window
-delay_in_steps_st = int(fixed_act_delay_guess_st / dt)
-delay_in_steps_th = int(fixed_act_delay_guess_th / dt)
 
-# Define Gaussian Function
-def gaussian_weights(n_past_actions, center, std_dev=10):
-    """Creates a 1D Gaussian distribution centered at `center`."""
-    x = torch.arange(n_past_actions).float().cuda()
-    gauss = torch.exp(-((x - center) ** 2) / (2 * std_dev**2))  # Gaussian formula
-    gauss = (gauss - gauss.min()) / (gauss.max() - gauss.min())  # Normalize to [0, 1]
-    return torch.logit(gauss * 0.98 + 0.01)  # Convert to logit space for sigmoid
+# # # gaussian first guess
+# # fixed_act_delay_guess_st = 0.1  # Time delay (seconds) 0.3
+# # fixed_act_delay_guess_th = 0.2  # Time delay (seconds) 0.3
+# # smoothing_window = int(np.round(0.1 / dt))  # 0.1 seconds smoothing window
+# # delay_in_steps_st = int(fixed_act_delay_guess_st / dt)
+# # delay_in_steps_th = int(fixed_act_delay_guess_th / dt)
 
-# Initialize Weights
-first_guess_weights_throttle = gaussian_weights(n_past_actions, delay_in_steps_th)
-first_guess_weights_steering = gaussian_weights(n_past_actions, delay_in_steps_st)
+# # # Define Gaussian Function
+# # def gaussian_weights(n_past_actions, center, std_dev=10):
+# #     """Creates a 1D Gaussian distribution centered at `center`."""
+# #     x = torch.arange(n_past_actions).float().cuda()
+# #     gauss = torch.exp(-((x - center) ** 2) / (2 * std_dev**2))  # Gaussian formula
+# #     gauss = (gauss - gauss.min()) / (gauss.max() - gauss.min())  # Normalize to [0, 1]
+# #     return torch.logit(gauss * 0.98 + 0.01)  # Convert to logit space for sigmoid
 
-# Ensure requires_grad=True for optimization
-first_guess_weights_throttle = first_guess_weights_throttle.unsqueeze(0).requires_grad_().cuda()
-first_guess_weights_steering = first_guess_weights_steering.unsqueeze(0).requires_grad_().cuda()
+# # # Initialize Weights
+# # first_guess_weights_throttle = gaussian_weights(n_past_actions, delay_in_steps_th)
+# # first_guess_weights_steering = gaussian_weights(n_past_actions, delay_in_steps_st)
+
+# # # Ensure requires_grad=True for optimization
+# # first_guess_weights_throttle = first_guess_weights_throttle.unsqueeze(0).requires_grad_().cuda()
+# # first_guess_weights_steering = first_guess_weights_steering.unsqueeze(0).requires_grad_().cuda()
+
+
+# first guess no delay
+# hardsigmoid maps to -3 to 3 --> 0 to 1
+max_val_sigmoid = 2.99999
+first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
+first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
+first_guess_weights_throttle[0,8] = max_val_sigmoid
+first_guess_weights_steering[0,10] = max_val_sigmoid
+
 
 
 
@@ -717,29 +727,29 @@ else:
 
 
 ax_acc_x.set_title('ax in body frame')
-ax_plot_mean = ax_acc_x.plot(df['vicon time'].to_numpy(),preds_ax_mean,color='k',label='model prediction')
+ax_plot_mean = ax_acc_x.plot(df['vicon time'].to_numpy(),preds_ax_mean,color='k',label='model prediction',linewidth=thick_line_width)
 aax_plot_confidence = ax_acc_x.fill_between(df['vicon time'].to_numpy(), lower_x, upper_x, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
 ax_acc_x.legend()
 
 ax_acc_y.set_title('ay in body frame')
-ax_acc_y.plot(df['vicon time'].to_numpy(),preds_ay_mean,color='k',label='model prediction')
+ax_acc_y.plot(df['vicon time'].to_numpy(),preds_ay_mean,color='k',label='model prediction',linewidth=thick_line_width)
 ax_acc_y.fill_between(df['vicon time'].to_numpy(), lower_y, upper_y, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
 ax_acc_y.legend()
 
 ax_acc_w.set_title('aw in body frame')
-ax_acc_w.plot(df['vicon time'].to_numpy(),preds_aw_mean,color='k',label='model prediction')
+ax_acc_w.plot(df['vicon time'].to_numpy(),preds_aw_mean,color='k',label='model prediction',linewidth=thick_line_width)
 ax_acc_w.fill_between(df['vicon time'].to_numpy(), lower_w, upper_w, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
 ax_acc_w.legend()
 
 if use_nominal_model:
     # add nominal model predictions to plot
-    ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x,color='gray',label='nominal model',linestyle='--')
-    ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y,color='gray',label='nominal model',linestyle='--')
-    ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w,color='gray',label='nominal model',linestyle='--')
+    ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x,color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width)
+    ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y,color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width)
+    ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w,color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width)
     if actuator_time_delay_fitting_tag == 2:
-        ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x_filtered_input,color='lightblue',label='nominal model',linestyle='--')
-        ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y_filtered_input,color='lightblue',label='nominal model',linestyle='--')
-        ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w_filtered_input,color='lightblue',label='nominal model',linestyle='--')
+        ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x_filtered_input,color='lightblue',label='nominal model',linestyle='--',linewidth=thick_line_width)
+        ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y_filtered_input,color='lightblue',label='nominal model',linestyle='--',linewidth=thick_line_width)
+        ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w_filtered_input,color='lightblue',label='nominal model',linestyle='--',linewidth=thick_line_width)
 
 
 

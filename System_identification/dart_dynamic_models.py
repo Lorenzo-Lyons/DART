@@ -1068,7 +1068,7 @@ def plot_kinemaitcs_data(df):
     ax1.legend()
 
     ax4.set_title('acceleration x')
-    ax4.plot(plotting_time_vec, df['ax body'].to_numpy(), label="ax body", color='dodgerblue')
+    ax4.plot(plotting_time_vec, df['ax body'].to_numpy(), label="ax body", color='dodgerblue',alpha=0.3)
     ax4.legend()
 
 
@@ -1077,7 +1077,7 @@ def plot_kinemaitcs_data(df):
     ax2.legend()
 
     ax5.set_title('acceleration y')
-    ax5.plot(plotting_time_vec, df['ay body'].to_numpy(), label="ay body", color='orangered')
+    ax5.plot(plotting_time_vec, df['ay body'].to_numpy(), label="ay body", color='orangered',alpha=0.3)
     ax5.legend()
 
 
@@ -1089,7 +1089,7 @@ def plot_kinemaitcs_data(df):
     ax6.set_title('acceleration yaw')
     #ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
     #ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
-    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="acc w", color='slateblue')
+    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="acc w", color='slateblue',alpha=0.3)
     ax6.legend()
 
     ax_vx = ax1
@@ -2328,7 +2328,7 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
         # add time delay fitting parameters
         self.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt)
 
-        self.Hardsigmoid = torch.nn.Sigmoid()
+        self.Hardsigmoid = torch.nn.Hardsigmoid()
 
 
 
@@ -2494,7 +2494,7 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
                 #                 - q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
                 
                 # trying to enforce the weights to stick together
-                weights_loss_scale = 0.05 # sale teh loss equally to avoid it being dominant
+                weights_loss_scale = 0.05 # sale the loss equally to avoid it being dominant 0.05
                 q_var_weights = 1
                 q_dev_weights = 50
                 q_weights = 0.001
