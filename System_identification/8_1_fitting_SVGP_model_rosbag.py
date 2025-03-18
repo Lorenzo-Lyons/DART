@@ -47,7 +47,7 @@ reprocess_data = True # set to true to reprocess the data again
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = False
 evaluate_long_term_predictions = True
-epochs = 1000 #100 #  epochs for training the SVGP 200
+epochs = 100 #100 #  epochs for training the SVGP 200
 learning_rate =  0.001 #0.015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
@@ -137,9 +137,12 @@ else:
     # train_x_states = torch.tensor(df[columns_to_extract].to_numpy()) #.cuda()
     # load first guess from folder
     folder_path_act_dyn_params = os.path.join('Data',rosbag_folder,'actuator_dynamics_saved_parameters/')
-    first_guess_weights_throttle = np.load(folder_path_SVGP_params + 'weights_throttle.npy')
-    first_guess_weights_steering = np.load(folder_path_SVGP_params + 'weights_steering.npy')
-    n_past_actions = np.load(folder_path_SVGP_params + 'n_past_actions.npy')
+    first_guess_weights_throttle = np.load(folder_path_act_dyn_params + 'raw_weights_throttle.npy')
+    first_guess_weights_steering = np.load(folder_path_act_dyn_params + 'raw_weights_steering.npy')
+    n_past_actions = np.load(folder_path_act_dyn_params + 'n_past_actions.npy')
+    first_guess_weights_throttle = torch.Tensor(first_guess_weights_throttle).cuda()
+    first_guess_weights_steering = torch.Tensor(first_guess_weights_steering).cuda()
+
     #n_past_actions =  100 # 100 Hz seconds of past actions   300
     #refinement_factor = 1 # no need to refine the time interval between data points
 
@@ -412,8 +415,8 @@ SVGP_unified_model_obj.likelihood_w.noise = torch.tensor([sdt_w**2], dtype=torch
 
 
 # apply first guess
-#SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
-#SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
+SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
+SVGP_unified_model_obj.raw_weights_steering.data = first_guess_weights_steering
 
 
 # ---------------------
