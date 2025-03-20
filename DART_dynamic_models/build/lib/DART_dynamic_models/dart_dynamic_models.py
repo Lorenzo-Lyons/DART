@@ -334,6 +334,38 @@ class model_functions():
         return x_dot
 
 
+    def dynamic_bicycle(self, th, st, vx, vy, w ):  
+        # this function takes the state input:z = [th st vx vy w] ---> output: [acc_x,acc_y,acc_w] in the car body frame
+
+
+        #evaluate steering angle 
+        steering_angle = self.steering_2_steering_angle(st,self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
+
+        # # evaluate longitudinal forces
+        Fx_wheels = + self.motor_force(th,vx,self.a_m_self,self.b_m_self,self.c_m_self)\
+                    + self.rolling_friction(vx,self.a_f_self,self.b_f_self,self.c_f_self,self.d_f_self)\
+                    + self.F_friction_due_to_steering(steering_angle,vx,self.a_stfr_self,self.b_stfr_self,self.d_stfr_self,self.e_stfr_self)
+
+        c_front = (self.m_front_wheel_self)/self.m_self
+        c_rear = (self.m_rear_wheel_self)/self.m_self
+
+        # redistribute Fx to front and rear wheels according to normal load
+        Fx_front = Fx_wheels * c_front
+        Fx_rear = Fx_wheels * c_rear
+
+        #evaluate slip angles
+        alpha_f,alpha_r = self.evaluate_slip_angles(vx,vy,w,self.lf_self,self.lr_self,steering_angle)
+
+        #lateral forces
+        Fy_wheel_f = self.lateral_tire_force(alpha_f,self.d_t_f_self,self.c_t_f_self,self.b_t_f_self,self.m_front_wheel_self)
+        Fy_wheel_r = self.lateral_tire_force(alpha_r,self.d_t_r_self,self.c_t_r_self,self.b_t_r_self,self.m_rear_wheel_self)
+
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,self.lf_self,self.lr_self,self.m_self,self.Jz_self)
+        
+        return acc_x,acc_y,acc_w
+
+
+
 
 
 
@@ -2194,24 +2226,42 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path):
 
 
 # Trying to use jit to speed up calculations
-import numpy as np
-from numba import njit
+try:
+    from numba import njit
+    numba_failed = False
+except:
+    numba_failed = True
+    print("NO numba package available to jit the SVGP model. DART simulator with SVGP model or disturbances will be slower.")
+if numba_failed == False:
+    @njit
+    def RBF_kernel_rewritten(x, y, outputscale, lengthscale):
+        """Compute RBF kernel value between two vectors."""
+        exp_arg = (x - y) ** 2 / lengthscale ** 2
+        return outputscale * np.exp(-0.5 * np.sum(exp_arg))
 
-@njit
-def RBF_kernel_rewritten(x, y, outputscale, lengthscale):
-    """Compute RBF kernel value between two vectors."""
-    exp_arg = (x - y) ** 2 / lengthscale ** 2
-    return outputscale * np.exp(-0.5 * np.sum(exp_arg))
+    @njit
+    def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
+        """Compute the RBF kernel matrix between X and Y."""
+        n, m = X.shape[0], Y.shape[0]
+        KXY = np.zeros((n, m))
+        for i in range(n):
+            for j in range(m):
+                KXY[i, j] = RBF_kernel_rewritten(X[i, :], Y[j, :], outputscale, lengthscale)
+        return KXY
+else:
+    def RBF_kernel_rewritten(x, y, outputscale, lengthscale):
+        """Compute RBF kernel value between two vectors."""
+        exp_arg = (x - y) ** 2 / lengthscale ** 2
+        return outputscale * np.exp(-0.5 * np.sum(exp_arg))
 
-@njit
-def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
-    """Compute the RBF kernel matrix between X and Y."""
-    n, m = X.shape[0], Y.shape[0]
-    KXY = np.zeros((n, m))
-    for i in range(n):
-        for j in range(m):
-            KXY[i, j] = RBF_kernel_rewritten(X[i, :], Y[j, :], outputscale, lengthscale)
-    return KXY
+    def rebuild_Kxy_RBF_vehicle_dynamics(X, Y, outputscale, lengthscale):
+        """Compute the RBF kernel matrix between X and Y."""
+        n, m = X.shape[0], Y.shape[0]
+        KXY = np.zeros((n, m))
+        for i in range(n):
+            for j in range(m):
+                KXY[i, j] = RBF_kernel_rewritten(X[i, :], Y[j, :], outputscale, lengthscale)
+        return KXY 
 
 class SVGP_analytic:
     def __init__(self, outputscale, lengthscale, inducing_locations, right_vec, L_inv, middle,max_stdev):
@@ -2241,7 +2291,38 @@ class SVGP_analytic:
         
         return mean[0], cov
     
+class SVGP_unified_analytic:
+        def __init__(self):
+            pass
+        def load_parameters(self, folder_path):
+            print('SVGP unified model with actuator dynamics')
+            print('Loading SVGP saved parameters from folder:', folder_path)
 
+            # Define the parameter names for each dimension (x, y, w)
+            param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale','max_stdev']
+            dimensions = ['x', 'y', 'w']
+
+            # Initialize an empty dictionary to store all parameters
+            svgp_params = {}
+
+            # Loop through each dimension and parameter name to load the .npy files
+            print('')
+            print('Loading SVGP saved parameters from folder:', folder_path)
+            print('')
+            # load actuator dynamics parameters
+
+            for dim in dimensions:
+                svgp_params[dim] = {}
+                for param in param_names:
+                    file_path = os.path.join(folder_path, f"{param}_{dim}.npy")
+                    if os.path.exists(file_path):
+                        svgp_params[dim][param] = np.load(file_path)
+                        # assign to self
+                        setattr(self, f"{param}_{dim}", svgp_params[dim][param])
+                        print(f"Loaded {param}_{dim}: shape {svgp_params[dim][param].shape}")
+                    else:
+                        print(f"Warning: {param}_{dim}.npy not found in {folder_path}")
+            print('')
 
 
 
