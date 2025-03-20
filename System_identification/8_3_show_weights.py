@@ -29,21 +29,25 @@ csv_files = os.listdir(csv_folder)
 
 # load the impulse response data
 folder_path_act_dyn_params = os.path.join('Data',rosbag_folder,'actuator_dynamics_saved_parameters/')
-raw_weights_throttle = np.load(folder_path_act_dyn_params + 'raw_weights_throttle.npy')
-raw_weights_steering = np.load(folder_path_act_dyn_params + 'raw_weights_steering.npy')
+weights_th = np.load(folder_path_act_dyn_params + 'weights_throttle.npy')
+weights_st = np.load(folder_path_act_dyn_params + 'weights_steering.npy')
 n_past_actions = np.load(folder_path_act_dyn_params + 'n_past_actions.npy')
 dt = np.load(folder_path_act_dyn_params + 'dt.npy')
 
 
 
 # load the model (just needed to get the weights)
-model_obj = dynamic_bicycle_actuator_delay_fitting(n_past_actions,dt)
-raw_weights_throttle_tens = torch.tensor(raw_weights_throttle)
-raw_weights_steering_tens = torch.tensor(raw_weights_steering)
-weights_throttle_tens = model_obj.constrained_linear_layer(raw_weights_throttle_tens)[0]
-weights_steering_tens = model_obj.constrained_linear_layer(raw_weights_steering_tens)[0]
-weights_th= np.transpose(weights_throttle_tens.cpu().numpy())
-weights_st = np.transpose(weights_steering_tens.cpu().numpy())
+# model_obj = dynamic_bicycle_actuator_delay_fitting(n_past_actions,dt)
+# raw_weights_throttle_tens = torch.tensor(raw_weights_throttle)
+# raw_weights_steering_tens = torch.tensor(raw_weights_steering)
+# weights_throttle_tens = model_obj.constrained_linear_layer(raw_weights_throttle_tens)[0]
+# weights_steering_tens = model_obj.constrained_linear_layer(raw_weights_steering_tens)[0]
+# weights_th= np.transpose(weights_throttle_tens.cpu().numpy())
+# weights_st = np.transpose(weights_steering_tens.cpu().numpy())
+
+
+
+
 
 # load the data
 df = pd.read_csv(os.path.join(csv_folder,csv_files[0])) # load first csv file
