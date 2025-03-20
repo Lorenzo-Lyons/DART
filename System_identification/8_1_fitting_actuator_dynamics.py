@@ -49,14 +49,14 @@ reprocess_data = False # set to true to reprocess the data again
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
 evaluate_long_term_predictions = False
-epochs = 1000 #100 #  epochs for training the SVGP 200
+epochs = 500 #100 #  epochs for training the SVGP 200
 training_refinement = 5
-learning_rate =  0.003 #0.0003
+learning_rate =  0.005 #0.0003
 live_plot_weights = True
 
-# decide which model to train
-train_th = False
-train_st = True
+# decide which model to train  (better to train one at a time)
+train_th = True
+train_st = False
 
 
 
@@ -236,72 +236,12 @@ model_obj = dynamic_bicycle_actuator_delay_fitting(n_past_actions,dt)
 
 
 # ---  first guess ---
-
-
-# # first guess weights
-# # define as zeros 
-# fixed_act_delay_guess_st = 0.3 # this is the time delay in seconds as we can see it from the data
-# fixed_act_delay_guess_th = 0.3 # this is the time delay in seconds as we can see it from the data
-# smoothing_window = int(np.round(0.25/dt)) # 0.1 seconds smoothing window
-# delay_in_steps_st = int(fixed_act_delay_guess_st/dt)
-# delay_in_steps_th = int(fixed_act_delay_guess_th/dt)
-
-# # -10 , 10 is mapped to 0 and 1 in torch.sigmoid so we can use this to set the initial guess
-# first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -10
-# first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -10
-# first_guess_weights_throttle[0,delay_in_steps_th-smoothing_window:delay_in_steps_th+smoothing_window] = 10
-# first_guess_weights_steering[0,delay_in_steps_st-smoothing_window:delay_in_steps_st+smoothing_window] = 10
-
-
-
-
-# # # gaussian first guess
-# # fixed_act_delay_guess_st = 0.1  # Time delay (seconds) 0.3
-# # fixed_act_delay_guess_th = 0.2  # Time delay (seconds) 0.3
-# # smoothing_window = int(np.round(0.1 / dt))  # 0.1 seconds smoothing window
-# # delay_in_steps_st = int(fixed_act_delay_guess_st / dt)
-# # delay_in_steps_th = int(fixed_act_delay_guess_th / dt)
-
-# # # Define Gaussian Function
-# # def gaussian_weights(n_past_actions, center, std_dev=10):
-# #     """Creates a 1D Gaussian distribution centered at `center`."""
-# #     x = torch.arange(n_past_actions).float().cuda()
-# #     gauss = torch.exp(-((x - center) ** 2) / (2 * std_dev**2))  # Gaussian formula
-# #     gauss = (gauss - gauss.min()) / (gauss.max() - gauss.min())  # Normalize to [0, 1]
-# #     return torch.logit(gauss * 0.98 + 0.01)  # Convert to logit space for sigmoid
-
-# # # Initialize Weights
-# # first_guess_weights_throttle = gaussian_weights(n_past_actions, delay_in_steps_th)
-# # first_guess_weights_steering = gaussian_weights(n_past_actions, delay_in_steps_st)
-
-# # # Ensure requires_grad=True for optimization
-# # first_guess_weights_throttle = first_guess_weights_throttle.unsqueeze(0).requires_grad_().cuda()
-# # first_guess_weights_steering = first_guess_weights_steering.unsqueeze(0).requires_grad_().cuda()
-
-
-# first guess no delay
-# hardsigmoid maps to -3 to 3 --> 0 to 1
-# max_val_sigmoid = 2.99999
-# first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
-# first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * -max_val_sigmoid
-# first_guess_weights_throttle[0,8] = max_val_sigmoid
-# first_guess_weights_steering[0,10] = max_val_sigmoid
-
-# using just squared weights to make them positive
-first_guess_weights_throttle = torch.ones(1,n_past_actions,requires_grad=True).cuda() * 0.1
-first_guess_weights_steering = torch.ones(1,n_past_actions,requires_grad=True).cuda() * 0.1
-first_guess_weights_throttle[0,2:20] = 1.0
-first_guess_weights_steering[0,2:20] = 1.0
-
-
-
-
-# apply first guess
-#model_obj.raw_weights_throttle.data = first_guess_weights_throttle
-#model_obj.raw_weights_steering.data = first_guess_weights_steering
-
-
+# set first guess for the weights
+#model_obj.raw_weights_throttle.data[0][0] = torch.tensor([0.00001])
+#model_obj.raw_weights_steering.data[0][0] = torch.tensor([0.0000001]) 
 # ---------------------
+
+
 
 # move to cuda if available
 if torch.cuda.is_available():
@@ -324,10 +264,6 @@ if normalize_y:
 
 
 model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w,live_plot_weights,train_th,train_st)
-# train again with a smaller learning rate and more epochs
-#model_obj.train_model(epochs*training_refinement,learning_rate/training_refinement,train_x, train_y_vx, train_y_vy, train_y_w)
-
-
 
 
 

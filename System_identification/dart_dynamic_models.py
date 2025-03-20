@@ -2881,7 +2881,7 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
         train_dataset = TensorDataset(train_x, train_y_vx, train_y_vy, train_y_w) # 
 
         # define data loaders
-        train_loader = DataLoader(train_dataset, batch_size=1000, shuffle=True) #  batch_size=250
+        train_loader = DataLoader(train_dataset, batch_size=800, shuffle=True) #  batch_size=250
 
         # Set up loss object. We're using the VariationalELBO
         mse_loss = torch.nn.MSELoss()
@@ -2944,7 +2944,7 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
             ax1.autoscale_view(True, True, True)  # Autoscale axes
             display(fig)
             fig.canvas.manager.window.raise_()
-            plt.pause(1)
+            plt.pause(3)
 
 
 
@@ -2985,7 +2985,7 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
                 weights_loss_scale = 1 # sale the loss equally to avoid it being dominant 0.05
                 q_var_weights = 10
                 q_dev_weights = 0.1
-                q_weights = 1
+                q_weights = 1 #0.01
 
                 # time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
                 # w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
@@ -3007,8 +3007,8 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
 
 
 
-                loss_weights_th = - 1 * q_weights * torch.norm(weights_throttle, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
-                loss_weights_st = - 1 * q_weights * torch.norm(weights_steering, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_th = - 1 * q_weights * torch.norm(weights_throttle, p=float('inf')) #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_st = - 1 * q_weights * torch.norm(weights_steering, p=float('inf')) #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
 
                                 #+ q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
                 #+ q_weights * torch.sum( (w_th_weighted/self.n_past_actions )**2 + (w_st_weighted/self.n_past_actions )**2    ) # /self.n_past_actions 
@@ -3031,9 +3031,9 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
                 if train_st==True and train_th==True:
                     total_loss =  loss_weights_th + loss_weights_st + loss_vx + loss_w + loss_vy
                 elif train_st==True and train_th==False:
-                    total_loss =  loss_weights_st + loss_w + loss_vy
+                    total_loss =  loss_w + loss_vy# + loss_weights_st 
                 elif train_st==False and train_th==True:
-                    total_loss =  loss_weights_th + loss_vx 
+                    total_loss =  loss_vx + loss_weights_th 
                 #total_loss =   loss_vx + loss_weights_th
                 #total_loss = loss_vy + loss_w + loss_weights_st
                 
@@ -3101,15 +3101,17 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
         np.save(folder_2_save_params + 'n_past_actions.npy', n_past_actions)
         np.save(folder_2_save_params + 'dt.npy', dt)
 
-        # weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
-        # weights_throttle = weights_throttle.t().detach().cpu().numpy()
-        # weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
-        # weights_steering = weights_steering.t().detach().cpu().numpy()
+        weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+        weights_throttle = weights_throttle.t().detach().cpu().numpy()
+        weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+        weights_steering = weights_steering.t().detach().cpu().numpy()
 
         if train_th==True:
             np.save(folder_2_save_params + 'raw_weights_throttle.npy', self.raw_weights_throttle.detach().cpu().numpy())
+            np.save(folder_2_save_params + 'weights_throttle.npy', weights_throttle)
         if train_st==True:
             np.save(folder_2_save_params + 'raw_weights_steering.npy', self.raw_weights_steering.detach().cpu().numpy())
+            np.save(folder_2_save_params + 'weights_steering.npy', weights_steering)
 
         print('------------------------------')
         print('--- saved model parameters ---')
