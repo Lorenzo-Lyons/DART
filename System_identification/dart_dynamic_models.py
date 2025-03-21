@@ -2561,7 +2561,7 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
         ax.legend()
 
 
-    def save_model(self,folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt):
+    def save_model(self,folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt,use_nominal_model):
         # SAve model parameters
 
 
@@ -2657,6 +2657,8 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
         np.save(folder_path_SVGP_params + 'actuator_time_delay_fitting_tag.npy', actuator_time_delay_fitting_tag)
         np.save(folder_path_SVGP_params + 'n_past_actions.npy', n_past_actions)
         np.save(folder_path_SVGP_params + 'dt.npy', dt)
+        # save tag if to use nominal model
+        np.save(folder_path_SVGP_params + 'use_nominal_model.npy', use_nominal_model)
 
 
         # save weights

@@ -45,10 +45,10 @@ reprocess_data = True # set to true to reprocess the data again
 # set these parameters as they will determine the running time of this script
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
-over_write_saved_parameters = False
+over_write_saved_parameters = True
 evaluate_long_term_predictions = True
 epochs = 300 #300 #  epochs for training the SVGP 200
-learning_rate =  0.01 #0.015 # 0.0015
+learning_rate =  0.0033 #0.015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -292,7 +292,7 @@ SVGP_unified_model_obj = SVGP_unified_model(inducing_points,n_past_actions,dt,ac
 
 # ---  first guess ---
 
-sdt_x = 5
+sdt_x = 10
 sdt_y = 1
 sdt_w = 10
 SVGP_unified_model_obj.likelihood_vx.noise = torch.tensor([sdt_x**2], dtype=torch.float32)
@@ -405,7 +405,7 @@ SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, tra
 if over_write_saved_parameters:
     print('')
     print('saving model parameters')
-    SVGP_unified_model_obj.save_model(folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt)
+    SVGP_unified_model_obj.save_model(folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt,use_nominal_model)
 
 
 
