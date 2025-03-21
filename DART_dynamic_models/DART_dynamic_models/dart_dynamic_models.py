@@ -2701,46 +2701,9 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
 class SVGP_unified_analytic:
         def __init__(self):
             pass
+
+
         def load_parameters(self, folder_path):
-            # print('SVGP unified model with actuator dynamics')
-            # print('Loading SVGP saved parameters from folder:', folder_path)
-
-            # # Define the parameter names for each dimension (x, y, w)
-            # param_names = ['m', 'middle', 'L_inv', 'right_vec', 'inducing_locations', 'outputscale', 'lengthscale','max_stdev']
-            # dimensions = ['x', 'y', 'w']
-
-            # # Initialize an empty dictionary to store all parameters
-            # svgp_params = {}
-
-            # # Loop through each dimension and parameter name to load the .npy files
-            # print('')
-            # print('Loading SVGP saved parameters from folder:', folder_path)
-            # print('')
-
-            # # load actuator dynamics parameters
-            # setattr(self, "dt", np.load(os.path.join(folder_path, "dt.npy")))
-            # self.dt = self.dt.item() # convert to item to set it as a scalar
-            # setattr(self, "n_past_actions", np.load(os.path.join(folder_path, "n_past_actions.npy")))
-            # setattr(self, "actuator_time_delay_fitting_tag", np.load(os.path.join(folder_path, "actuator_time_delay_fitting_tag.npy")))
-            # if self.actuator_time_delay_fitting_tag==2:
-            #     setattr(self, "weights_throttle", np.load(os.path.join(folder_path, "weights_throttle.npy")))
-            #     setattr(self, "weights_steering", np.load(os.path.join(folder_path, "weights_steering.npy")))
-
-
-
-            # for dim in dimensions:
-            #     svgp_params[dim] = {}
-            #     for param in param_names:
-            #         file_path = os.path.join(folder_path, f"{param}_{dim}.npy")
-            #         if os.path.exists(file_path):
-            #             svgp_params[dim][param] = np.load(file_path)
-            #             # assign to self
-            #             setattr(self, f"{param}_{dim}", svgp_params[dim][param])
-            #             print(f"Loaded {param}_{dim}: shape {svgp_params[dim][param].shape}")
-            #         else:
-            #             print(f"Warning: {param}_{dim}.npy not found in {folder_path}")
-            # print('')
-
             print('loading GP parameters from folder: ', folder_path)
             import os
             for filename in os.listdir(folder_path):
@@ -2755,10 +2718,17 @@ class SVGP_unified_analytic:
         def predictive_mean_only(self,x_star):
             # x_star = [th st vx vy w]
             # output is acc_vx, acc_vy, acc_w
-
-            kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
-            kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
-            kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+            # check if use casadi or numpy
+            import casadi
+            if type(x_star) == np.ndarray:
+                kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
+                kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
+                kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+            elif type(x_star) == casadi.MX or type(x_star) == casadi.SX:
+                kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_x,self.outputscale_x,self.lengthscale_x)
+                kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_y,self.outputscale_y,self.lengthscale_y)
+                kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_w,self.outputscale_w,self.lengthscale_w)
+            
             # prediction
             mean_x = kXZ_x @ self.right_vec_x
             mean_y = kXZ_y @ self.right_vec_y
@@ -3819,5 +3789,44 @@ def RBF_kernel_rewritten(x,y,outputscale,lengthscale):
         exp_arg[i] = (x[i]-y[i])**2/lengthscale[i]**2
     return outputscale * np.exp(-0.5*np.sum(exp_arg))
 
+
+
+
+# def rebuild_Kxy_RBF_vehicle_dynamics_casadi(X, Y, outputscale, lengthscale):
+#     import casadi as ca
+#     """ Computes the RBF kernel matrix K(X, Y) using CasADi. """
+#     n = X.shape[0]
+#     m = Y.shape[0]
+#     KXY = ca.MX.zeros(n, m)  # CasADi MX matrix for symbolic computation
+
+#     for i in range(n):
+#         for j in range(m):
+#             KXY[i, j] = RBF_kernel_rewritten_casadi(X[i, :], Y[j, :], outputscale, lengthscale)
+
+#     return KXY
+import casadi as ca
+def rebuild_Kxy_RBF_vehicle_dynamics_casadi(X, Y, outputscale, lengthscale):
+    """Computes the RBF kernel matrix K(X, Y) using CasADi."""
+    n = X.shape[0]  # Number of rows in X
+    m = Y.shape[0]  # Number of rows in Y
+
+    KXY = []  # Store rows to be concatenated
+
+    for i in range(n):
+        row = []  # Store elements of the row
+        for j in range(m):
+            kij = RBF_kernel_rewritten_casadi(X[i, :], Y[j, :], outputscale, lengthscale)  # Compute kernel value
+            row.append(kij)
+        KXY.append(ca.horzcat(*row))  # Horizontally concatenate row
+
+    return ca.vertcat(*KXY)  # Vertically concatenate all rows
+
+
+
+def RBF_kernel_rewritten_casadi(x, y, outputscale, lengthscale):
+    
+    """ Computes the RBF kernel function using CasADi. """
+    exp_arg = (x - np.expand_dims(y,0)) ** 2 / (np.expand_dims(lengthscale,0) ** 2)  # Element-wise operation
+    return outputscale.item() * ca.exp(-0.5 * ca.sum1(exp_arg.T))  # Use `sum1` to sum over vector elements
 
 

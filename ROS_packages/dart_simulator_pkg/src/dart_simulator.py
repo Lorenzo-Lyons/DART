@@ -92,12 +92,10 @@ def dynamic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as inpu
     #evaluate steering angle 
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
-
     # # evaluate longitudinal forces
     Fx_wheels = + mf.motor_force(th,vx,mf.a_m_self,mf.b_m_self,mf.c_m_self)\
                 + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)\
                 + mf.F_friction_due_to_steering(steering_angle,vx,mf.a_stfr_self,mf.b_stfr_self,mf.d_stfr_self,mf.e_stfr_self)
-
 
     c_front = (mf.m_front_wheel_self)/mf.m_self
     c_rear = (mf.m_rear_wheel_self)/mf.m_self
@@ -146,8 +144,8 @@ import importlib.resources
 with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters') as data_path:
     folder_path = str(data_path)
 
-
-model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path)
+evalate_covariance_tag = False
+model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalate_covariance_tag)
 
 
 def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and state

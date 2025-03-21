@@ -42,6 +42,29 @@ reprocess_data = True # set to true to reprocess the data again
 
 
 
+# # # # VERY TEMPORARY
+# # # from dart_dynamic_models import SVGP_unified_analytic
+# # # # instantiate the SVGP model analytic version
+# # # SVGP_unified_analytic_obj = SVGP_unified_analytic()
+# # # # load the parameters
+# # # SVGP_unified_analytic_obj.load_parameters(folder_path_SVGP_params)
+# # # import casadi as ca
+# # # # Define symbolic variables
+# # # x = ca.SX.sym("x", 10)  # Vector of size 10 (x_0 to x_9)
+# # # # Select specific elements
+# # # selected_elements = [x[0], x[1], x[6], x[7], x[8]]
+# # # # Create a row vector (1×5 matrix)
+# # # x_star = ca.horzcat(*selected_elements)
+# # # mean_x, mean_y, mean_w = SVGP_unified_analytic_obj.predictive_mean_only(x_star)
+
+
+
+
+
+
+
+
+
 # set these parameters as they will determine the running time of this script
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
