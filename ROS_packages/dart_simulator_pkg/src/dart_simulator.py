@@ -141,12 +141,16 @@ def dynamic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as inpu
 import importlib.resources
 #folder_path = os.path.dirname(os.path.realpath(__file__))
 
+
 with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters') as data_path:
     folder_path = str(data_path)
 
+with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters_slippery_floor') as data_path:
+    folder_path_slippery_floor = str(data_path)
+
+
 evalate_covariance_tag = False
 model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalate_covariance_tag)
-
 
 def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
@@ -192,9 +196,52 @@ def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and 
     return xdot
 
 
+# make this cleaner
+model_vx_slippery,model_vy_slippery,model_w_slippery = load_SVGPModel_actuator_dynamics_analytic(folder_path_slippery_floor,evalate_covariance_tag)
 
 
+def SVGP_slippery(t,z,disturbance):  # RK4 wants a function that takes as input time and state
+    th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
+    #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+    state_action_base_model = np.array([vx,vy,w,th,st])
+
+    acc_x, cov_x = model_vx_slippery.forward(state_action_base_model)
+    acc_y, cov_y = model_vy_slippery.forward(state_action_base_model)
+    acc_w, cov_w = model_w_slippery.forward(state_action_base_model)
+    
+
+    # to avoid strange jittering close to 0 velocity, blend
+    act_coeff = activation_coeff(vx)
+
+    # add nominal model
+    xdot_nom = dynamic_bicycle(t,z,False)
+    acc_x = act_coeff * acc_x + xdot_nom[3]
+    acc_y = act_coeff * acc_y + xdot_nom[4]
+    acc_w = act_coeff * acc_w + xdot_nom[5]
+
+    if disturbance:
+        # add disturbance if needed
+        stdev_x = model_vx_slippery.max_stdev
+        stdev_y = model_vy_slippery.max_stdev
+        stdev_w = model_w_slippery.max_stdev
+
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        disturbance_y = act_coeff * np.random.normal(0, stdev_y)
+        disturbance_w = act_coeff * np.random.normal(0, stdev_w)
+
+        # add to xdot
+        acc_x += disturbance_x
+        acc_y += disturbance_y
+        acc_w += disturbance_w
+        # print disturbance values with 3 decimal points
+        #print('disturbance x: ' + "{:.3f}".format(disturbance_x) + ' disturbance y: ' + "{:.3f}".format(disturbance_y) + ' disturbance w: ' + "{:.3f}".format(disturbance_w))
+
+    xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w) 
+
+    # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
+    #xdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
+    return xdot
 
 
 
@@ -231,6 +278,10 @@ class Forward_intergrate_GUI_manager:
                 elif vehicle_model_choice == 3:
                     print('vehicle model set to SVGP + dynamic bicycle as nominal model')
                     self.vehicles_list[i].vehicle_model = SVGP
+
+                elif vehicle_model_choice == 4:
+                    print('vehicle model set to SVGP + SVGP_dynamic_bicycle_slippery_floor')
+                    self.vehicles_list[i].vehicle_model = SVGP_slippery
 
 
 
