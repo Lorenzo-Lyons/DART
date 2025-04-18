@@ -31,7 +31,8 @@ if torch.cuda.is_available():
 
 # change current folder where this script is located
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-rosbag_folder = '83_7_march_2025_MPCC_rosbag'
+#rosbag_folder = '83_7_march_2025_MPCC_rosbag'
+rosbag_folder = '83_9_april_2025_MPCCPP_rosbag'
 
 
 
@@ -51,12 +52,15 @@ over_write_saved_parameters = True
 evaluate_long_term_predictions = False
 epochs = 500 #100 #  epochs for training the SVGP 200
 training_refinement = 5
-learning_rate =  0.005 #0.0003
+learning_rate =  0.003 #0.003 for throttle
 live_plot_weights = True
 
 # decide which model to train  (better to train one at a time)
 train_th = True
 train_st = False
+
+# train_th = False 
+# train_st = True
 
 
 
@@ -68,6 +72,8 @@ normalize_y = False
 
 # process data
 steps_shift = 1 # decide to filter more or less the vicon data
+new_freq_hz = 20 # Hz # decide if data needs to be downsampled (natively it is at 100 Hz from motion capture system)
+
 
 # plot settings
 thick_line_width = 2
@@ -86,7 +92,7 @@ for bag_file_name in rosbag_files:
     if not os.path.isfile(csv_file) or reprocess_data == True:
         # process the rosbag data
         using_rosbag_data=True
-        df = process_vicon_data_kinematics([],steps_shift,using_rosbag_data,bag_file)
+        df = process_vicon_data_kinematics([],steps_shift,using_rosbag_data,bag_file,new_freq_hz)
         # find the time when velocity is higher than 0.2 m/s and cut time before that to 1 s before that
         idx = np.where(df['vx body'].to_numpy() > 0.2)[0][0]
         activation_time = df['vicon time'].to_numpy()[idx]
@@ -115,7 +121,7 @@ ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2 = plot_kinemaitcs_dat
 
 
 
-n_past_actions =  100 # 100 Hz seconds of past actions   300
+n_past_actions =  10 # 20 Hz seconds of past actions   300
 #refinement_factor = 1 # no need to refine the time interval between data points
 
 
@@ -237,7 +243,15 @@ model_obj = dynamic_bicycle_actuator_delay_fitting(n_past_actions,dt)
 
 # ---  first guess ---
 # set first guess for the weights
-#model_obj.raw_weights_throttle.data[0][0] = torch.tensor([0.00001])
+if train_th == False:
+    # load the throttle weights
+    folder_path_act_dyn_params = os.path.join('Data',rosbag_folder,'actuator_dynamics_saved_parameters/')
+    raw_weights_throttle = np.load(folder_path_act_dyn_params + 'raw_weights_throttle.npy')
+
+    n_past_actions = np.load(folder_path_act_dyn_params + 'n_past_actions.npy')
+    first_guess_raw_weights_throttle = torch.Tensor(raw_weights_throttle).cuda()
+
+    model_obj.raw_weights_throttle.data = first_guess_raw_weights_throttle
 #model_obj.raw_weights_steering.data[0][0] = torch.tensor([0.0000001]) 
 # ---------------------
 

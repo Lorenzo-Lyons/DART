@@ -2736,6 +2736,47 @@ class SVGP_unified_analytic:
 
             return mean_x, mean_y, mean_w
         
+
+        def predictive_cov_only(self,x_star):
+            import casadi
+            if type(x_star) == np.ndarray:
+                kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
+                kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
+                kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+                # KXX
+                KXX_x = self.outputscale_x #rebuild_Kxy_RBF_vehicle_dynamics(x_star,x_star,self.outputscale_x,self.lengthscale_x)
+                KXX_y = self.outputscale_y #rebuild_Kxy_RBF_vehicle_dynamics(x_star,x_star,self.outputscale_y,self.lengthscale_y)
+                KXX_w = self.outputscale_w #rebuild_Kxy_RBF_vehicle_dynamics(x_star,x_star,self.outputscale_w,self.lengthscale_w)
+                # x
+                X_x = self.L_inv_x @ kXZ_x.T
+                cov_mS_x = KXX_x + X_x.T @ self.middle_x @ X_x
+                # y
+                X_y = self.L_inv_y @ kXZ_y.T
+                cov_mS_y = KXX_y + X_y.T @ self.middle_y @ X_y
+                # w
+                X_w = self.L_inv_w @ kXZ_w.T
+                cov_mS_w = KXX_w + X_w.T @ self.middle_w @ X_w
+            
+            elif type(x_star) == casadi.MX or type(x_star) == casadi.SX:
+                kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_x,self.outputscale_x,self.lengthscale_x)
+                kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_y,self.outputscale_y,self.lengthscale_y)
+                kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_w,self.outputscale_w,self.lengthscale_w)
+                # # KXX
+                KXX_x = self.outputscale_x 
+                KXX_y = self.outputscale_y
+                KXX_w = self.outputscale_w
+                # # X
+                X_x = self.L_inv_x @ casadi.transpose(kXZ_x)
+                X_y = self.L_inv_y @ casadi.transpose(kXZ_y)
+                X_w = self.L_inv_w @ casadi.transpose(kXZ_w)
+                # cov
+                cov_mS_x = KXX_x + casadi.transpose(X_x) @ self.middle_x @ X_x
+                cov_mS_y = KXX_y + casadi.transpose(X_y) @ self.middle_y @ X_y
+                cov_mS_w = KXX_w + casadi.transpose(X_w) @ self.middle_w @ X_w
+
+            return cov_mS_x, cov_mS_y, cov_mS_w
+        
+
         def forward_4_long_term_prediction(self,state_action):
             # state_action = [vx, vy, w, throttle_filtered, steering_filtered, throttle, steering]
             x_star = np.expand_dims(state_action[:5],0)
@@ -3242,11 +3283,11 @@ def load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag):
                 print(f"Warning: {param}_{dim}.npy not found in {svgp_params_path}")
 
     # load time delay parameters
-    time_delay_parameters_path = folder_path + '/time_delay_parameters.npy'
-    time_delay_parameters = np.load(time_delay_parameters_path)
-    actuator_time_delay_fitting_tag = time_delay_parameters[0]
-    n_past_actions = time_delay_parameters[1]
-    dt_svgp = time_delay_parameters[2]
+    #time_delay_parameters_path = folder_path + '/time_delay_parameters.npy'
+    #time_delay_parameters = np.load(time_delay_parameters_path)
+    actuator_time_delay_fitting_tag = os.path.join(svgp_params_path,'actuator_time_delay_fitting_tag.npy')  #  time_delay_parameters[0]
+    n_past_actions = os.path.join(svgp_params_path, 'n_past_actions.npy')        #  time_delay_parameters[1]
+    dt_svgp = os.path.join(svgp_params_path, 'dt.npy')               #  time_delay_parameters[2]
 
     
     # now build the models

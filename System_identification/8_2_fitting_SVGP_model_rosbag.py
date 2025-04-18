@@ -29,7 +29,10 @@ if torch.cuda.is_available():
 
 # change current folder where this script is located
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-rosbag_folder = '83_7_march_2025_MPCC_rosbag'
+#rosbag_folder = '83_7_march_2025_MPCC_rosbag'
+#rosbag_folder = '83_4_april_2025_MPCC_rosbag'
+#rosbag_folder = '83_9_april_2025_MPCCPP_rosbag'
+rosbag_folder = '83_16_april_2025_slippery_floor'
 
 
 
@@ -37,28 +40,8 @@ rosbag_data_folder = os.path.join('Data',rosbag_folder,'rosbags')
 csv_folder = os.path.join('Data',rosbag_folder,'csv')
 rosbag_files = os.listdir(rosbag_data_folder)
 csv_files = os.listdir(csv_folder)
-folder_path_SVGP_params = os.path.join('Data',rosbag_folder,'SVGP_saved_parameters/')
+folder_path_SVGP_params = os.path.join('Data',rosbag_folder,'SVGP_saved_parameters_slippery_floor/')
 reprocess_data = True # set to true to reprocess the data again
-
-
-
-# # # # VERY TEMPORARY
-# # # from dart_dynamic_models import SVGP_unified_analytic
-# # # # instantiate the SVGP model analytic version
-# # # SVGP_unified_analytic_obj = SVGP_unified_analytic()
-# # # # load the parameters
-# # # SVGP_unified_analytic_obj.load_parameters(folder_path_SVGP_params)
-# # # import casadi as ca
-# # # # Define symbolic variables
-# # # x = ca.SX.sym("x", 10)  # Vector of size 10 (x_0 to x_9)
-# # # # Select specific elements
-# # # selected_elements = [x[0], x[1], x[6], x[7], x[8]]
-# # # # Create a row vector (1×5 matrix)
-# # # x_star = ca.horzcat(*selected_elements)
-# # # mean_x, mean_y, mean_w = SVGP_unified_analytic_obj.predictive_mean_only(x_star)
-
-
-
 
 
 
@@ -70,8 +53,8 @@ reprocess_data = True # set to true to reprocess the data again
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
 evaluate_long_term_predictions = True
-epochs = 300 #300 #  epochs for training the SVGP 200
-learning_rate =  0.0033 #0.015 # 0.0015
+epochs = 100 #300 #  epochs for training the SVGP 200
+learning_rate =  0.1 #0.015 # 0.0015
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -80,7 +63,7 @@ learning_rate =  0.0033 #0.015 # 0.0015
 # 3 = GP takes as input the time-filtered inputs obtained with the input dynamics taken from the physics-based model.
 
 # dataset balancing by repeating the high acceleration regions
-high_acc_repetition = 4 # 20
+high_acc_repetition = 2 # 20
 
 learn_weights_tag = False # learn the weights of the linear layer
 actuator_time_delay_fitting_tag = 2
@@ -97,7 +80,7 @@ use_nominal_model = True
 
 # process data
 steps_shift = 1 # decide to filter more or less the vicon data
-
+new_freq_hz = 20 # Hz # decide if data needs to be downsampled (natively it is at 100 Hz from motion capture system)
 
 
 
@@ -115,10 +98,11 @@ thick_line_width = 2
 for bag_file_name in rosbag_files:
     bag_file = os.path.join(rosbag_data_folder,bag_file_name)
     csv_file = bag_file_name.replace('.bag','.csv')
-    if not os.path.isfile(csv_file) or reprocess_data == True:
+
+    if not os.path.isfile(os.path.join(csv_folder,csv_file)) or reprocess_data == True:
         # process the rosbag data
         using_rosbag_data=True
-        df = process_vicon_data_kinematics([],steps_shift,using_rosbag_data,bag_file)
+        df = process_vicon_data_kinematics([],steps_shift,using_rosbag_data,bag_file,new_freq_hz)
         # find the time when velocity is higher than 0.2 m/s and cut time before that to 1 s before that
         idx = np.where(df['vx body'].to_numpy() > 0.2)[0][0]
         activation_time = df['vicon time'].to_numpy()[idx]
@@ -129,7 +113,42 @@ for bag_file_name in rosbag_files:
         # save the processed data with
         df.to_csv(os.path.join(csv_folder,csv_file), index=False)
 
+# re count the files in the repository
+rosbag_files = os.listdir(rosbag_data_folder)
+csv_files = os.listdir(csv_folder)
 
+# merge all the datasets
+df = pd.DataFrame()
+time_offset = 0
+
+
+
+for csv_file_name in csv_files:
+    if 'csv' in csv_file_name:
+        csv_file = os.path.join(csv_folder, csv_file_name)
+        df_i = pd.read_csv(csv_file)
+
+        # Normalize the current time column to start from 0
+        df_i['vicon time'] = df_i['vicon time'] - df_i['vicon time'].iloc[0]
+
+        # Add the offset so time keeps increasing
+        df_i['vicon time'] += time_offset
+
+        # Update the offset for the next file
+        time_offset = df_i['vicon time'].iloc[-1]  # Add a gap of 10 seconds between files
+
+        # Append to full dataframe
+        df = pd.concat([df, df_i], ignore_index=True)
+
+        # print
+        print('loaded: ', csv_file_name)
+
+
+
+# cut low velocity data
+df = df[df['vx body'].to_numpy() > 0.5]
+
+import pandas as pd
 
 
 
@@ -140,11 +159,8 @@ ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2 = plot_kinemaitcs_dat
 
 
 
-
-
-
 # train the SVGP model
-n_inducing_points = 200
+n_inducing_points = 100
 
 
 
@@ -215,7 +231,7 @@ threshold_accx = np.percentile(np.abs(df['ax body filtered'].to_numpy()), percen
 mask_high_th_dev = np.abs(np.array(df['ax body filtered'])) > threshold_accx
 
 # plot filtered signal
-ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body filtered'].to_numpy(),label='ax filtered',color='navy')
+ax_acc_x.plot(df['vicon time'].to_numpy(),df['ax body filtered'].to_numpy(),label='ax filtered',color='navy',alpha=0.3)
 ax_vx2.fill_between(df['vicon time'].to_numpy(), ax_vx2.get_ylim()[0], ax_vx2.get_ylim()[1], where=mask_high_th_dev, color='navy', alpha=0.1, label='high acc x regions')
 
 
@@ -229,7 +245,7 @@ threshold_accw = np.percentile(np.abs(df['acc_w filtered'].to_numpy()), percenti
 mask_high_th_dev_w = np.abs(np.array(df['acc_w filtered'])) > threshold_accw
 
 # plot filtered signal
-ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w filtered'].to_numpy(),label='aw filtered',color='navy')
+ax_acc_w.plot(df['vicon time'].to_numpy(),df['acc_w filtered'].to_numpy(),label='aw filtered',color='navy',alpha=0.3)
 ax_w2.fill_between(df['vicon time'].to_numpy(), ax_w2.get_ylim()[0], ax_w2.get_ylim()[1], where=mask_high_th_dev_w, color='navy', alpha=0.1, label='high acc w regions')
 
 
@@ -410,7 +426,7 @@ if torch.cuda.is_available():
 
 
 
-SVGP_unified_model_obj.train_model(epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w)
+SVGP_unified_model_obj.train_model(epochs,learning_rate,fit_likelihood_noise_tag,train_x, train_y_vx, train_y_vy, train_y_w)
 
 # reset initial guess for the weights
 #SVGP_unified_model_obj.raw_weights_throttle.data = first_guess_weights_throttle
@@ -725,9 +741,9 @@ ax_acc_w.legend()
 
 if use_nominal_model:
     # add nominal model predictions to plot
-    ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x[:len(preds_ax_mean)],color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width)
-    ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y[:len(preds_ax_mean)],color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width)
-    ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w[:len(preds_ax_mean)],color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width)
+    ax_acc_x.plot(df['vicon time'].to_numpy(),nom_pred_x[:len(preds_ax_mean)],color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width,alpha=0.3,zorder=1)
+    ax_acc_y.plot(df['vicon time'].to_numpy(),nom_pred_y[:len(preds_ax_mean)],color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width,alpha=0.3,zorder=1)
+    ax_acc_w.plot(df['vicon time'].to_numpy(),nom_pred_w[:len(preds_ax_mean)],color='gray',label='nominal model',linestyle='--',linewidth=thick_line_width,alpha=0.3,zorder=1)
 
 
 

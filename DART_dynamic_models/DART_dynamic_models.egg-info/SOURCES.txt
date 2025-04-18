@@ -36,4 +36,3 @@ DART_dynamic_models/SVGP_saved_parameters/svgp_likelihood_w.pth
 DART_dynamic_models/SVGP_saved_parameters/svgp_model_vx.pth
 DART_dynamic_models/SVGP_saved_parameters/svgp_model_vy.pth
 DART_dynamic_models/SVGP_saved_parameters/svgp_model_w.pth
-DART_dynamic_models/SVGP_saved_parameters/time_delay_parameters.npy

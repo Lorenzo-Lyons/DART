@@ -17,7 +17,8 @@ mf = model_functions() # instantiate the model functions class
 
 # change current folder where this script is located
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-rosbag_folder = '83_7_march_2025_MPCC_rosbag'
+#rosbag_folder = '83_7_march_2025_MPCC_rosbag'
+rosbag_folder = '83_9_april_2025_MPCCPP_rosbag'
 
 
 

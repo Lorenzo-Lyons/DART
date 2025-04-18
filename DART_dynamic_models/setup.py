@@ -16,7 +16,7 @@ setup(
     ],
     include_package_data=True,  # Include non-Python files specified in MANIFEST.in
     package_data={
-        'DART_dynamic_models': ['SVGP_saved_parameters_high_speed/*',
+        'DART_dynamic_models': ['SVGP_saved_parameters_slippery_floor/*',
                                 'SVGP_saved_parameters/*',
                                 'actuator_dynamics_saved_parameters/*']  # Include all files in the data folder
     },

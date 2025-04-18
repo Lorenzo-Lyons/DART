@@ -763,10 +763,29 @@ def process_rosbag_data(bag_file):
 
 
 
+def downsample(df,new_freq_hz):
+    dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
+
+    # Ensure 'vicon time' is a datetime or numeric index
+    df = df.copy()
+    
+    # Set 'vicon time' as index
+    df.set_index('vicon time', inplace=True)
+    
+    # Determine sampling interval
+    
+    original_freq_hz = int(np.round(1/dt))
+    
+    downsample_factor = original_freq_hz // new_freq_hz
+
+    # Use .iloc for every Nth sample (simple downsampling)
+    df_downsampled = df.iloc[::downsample_factor].reset_index()
+
+    return df_downsampled
 
 
 
-def process_vicon_data_kinematics(df,steps_shift,using_rosbag_data=False,bag_file=None):
+def process_vicon_data_kinematics(df,steps_shift,using_rosbag_data=False,bag_file=None,new_freq_hz=None):
     print('Processing kinematics data')
     mf = model_functions()
 
@@ -805,6 +824,12 @@ def process_vicon_data_kinematics(df,steps_shift,using_rosbag_data=False,bag_fil
     # df['vicon x'].iloc[:robot2vicon_delay] = df['vicon x'].iloc[robot2vicon_delay]
     # df['vicon y'].iloc[:robot2vicon_delay] = df['vicon y'].iloc[robot2vicon_delay]
     # df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
+    if new_freq_hz is None:
+        pass
+    else:
+        print('downsampling data to ',new_freq_hz,' Hz')
+        df = downsample(df,new_freq_hz)
+
 
 
     #  ---  relocating reference point to the centre of mass  ---
@@ -1068,7 +1093,7 @@ def plot_kinemaitcs_data(df):
     ax1.legend()
 
     ax4.set_title('acceleration x')
-    ax4.plot(plotting_time_vec, df['ax body'].to_numpy(), label="ax body", color='dodgerblue',alpha=0.3)
+    ax4.plot(plotting_time_vec, df['ax body'].to_numpy(), label="ax body", color='dodgerblue',alpha=0.6)
     ax4.legend()
 
 
@@ -1077,7 +1102,7 @@ def plot_kinemaitcs_data(df):
     ax2.legend()
 
     ax5.set_title('acceleration y')
-    ax5.plot(plotting_time_vec, df['ay body'].to_numpy(), label="ay body", color='orangered',alpha=0.3)
+    ax5.plot(plotting_time_vec, df['ay body'].to_numpy(), label="ay body", color='orangered',alpha=0.6)
     ax5.legend()
 
 
@@ -1089,7 +1114,7 @@ def plot_kinemaitcs_data(df):
     ax6.set_title('acceleration yaw')
     #ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
     #ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
-    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="acc w", color='slateblue',alpha=0.3)
+    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="acc w", color='slateblue',alpha=0.6)
     ax6.legend()
 
     ax_vx = ax1
@@ -2421,7 +2446,7 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
         return normalized_weights, positive_weights
     
 
-    def train_model(self,num_epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w):
+    def train_model(self,num_epochs,learning_rate,fit_likelihood_noise_tag,train_x, train_y_vx, train_y_vy, train_y_w):
         
         # start fitting
         # make contiguous (not sure why)
@@ -2462,15 +2487,21 @@ class SVGP_unified_model(torch.nn.Sequential,model_functions):
             optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-4)
             #optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
         else:
-            optimizer_x = torch.optim.Adam([{'params': self.model_vx.parameters()}, {'params': self.likelihood_vx.parameters()},], lr=learning_rate)
-            optimizer_y = torch.optim.Adam([{'params': self.model_vy.parameters()}, {'params': self.likelihood_vy.parameters()},], lr=learning_rate)
-            optimizer_w = torch.optim.Adam([{'params': self.model_w.parameters()}, {'params': self.likelihood_w.parameters()},], lr=learning_rate)
+            if fit_likelihood_noise_tag:
+                optimizer_x = torch.optim.Adam([{'params': self.model_vx.parameters()}, {'params': self.likelihood_vx.parameters()},], lr=learning_rate)
+                optimizer_y = torch.optim.Adam([{'params': self.model_vy.parameters()}, {'params': self.likelihood_vy.parameters()},], lr=learning_rate)
+                optimizer_w = torch.optim.Adam([{'params': self.model_w.parameters()}, {'params': self.likelihood_w.parameters()},], lr=learning_rate)
+            else:
+                optimizer_x = torch.optim.Adam(self.model_vx.parameters(), lr=learning_rate)
+                optimizer_y = torch.optim.Adam(self.model_vy.parameters(), lr=learning_rate)
+                optimizer_w = torch.optim.Adam(self.model_w.parameters(), lr=learning_rate)
 
-
-        # Print the parameters with their names and shapes
+        # Print the parameters with their names and shapes if they will be trained
         print('Parameters to optimize:')
         for name, param in self.named_parameters():
             print(f"Parameter name: {name}, Shape: {param.shape}")
+        if fit_likelihood_noise_tag == False:
+            print('Likelihood noise parameters will NOT be trained for')
 
 
 
@@ -2876,8 +2907,15 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
         total_loss_vec = []
 
         #optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-3)
-        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
-        #optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
+        if train_th == False:
+            # Remove the weights with name 'raw_weights_throttle' from the parameters
+            filtered_params = [param for name, param in self.named_parameters() if 'raw_weights_throttle' not in name]
+        else:
+            # Use all parameters if training throttle
+            filtered_params = self.parameters()
+
+        optimizer = torch.optim.Adam(filtered_params, lr=learning_rate)
+
 
 
 
@@ -2886,6 +2924,8 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
         print('Parameters to optimize:')
         for name, param in self.named_parameters():
             print(f"Parameter name: {name}, Shape: {param.shape}")
+        if train_th == False:
+            print('Throttle weights will NOT be trained')
 
         import matplotlib.pyplot as plt
         if live_plot_weights:
@@ -2966,19 +3006,19 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
                 
                 # trying to enforce the weights to stick together
                 weights_loss_scale = 1 # sale the loss equally to avoid it being dominant 0.05
-                q_var_weights = 10
+                q_var_weights = 1
                 q_dev_weights = 0.1
-                q_weights = 1 #0.01
+                q_weights = 0.5 #0.01
 
-                # time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
-                # w_th_times_time = time_vec * torch.squeeze(non_normalized_w_th)
-                # w_st_times_time = time_vec * torch.squeeze(non_normalized_w_st)
+                time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                w_th_times_time = time_vec * torch.squeeze(weights_throttle) 
+                w_st_times_time = time_vec * torch.squeeze(weights_steering) 
 
-                # mean_time_delay_th = torch.mean(w_th_times_time)
-                # mean_time_delay_st = torch.mean(w_st_times_time)
+                mean_time_delay_th = torch.mean(w_th_times_time)
+                mean_time_delay_st = torch.mean(w_st_times_time)
 
-                # var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
-                # var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
+                var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
+                var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
 
                 # diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
                 # diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
@@ -2990,8 +3030,8 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
 
 
 
-                loss_weights_th = - 1 * q_weights * torch.norm(weights_throttle, p=float('inf')) #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
-                loss_weights_st = - 1 * q_weights * torch.norm(weights_steering, p=float('inf')) #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_th = - 1 * q_weights * torch.norm(weights_throttle, p=float('inf')) + q_var_weights * var_th   #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_st = - 1 * q_weights * torch.norm(weights_steering, p=float('inf')) + q_var_weights * var_st   #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
 
                                 #+ q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
                 #+ q_weights * torch.sum( (w_th_weighted/self.n_past_actions )**2 + (w_st_weighted/self.n_past_actions )**2    ) # /self.n_past_actions 
@@ -3002,8 +3042,8 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
                              #- q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
 
                 #scale the loss
-                loss_weights_th = weights_loss_scale * loss_weights_th
-                loss_weights_st = weights_loss_scale * loss_weights_st
+                loss_weights_th = weights_loss_scale * loss_weights_th 
+                loss_weights_st = weights_loss_scale * loss_weights_st 
 
 
                 loss_vx = mse_loss(acc_x, y_batch_vx[:,0])
@@ -3012,11 +3052,11 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
 
                 # Combine all losses
                 if train_st==True and train_th==True:
-                    total_loss =  loss_weights_th + loss_weights_st + loss_vx + loss_w + loss_vy
+                    total_loss =  loss_vx + loss_w + loss_vy # loss_weights_th + loss_weights_st +
                 elif train_st==True and train_th==False:
                     total_loss =  loss_w + loss_vy# + loss_weights_st 
                 elif train_st==False and train_th==True:
-                    total_loss =  loss_vx + loss_weights_th 
+                    total_loss =  loss_vx #+ loss_weights_th 
                 #total_loss =   loss_vx + loss_weights_th
                 #total_loss = loss_vy + loss_w + loss_weights_st
                 
@@ -3088,6 +3128,15 @@ class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions
         weights_throttle = weights_throttle.t().detach().cpu().numpy()
         weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
         weights_steering = weights_steering.t().detach().cpu().numpy()
+        
+        # # set weights to 0 if they are below 0.02 and re-normalize
+        # print('setting weights to 0 if they are below 0.03')
+        # weights_throttle[np.abs(weights_throttle) < 0.03] = 0
+        # weights_steering[np.abs(weights_steering) < 0.03] = 0
+        # # re-normalize
+        # weights_throttle = weights_throttle / np.sum(weights_throttle, axis=1, keepdims=True)
+        # weights_steering = weights_steering / np.sum(weights_steering, axis=1, keepdims=True)
+
 
         if train_th==True:
             np.save(folder_2_save_params + 'raw_weights_throttle.npy', self.raw_weights_throttle.detach().cpu().numpy())
