@@ -50,8 +50,8 @@ git clone https://github.com/Lorenzo-Lyons/DART.git
 *set car number:* To avoid conlficts when using multiple cars the environment variable "car_number" needs to be set. Navigate to the .bashrc file in the home directory and add the following lines (setting the appropriate number):
 
 ```
-export car_number = 1
-export car_number_str = '_1'
+export car_number=1
+export car_number_str='_1'
 ```
 As a quick test run the following:
 ```
