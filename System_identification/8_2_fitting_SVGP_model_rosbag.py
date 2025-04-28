@@ -32,7 +32,8 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 #rosbag_folder = '83_7_march_2025_MPCC_rosbag'
 #rosbag_folder = '83_4_april_2025_MPCC_rosbag'
 #rosbag_folder = '83_9_april_2025_MPCCPP_rosbag'
-rosbag_folder = '83_16_april_2025_slippery_floor'
+#rosbag_folder = '83_16_april_2025_slippery_floor'
+rosbag_folder = '83_24_april_2025_slippery_floor_no_tape'
 
 
 
@@ -40,8 +41,8 @@ rosbag_data_folder = os.path.join('Data',rosbag_folder,'rosbags')
 csv_folder = os.path.join('Data',rosbag_folder,'csv')
 rosbag_files = os.listdir(rosbag_data_folder)
 csv_files = os.listdir(csv_folder)
-folder_path_SVGP_params = os.path.join('Data',rosbag_folder,'SVGP_saved_parameters_slippery_floor/')
-reprocess_data = True # set to true to reprocess the data again
+folder_path_SVGP_params = os.path.join('Data',rosbag_folder,'SVGP_saved_parameters_slippery_floor_no_tape/')
+reprocess_data = False # set to true to reprocess the data again
 
 
 
@@ -146,7 +147,7 @@ for csv_file_name in csv_files:
 
 
 # cut low velocity data
-df = df[df['vx body'].to_numpy() > 0.5]
+#df = df[df['vx body'].to_numpy() < 1.5]
 
 import pandas as pd
 
@@ -160,7 +161,7 @@ ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2 = plot_kinemaitcs_dat
 
 
 # train the SVGP model
-n_inducing_points = 100
+n_inducing_points = 40
 
 
 
