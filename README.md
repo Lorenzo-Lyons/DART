@@ -5,12 +5,18 @@
 </p>
 
 
+
 ## What's DART?
 DART is a small-scale car-like robot that is intended for autonomous driving research. It's based on the commercially available [JetracerPro AI kit](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit)  available from Waveshare and features  additional sensors and a few other upgrades.
 
 
 Refer to our conference paper for further details:
 [DART conference paper](https://ieeexplore.ieee.org/document/10588526)
+
+## Model Predictive control for racing
+<p align="center">
+  <img src="Images_for_readme/TEST03_mpc_overlay.gif" title="Racing MPC">
+</p>
 
 
 
