@@ -16,12 +16,14 @@ setup(
     ],
     include_package_data=True,  # Include non-Python files specified in MANIFEST.in
     package_data={
-        'DART_dynamic_models': ['SVGP_saved_parameters/*'],  # Include all files in the data folder
+        'DART_dynamic_models': ['SVGP_saved_parameters_slippery_floor/*',
+                                'SVGP_saved_parameters/*',
+                                'actuator_dynamics_saved_parameters/*']  # Include all files in the data folder
     },
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.8.10',           # Specify minimum Python version
+    #python_requires='>=3.6.9',           # Specify minimum Python version
 )

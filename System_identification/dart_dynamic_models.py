@@ -335,6 +335,36 @@ class model_functions():
         return x_dot
 
 
+    def dynamic_bicycle(self, th, st, vx, vy, w ):  
+        # this function takes the state input:z = [th st vx vy w] ---> output: [acc_x,acc_y,acc_w] in the car body frame
+
+
+        #evaluate steering angle 
+        steering_angle = self.steering_2_steering_angle(st,self.a_s_self,self.b_s_self,self.c_s_self,self.d_s_self,self.e_s_self)
+
+        # # evaluate longitudinal forces
+        Fx_wheels = + self.motor_force(th,vx,self.a_m_self,self.b_m_self,self.c_m_self)\
+                    + self.rolling_friction(vx,self.a_f_self,self.b_f_self,self.c_f_self,self.d_f_self)\
+                    + self.F_friction_due_to_steering(steering_angle,vx,self.a_stfr_self,self.b_stfr_self,self.d_stfr_self,self.e_stfr_self)
+
+        c_front = (self.m_front_wheel_self)/self.m_self
+        c_rear = (self.m_rear_wheel_self)/self.m_self
+
+        # redistribute Fx to front and rear wheels according to normal load
+        Fx_front = Fx_wheels * c_front
+        Fx_rear = Fx_wheels * c_rear
+
+        #evaluate slip angles
+        alpha_f,alpha_r = self.evaluate_slip_angles(vx,vy,w,self.lf_self,self.lr_self,steering_angle)
+
+        #lateral forces
+        Fy_wheel_f = self.lateral_tire_force(alpha_f,self.d_t_f_self,self.c_t_f_self,self.b_t_f_self,self.m_front_wheel_self)
+        Fy_wheel_r = self.lateral_tire_force(alpha_r,self.d_t_r_self,self.c_t_r_self,self.b_t_r_self,self.m_rear_wheel_self)
+
+        acc_x,acc_y,acc_w = self.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,self.lf_self,self.lr_self,self.m_self,self.Jz_self)
+        
+        return acc_x,acc_y,acc_w
+
 
 
 
@@ -571,40 +601,235 @@ def plot_raw_data(df):
     return ax0,ax1,ax2
 
 
-def process_vicon_data_kinematics(df,steps_shift):
+
+
+
+
+
+# once finished working on this move it to where the data processing is done
+def process_rosbag_data(bag_file):
+    import rosbag
+        # Initialize a list to store data
+    data = []
+
+    # Open the bag file
+    with rosbag.Bag(bag_file, 'r') as bag:
+        # Iterate through the messages in the specified topic
+        for topic, msg, t in bag.read_messages(topics=['/vicon/jetracer1']):
+            # Extract data from the PoseWithCovarianceStamped message
+            timestamp = t.to_sec()  # Timestamp in seconds
+            
+            # Extract position (x, y, z)
+            x = msg.pose.pose.position.x
+            y = msg.pose.pose.position.y
+            
+            # Extract orientation (quaternion x, y, z, w)
+            qx = msg.pose.pose.orientation.x
+            qy = msg.pose.pose.orientation.y
+            qz = msg.pose.pose.orientation.z
+            qw = msg.pose.pose.orientation.w
+            
+            # Convert quaternion to yaw angle (radians)
+            siny_cosp = 2 * (qw * qz + qx * qy)
+            cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
+            yaw = np.arctan2(siny_cosp, cosy_cosp)
+
+            # Add the data to the list 
+            data.append([timestamp, x, y, yaw])
+    # Convert the data to a DataFrame
+    columns = ["vicon time", "vicon x", "vicon y", "vicon yaw"]
+    df_vicon = pd.DataFrame(data, columns=columns)
+
+    # get throttle data
+    data = []
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for topic, msg, t in bag.read_messages(topics=['/throttle_complete_stamp_1']):
+            timestamp = t.to_sec()
+            t1 = msg.header1.stamp.to_sec()
+            t2 = msg.header2.stamp.to_sec()
+            t3 = msg.header3.stamp.to_sec()
+            throttle = msg.data
+            data.append([timestamp,t1,t2,t3,throttle])
+    columns = ["time",'time 1','time 2','time 3', "throttle"]
+    df_throttle = pd.DataFrame(data, columns=columns)
+
+    # get steering data
+    data = []
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for topic, msg, t in bag.read_messages(topics=['/steering_complete_stamp_1']):
+            timestamp = t.to_sec()
+            t1 = msg.header1.stamp.to_sec()
+            t2 = msg.header2.stamp.to_sec()
+            t3 = msg.header3.stamp.to_sec()
+            steering = msg.data
+            data.append([timestamp,t1,t2,t3,steering])
+    columns = ["time",'time 1','time 2','time 3', "steering"]
+    df_steering = pd.DataFrame(data, columns=columns)
+
+
+    # get safety off data
+    data = []
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for topic, msg, t in bag.read_messages(topics=['/safety_value']):
+            timestamp = t.to_sec()
+            safety_value = msg.data
+            data.append([timestamp,safety_value])
+    columns = ["time","safety_value"]
+    df_safety = pd.DataFrame(data, columns=columns)
+
+    # assign t2 as the middle point between t1 and t3
+    # this is a bit of an approximation but it should be acceptable
+    t2_th_reconstructed = 0.5 * (df_throttle['time 1']+df_throttle['time 3']).to_numpy()
+    t2_st_reconstructed = 0.5 * (df_steering['time 1']+df_steering['time 3']).to_numpy()
+
+    
+    # now reallign the input data with the state data coming from the vicon
+    from scipy.interpolate import interp1d
+
+    # Define FOH interpolation functions
+    throttle_foh = interp1d(t2_th_reconstructed, df_throttle['throttle'].to_numpy(),
+                            kind='previous', bounds_error=False, fill_value=(df_throttle['throttle'].iloc[0], df_throttle['throttle'].iloc[-1]))
+
+    steering_foh = interp1d(t2_st_reconstructed, df_steering['steering'].to_numpy(),
+                            kind='previous', bounds_error=False, fill_value=(df_steering['steering'].iloc[0], df_steering['steering'].iloc[-1]))
+
+    safety_value_foh = interp1d(df_safety['time'].to_numpy(), df_safety['safety_value'].to_numpy(),
+                                kind='previous', bounds_error=False, fill_value=(df_safety['safety_value'].iloc[0], df_safety['safety_value'].iloc[-1]))
+
+    # Resample using First-Order Hold
+    throttle_resampled = throttle_foh(df_vicon['vicon time'].to_numpy())
+    steering_resampled = steering_foh(df_vicon['vicon time'].to_numpy())
+    safety_value_resampled = safety_value_foh(df_vicon['vicon time'].to_numpy())
+
+    
+    
+    # add to vicon df
+    df_vicon['throttle'] = throttle_resampled
+    df_vicon['steering'] = steering_resampled
+    df_vicon['safety_value'] = safety_value_resampled
+
+    # set throttle to zero when safety is off
+    df_vicon['throttle'][safety_value_resampled != 1] = 0.0
+
+
+
+    # plot the throttle data   (USED FOR DEBUGGIN PURPOSES)
+    # # # 2 subplots 
+    # # fig, ax = plt.subplots(2, 2, figsize=(8, 18), sharex=True)
+
+    # # # Access individual subplots correctly
+    # # ax1 = ax[0, 0]  # Top-left
+    # # ax2 = ax[0, 1]  # Top-right
+    # # ax3 = ax[1, 0]  # Bottom-left
+    # # ax4 = ax[1, 1]  # Bottom-right
+
+    # # ax1.plot(df_throttle['time 1'].to_numpy(),df_throttle['throttle'].to_numpy(),label='sent throttle from laptop')
+    # # ax1.plot(df_throttle['time 2'].to_numpy(),df_throttle['throttle'].to_numpy(),label='car received throttle')
+    # # ax1.plot(df_throttle['time 3'].to_numpy(),df_throttle['throttle'].to_numpy(),label='laptop received throttle back from car')
+    # # ax1.plot(df_throttle['time'].to_numpy(),df_throttle['throttle'].to_numpy(),label='msg timestamp from bag',linestyle='--')
+    # # ax1.set_title('throttle data')
+
+    # # # plot time difference between the car and the laptop
+    # # ax2.plot(df_throttle['time'].to_numpy(),df_throttle['time 3'].to_numpy()-df_throttle['time 1'].to_numpy(),label='laptop round trip')
+    # # ax2.legend()
+
+    # # # plot the steering data
+    # # ax3.plot(df_steering['time 1'].to_numpy(),df_steering['steering'].to_numpy(),label='sent steering from laptop')
+    # # ax3.plot(df_steering['time 2'].to_numpy(),df_steering['steering'].to_numpy(),label='car received steering')
+    # # ax3.plot(df_steering['time 3'].to_numpy(),df_steering['steering'].to_numpy(),label='laptop received steering back from car')
+    # # ax3.plot(df_steering['time'].to_numpy(),df_steering['steering'].to_numpy(),label='msg timestamp from bag',linestyle='--')
+    # # ax3.set_title('steering data')
+    
+    # # # plot time difference between the car and the laptop
+    # # ax4.plot(df_steering['time'].to_numpy(),df_steering['time 3'].to_numpy()-df_steering['time 1'].to_numpy(),label='laptop round trip')
+    # # ax4.legend()
+
+    # # # add to plot
+    # # ax1.plot(t2_th_reconstructed,df_throttle['throttle'].to_numpy(),label='reconstructed t2')
+    # # ax3.plot(t2_st_reconstructed,df_steering['steering'].to_numpy(),label='reconstructed t2')
+    # # # add to plot
+    # # ax1.plot(df_vicon['time'].to_numpy(),throttle_resampled,label='realligned throttle')
+    # # ax3.plot(df_vicon['time'].to_numpy(),steering_resampled,label='realligned steering')
+
+    # # ax1.legend()
+    # # ax3.legend()
+    # # plt.show()
+    return df_vicon
+
+
+
+
+
+
+
+
+def downsample(df,new_freq_hz):
+    dt = np.mean(np.diff(df['vicon time'].to_numpy())) # time step between data points
+
+    # Ensure 'vicon time' is a datetime or numeric index
+    df = df.copy()
+    
+    # Set 'vicon time' as index
+    df.set_index('vicon time', inplace=True)
+    
+    # Determine sampling interval
+    
+    original_freq_hz = int(np.round(1/dt))
+    
+    downsample_factor = original_freq_hz // new_freq_hz
+
+    # Use .iloc for every Nth sample (simple downsampling)
+    df_downsampled = df.iloc[::downsample_factor].reset_index()
+
+    return df_downsampled
+
+
+
+def process_vicon_data_kinematics(df,steps_shift,using_rosbag_data=False,bag_file=None,new_freq_hz=None):
     print('Processing kinematics data')
     mf = model_functions()
 
+
     # resampling the robot data to have the same time as the vicon data
-    from scipy.interpolate import interp1d
+    if using_rosbag_data==False:
+        from scipy.interpolate import interp1d
 
-    # Step 1: Identify sensor time differences and extract sensor checkpoints
-    sensor_time_diff = df['elapsed time sensors'].diff()
+        # Step 1: Identify sensor time differences and extract sensor checkpoints
+        sensor_time_diff = df['elapsed time sensors'].diff()
 
-    # Times where sensor values change more than 0.01s (100Hz -> 10Hz)
-    sensor_time = df['elapsed time sensors'][sensor_time_diff > 0.01].to_numpy()
-    steering_at_checkpoints = df['steering'][sensor_time_diff > 0.01].to_numpy()
+        # Times where sensor values change more than 0.01s (100Hz -> 10Hz)
+        sensor_time = df['elapsed time sensors'][sensor_time_diff > 0.01].to_numpy()
+        steering_at_checkpoints = df['steering'][sensor_time_diff > 0.01].to_numpy()
 
-    # Step 2: Interpolate using Zero-Order Hold
-    zoh_interp = interp1d(sensor_time, steering_at_checkpoints, kind='previous', bounds_error=False, fill_value="extrapolate")
+        # Step 2: Interpolate using Zero-Order Hold
+        zoh_interp = interp1d(sensor_time, steering_at_checkpoints, kind='previous', bounds_error=False, fill_value="extrapolate")
 
-    # Step 3: Apply interpolation to 'vicon time'
-    df['steering'] = zoh_interp(df['vicon time'].to_numpy())
+        # Step 3: Apply interpolation to 'vicon time'
+        df['steering'] = zoh_interp(df['vicon time'].to_numpy())
+
+    else:
+        df = process_rosbag_data(bag_file)
 
     
-    robot2vicon_delay = 0 # samples delay between the robot and the vicon data # very important to get it right (you can see the robot reacting to throttle and steering inputs before they have happened otherwise)
-    # this is beacause the lag between vicon-->laptop, and robot-->laptop is different. (The vicon data arrives sooner)
+    # robot2vicon_delay = 0 # samples delay between the robot and the vicon data # very important to get it right (you can see the robot reacting to throttle and steering inputs before they have happened otherwise)
+    # # this is beacause the lag between vicon-->laptop, and robot-->laptop is different. (The vicon data arrives sooner)
 
-    # there is a timedelay between robot and vicon system. Ideally the right way to do this would be to shift BACKWARDS in time the robot data.
-    # but equivalently we can shift FORWARDS in time the vicon data. This is done by shifting the vicon time backwards by the delay time.
-    # This is ok since we just need the data to be consistent. but be aware of this
-    df['vicon x'] = df['vicon x'].shift(+robot2vicon_delay)
-    df['vicon y'] = df['vicon y'].shift(+robot2vicon_delay)
-    df['vicon yaw'] = df['vicon yaw'].shift(+robot2vicon_delay)
-    # account for fisrt values that will be NaN
-    df['vicon x'].iloc[:robot2vicon_delay] = df['vicon x'].iloc[robot2vicon_delay]
-    df['vicon y'].iloc[:robot2vicon_delay] = df['vicon y'].iloc[robot2vicon_delay]
-    df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
+    # # there is a timedelay between robot and vicon system. Ideally the right way to do this would be to shift BACKWARDS in time the robot data.
+    # # but equivalently we can shift FORWARDS in time the vicon data. This is done by shifting the vicon time backwards by the delay time.
+    # # This is ok since we just need the data to be consistent. but be aware of this
+    # df['vicon x'] = df['vicon x'].shift(+robot2vicon_delay)
+    # df['vicon y'] = df['vicon y'].shift(+robot2vicon_delay)
+    # df['vicon yaw'] = df['vicon yaw'].shift(+robot2vicon_delay)
+    # # account for fisrt values that will be NaN
+    # df['vicon x'].iloc[:robot2vicon_delay] = df['vicon x'].iloc[robot2vicon_delay]
+    # df['vicon y'].iloc[:robot2vicon_delay] = df['vicon y'].iloc[robot2vicon_delay]
+    # df['vicon yaw'].iloc[:robot2vicon_delay] = df['vicon yaw'].iloc[robot2vicon_delay]
+    if new_freq_hz is None:
+        pass
+    else:
+        print('downsampling data to ',new_freq_hz,' Hz')
+        df = downsample(df,new_freq_hz)
+
 
 
     #  ---  relocating reference point to the centre of mass  ---
@@ -708,6 +933,9 @@ def process_vicon_data_kinematics(df,steps_shift):
     return df
 
 
+
+
+
 def process_raw_vicon_data(df,steps_shift):
     print('Processing dynamics data')
 
@@ -809,75 +1037,103 @@ def unwrap_hm(x):  # this function is used to unwrap the angles
         raise ValueError("Invalid input type. Expected 'float', 'int', or 'numpy.ndarray'.")
 
 
-def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_repeat):
-    # Initialize a list to store the refined past action values
-    refined_past_actions = []
+# def generate_tensor_past_actions(df, n_past_actions, refinement_factor, key_to_repeat):
+#     # Initialize a list to store the refined past action values
+#     refined_past_actions = []
     
-    # Iterate over the past actions and create the refined past actions directly
-    for i in range(0, n_past_actions):
+#     # Iterate over the past actions and create the refined past actions directly
+#     for i in range(0, n_past_actions):
+#         # Shift the values for each past action step
+#         past_action = df[key_to_repeat].shift(i, fill_value=0)
+        
+#         # Refine the action values by zero-order hold and append them to the refined list
+#         for k in range(refinement_factor):
+#             refined_past_actions.append(past_action)
+
+#     # Convert the refined past actions list into a numpy array (or tensor)
+#     refined_past_actions_matrix = np.stack(refined_past_actions, axis=1)
+    
+#     # Convert the matrix into a tensor and move it to the GPU (if available)
+#     train_x = torch.tensor(refined_past_actions_matrix) #.cuda()
+
+#     return train_x
+
+
+def generate_tensor_past_actions(df, n_past_actions, key_to_repeat):
+    # ordered left to right from the most recent to the oldest
+    #[t0 t-1 t-2 t-3 ... t-n]
+
+    # Initialize a list to store the past action values
+    past_actions = []
+    
+    # Iterate over the past actions and create the past action values directly
+    for i in range(n_past_actions):
         # Shift the values for each past action step
         past_action = df[key_to_repeat].shift(i, fill_value=0)
-        
-        # Refine the action values by zero-order hold and append them to the refined list
-        for k in range(refinement_factor):
-            refined_past_actions.append(past_action)
+        past_actions.append(past_action)
 
-    # Convert the refined past actions list into a numpy array (or tensor)
-    refined_past_actions_matrix = np.stack(refined_past_actions, axis=1)
+    # Convert the past actions list into a numpy array (or tensor)
+    past_actions_matrix = np.stack(past_actions, axis=1)
     
-    # Convert the matrix into a tensor and move it to the GPU (if available)
-    train_x = torch.tensor(refined_past_actions_matrix).cuda()
-
+    # Convert the matrix into a tensor
+    train_x = torch.tensor(past_actions_matrix)
+    
     return train_x
 
 
-def plot_vicon_data(df):
 
+def plot_kinemaitcs_data(df):
     # plot vicon data filtering process
     plotting_time_vec = df['vicon time'].to_numpy()
 
     fig1, ((ax1, ax2, ax3),(ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(10, 6), constrained_layout=True)
     ax1.set_title('velocity x')
     #ax1.plot(plotting_time_vec, df['vx_abs_raw'].to_numpy(), label="vicon abs vx raw", color='k')
-    ax1.plot(plotting_time_vec, df['vx_abs_filtered'].to_numpy(), label="vicon abs vx filtered", color='dodgerblue')
+    ax1.plot(plotting_time_vec, df['vx body'].to_numpy(), label="vx body", color='dodgerblue')
     ax1.legend()
 
     ax4.set_title('acceleration x')
-    #ax4.plot(plotting_time_vec, df['ax_abs_raw'].to_numpy(), label="vicon abs ax raw", color='k')
-    #ax4.plot(plotting_time_vec, df['ax_abs_filtered'].to_numpy(), label="vicon abs ax filtered", color='k')
-    ax4.plot(plotting_time_vec, df['ax_abs_filtered_more'].to_numpy(), label="vicon abs ax filtered more", color='dodgerblue')
+    ax4.plot(plotting_time_vec, df['ax body'].to_numpy(), label="ax body", color='dodgerblue',alpha=0.6)
     ax4.legend()
 
 
     ax2.set_title('velocity y')
-    #ax2.plot(plotting_time_vec, df['vy_abs_raw'].to_numpy(), label="vicon abs vy raw", color='k')
-    ax2.plot(plotting_time_vec, df['vy_abs_filtered'].to_numpy(), label="vicon abs vy filtered", color='orangered')
+    ax2.plot(plotting_time_vec, df['vy body'].to_numpy(), label="vy body", color='orangered')
     ax2.legend()
 
     ax5.set_title('acceleration y')
-    #ax5.plot(plotting_time_vec, df['ay_abs_raw'].to_numpy(), label="vicon abs ay raw", color='k')
-    #ax5.plot(plotting_time_vec, df['ay_abs_filtered'].to_numpy(), label="vicon abs ay filtered", color='k')
-    ax5.plot(plotting_time_vec, df['ay_abs_filtered_more'].to_numpy(), label="vicon abs ay filtered more", color='orangered')
+    ax5.plot(plotting_time_vec, df['ay body'].to_numpy(), label="ay body", color='orangered',alpha=0.6)
     ax5.legend()
 
 
     ax3.set_title('velocity yaw')
     #ax3.plot(plotting_time_vec, df['w_abs_raw'].to_numpy(), label="vicon w raw", color='k')
-    ax3.plot(plotting_time_vec, df['w'].to_numpy(), label="vicon w filtered", color='slateblue')
+    ax3.plot(plotting_time_vec, df['w'].to_numpy(), label="w", color='slateblue')
     ax3.legend()
 
     ax6.set_title('acceleration yaw')
     #ax6.plot(plotting_time_vec, df['aw_abs_raw'].to_numpy(), label="vicon aw raw", color='k')
     #ax6.plot(plotting_time_vec, df['aw_abs_filtered'].to_numpy(), label="vicon aw filtered", color='k')
-    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="vicon aw filtered more", color='slateblue')
+    ax6.plot(plotting_time_vec, df['acc_w'].to_numpy(), label="acc w", color='slateblue',alpha=0.6)
     ax6.legend()
 
+    ax_vx = ax1
+    ax_vy = ax2
+    ax_w = ax3
+    ax_acc_x = ax4
+    ax_acc_y = ax5
+    ax_acc_w = ax6
 
 
 
 
-    # plot raw opti data
+
+    # plot raw vicon data
     fig1, ((ax1, ax2, ax3 , ax4)) = plt.subplots(4, 1, figsize=(10, 6), constrained_layout=True)
+    # get axis for velocity data
+    ax_vx2 = ax2
+    ax_w2 = ax3
+
     ax1.set_title('Velocity data')
     #ax1.plot(plotting_time_vec, df['vx_abs'].to_numpy(), label="Vx abs data", color='lightblue')
     #ax1.plot(plotting_time_vec, df['vy_abs'].to_numpy(), label="Vy abs data", color='rosybrown')
@@ -886,18 +1142,26 @@ def plot_vicon_data(df):
     ax1.legend()
 
     # plot body frame data time history
-    ax2.set_title('Vy data raw vicon')
+    ax2.set_title('Vx data raw vicon')
     ax2.plot(plotting_time_vec, df['throttle'].to_numpy(), label="Throttle",color='gray', alpha=1)
-    ax2.plot(plotting_time_vec, df['vel encoder'].to_numpy(),label="Velocity Encoder raw", color='indigo')
     ax2.plot(plotting_time_vec, df['vx body'].to_numpy(), label="Vx body frame",color='dodgerblue')
-    ax2.plot(plotting_time_vec, df['Vx_wheel_front'].to_numpy(), label="Vx front wheel",color='navy')
-    #ax2.plot(plotting_time_vec, df['vy body'].to_numpy(), label="Vy body frame",color='orangered')
+    #plot safety value
+    mask = np.array(df['safety_value']) == 1
+    ax2.fill_between(plotting_time_vec, ax2.get_ylim()[0], ax2.get_ylim()[1], where=mask, color='gray', alpha=0.1, label='safety value disingaged')
+    #ax2.plot(plotting_time_vec,df['safety_value'].to_numpy(),label='safety value',color='k')
+    if 'vel encoder' in df.columns:
+        ax2.plot(plotting_time_vec, df['vel encoder'].to_numpy(),label="Velocity Encoder raw", color='indigo')
+    if 'Vx_wheel_front' in df.columns:
+        ax2.plot(plotting_time_vec, df['Vx_wheel_front'].to_numpy(), label="Vx front wheel",color='navy')
+    
+
     
     ax2.legend()
     # plot omega data time history
     ax3.set_title('Omega data time history')
     ax3.plot(plotting_time_vec, df['steering'].to_numpy(),label="steering input raw data", color='pink') #  -17 / 180 * np.pi * 
-    ax3.plot(plotting_time_vec, df['W (IMU)'].to_numpy(),label="omega IMU raw data", color='orchid')
+    if 'W IMU' in df.columns:
+        ax3.plot(plotting_time_vec, df['W IMU'].to_numpy(),label="omega IMU raw data", color='orchid')
     #ax3.plot(plotting_time_vec, df['w_abs'].to_numpy(), label="omega opti", color='lightblue')
     ax3.plot(plotting_time_vec, df['w'].to_numpy(), label="omega opti filtered",color='slateblue')
     ax3.legend()
@@ -909,6 +1173,15 @@ def plot_vicon_data(df):
     ax4.plot(plotting_time_vec, df['vicon yaw'].to_numpy(), label="theta raw data", color='darkgreen')
     ax4.legend()
 
+    return ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w,ax_vx2,ax_w2
+
+
+
+def plot_vicon_data(df):
+    
+    ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
+
+    plotting_time_vec = df['vicon time'].to_numpy()
 
     # plot slip angles
     fig2, ((ax1, ax2, ax3)) = plt.subplots(3, 1, figsize=(10, 6), constrained_layout=True)
@@ -1123,6 +1396,11 @@ def plot_vicon_data(df):
     return ax_wheel_f_alpha,ax_wheel_r_alpha,ax_total_force_front,\
 ax_total_force_rear,ax_lat_force,ax_long_force,\
 ax_acc_x_body,ax_acc_y_body,ax_acc_w
+
+
+
+
+
 
 
 class friction_curve_model(torch.nn.Sequential,model_functions):
@@ -1570,7 +1848,10 @@ def plot_motor_friction_curves(df,acceleration_curve_model_obj,fitting_friction)
 
 
 
-def produce_long_term_predictions(input_data, model,prediction_window,jumps,forward_propagate_indexes):
+def produce_long_term_predictions(input_data, forward_function,prediction_window,jumps,forward_propagate_indexes):
+
+    # forward_function is what will perform acc_x, acc_y, acc_w = forward_function(vx,vy,w,steering,throttle)
+
     # plotting long term predictions on data
     # each prediction window starts from a data point and then the quantities are propagated according to the provided model,
     # so they are not tied to the Vx Vy W data in any way. Though the throttle and steering inputs are taken from the data of course.
@@ -1614,10 +1895,10 @@ def produce_long_term_predictions(input_data, model,prediction_window,jumps,forw
             elpsed_time_long_term_pred = elpsed_time_long_term_pred + dt
 
             #produce propagated state
-            state_action_k = long_term_pred[k,1:n_states+n_inputs+1]
+            state_action_k = long_term_pred[k,1:n_states+n_inputs + 1]
             
             # run it through the model
-            accelerations = model.forward(state_action_k) # absolute accelerations in the current vehicle frame of reference
+            accelerations = forward_function(state_action_k) # absolute accelerations in the current vehicle frame of reference
             
             # evaluate new state
             new_state_new_frame_candidate = long_term_pred[k,1:n_states+1] + accelerations * dt 
@@ -1798,15 +2079,15 @@ class dyn_model_culomb_tires_pitch(dyn_model_culomb_tires):
 
         state_action_base_model = state_action[:7]
         [acc_x,acc_y,acc_w, pitch_dot_dot, pitch_dot] = self.dyn_model_culomb_tires_obj.forward(state_action_base_model) # forward base model
-        
+
         # extract axuliary states
         throttle = state_action[3]
         steering = state_action[4]
 
         throttle_command = state_action[7]
         steering_command = state_action[8]
-        
-        
+
+
         # forwards integrate steering and throttle commands
         throttle_time_constant = 0.1 * self.d_m_self / (1 + self.d_m_self) # converting from discrete time to continuous time
         throttle_dot = (throttle_command - throttle) / throttle_time_constant
@@ -1934,6 +2215,14 @@ from gpytorch.variational import VariationalStrategy
 
 
 
+
+
+
+
+
+
+
+
 # SVGP 
 class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
     def __init__(self,inducing_points):
@@ -1947,6 +2236,7 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
 
     def setup_time_delay_fitting(self,actuator_time_delay_fitting_tag,n_past_actions,dt):
         # time filtering related
+        n_past_actions = int(n_past_actions)
         self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
         self.n_past_actions = n_past_actions
         self.dt = dt
@@ -1958,9 +2248,10 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
             self.constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
             
         elif self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
-            self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
-            self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
-
+            # self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            # self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
+            self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
 
     def transform_parameters_norm_2_real(self):
         
@@ -1986,7 +2277,16 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
         return likelihood, optimizer
 
 
-    def forward(self, x):
+    def forward(self, x_4_model):
+        # produce the inputs for the model
+        #x_4_model, weights_throttle, weights_steering = self.produce_th_st_4_model(x)
+        # feed them to the model
+        mean_x = self.mean_module(x_4_model)
+        covar_x = self.covar_module(x_4_model)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+    def produce_th_st_4_model(self,x):
         # extract throttle and steering inputs
         if self.actuator_time_delay_fitting_tag == 1 or self.actuator_time_delay_fitting_tag == 2: # extract inputs
             throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
@@ -2005,14 +2305,851 @@ class SVGPModel_actuator_dynamics(ApproximateGP,model_functions):
             steering = torch.matmul(steering_past_actions, weights_steering)
 
             x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+            return x_4_model, weights_throttle, weights_steering
         else:
             x_4_model = x
+            return x_4_model,[],[]
 
-    
+
+
+
+
+
+
+# SVGP 
+class SVGP_submodel_actuator_dynamics(ApproximateGP):
+    # the single SVGP used to model either vx, vy or w
+    def __init__(self,inducing_points):
+        variational_distribution = CholeskyVariationalDistribution(inducing_points.size(0))
+        variational_strategy = VariationalStrategy(self, inducing_points, variational_distribution, learn_inducing_locations=True)
+        super(SVGP_submodel_actuator_dynamics, self).__init__(variational_strategy)
+        self.mean_module = gpytorch.means.ZeroMean()
+        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=inducing_points.size(1)))
+
+    def forward(self, x_4_model):
 
         mean_x = self.mean_module(x_4_model)
         covar_x = self.covar_module(x_4_model)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
+
+class SVGP_unified_model(torch.nn.Sequential,model_functions):
+    def __init__(self,inducing_points,n_past_actions,dt,actuator_time_delay_fitting_tag,submodel_vx,submodel_vy,submodel_vw,learn_weights_tag):
+        
+        super().__init__() # this will also add the same parameters to this class
+
+        self.learn_weights_tag = learn_weights_tag
+
+        # instantiate the 3 models
+        self.model_vx = submodel_vx
+        self.model_vy = submodel_vy
+        self.model_w = submodel_vw
+        
+
+        # produce likelihood objects 
+        self.likelihood_vx = gpytorch.likelihoods.GaussianLikelihood() 
+        self.likelihood_vy = gpytorch.likelihoods.GaussianLikelihood() 
+        self.likelihood_w  = gpytorch.likelihoods.GaussianLikelihood() 
+
+        # add time delay fitting parameters
+        self.setup_time_delay_fitting(actuator_time_delay_fitting_tag,n_past_actions,dt,self.learn_weights_tag)
+
+        self.Hardsigmoid = torch.nn.Hardsigmoid()
+
+
+
+    def setup_time_delay_fitting(self,actuator_time_delay_fitting_tag,n_past_actions,dt,learn_weights_tag):
+        # time filtering related
+        n_past_actions = int(n_past_actions)
+        self.actuator_time_delay_fitting_tag = actuator_time_delay_fitting_tag
+        self.n_past_actions = n_past_actions
+        self.dt = dt
+
+
+        if self.actuator_time_delay_fitting_tag == 1:
+            # add time constant parameters
+            self.register_parameter('time_C_throttle', torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+            self.register_parameter('time_C_steering', torch.nn.Parameter(torch.Tensor([0.5]).cuda()))
+            self.constraint_weights = torch.nn.Hardtanh(0, 1) # this constraint will make sure that the parmeter is between 0 and 1
+            
+        elif self.actuator_time_delay_fitting_tag == 2: # define linear layer for time delay fitting
+            # self.raw_weights_throttle = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            # self.raw_weights_steering = torch.nn.Parameter(torch.randn(1, n_past_actions) * 1)
+            # put to cuda if available
+            if learn_weights_tag:
+                if torch.cuda.is_available():
+                    self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda() * 0.5)
+                    self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda() * 0.5)
+                else:
+                    self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
+                    self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions) * 0.5)
+            else: 
+                if torch.cuda.is_available():
+                    self.raw_weights_throttle = torch.ones(1, n_past_actions).cuda() * 0.5
+                    self.raw_weights_steering = torch.ones(1, n_past_actions).cuda() * 0.5
+                else:
+                    self.raw_weights_throttle = torch.ones(1, n_past_actions) * 0.5
+                    self.raw_weights_steering = torch.ones(1, n_past_actions) * 0.5
+
+
+    def forward(self, x):
+        # extract throttle and steering inputs
+        x_4_model, weights_throttle, weights_steering , non_normalized_w_th, non_normalized_w_st = self.produce_th_st_4_model(x)
+        output_vx = self.model_vx(x_4_model)
+        output_vy = self.model_vy(x_4_model)
+        output_w = self.model_w(x_4_model)
+
+        return output_vx,output_vy,output_w,weights_throttle,weights_steering, non_normalized_w_th, non_normalized_w_st
+        
+
+    def produce_th_st_4_model(self,x):
+        # extract throttle and steering inputs
+        if self.actuator_time_delay_fitting_tag == 1 or self.actuator_time_delay_fitting_tag == 2: # extract inputs
+            throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
+            steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
+
+            if self.actuator_time_delay_fitting_tag == 1: # using physics informed
+                [time_C_throttle,time_C_steering] = self.transform_parameters_norm_2_real()
+                weights_throttle = self.produce_past_action_coefficients_1st_oder_step_response(time_C_throttle,self.n_past_actions,self.dt).float()
+                weights_steering = self.produce_past_action_coefficients_1st_oder_step_response(time_C_steering,self.n_past_actions,self.dt).float()
+
+            elif self.actuator_time_delay_fitting_tag == 2: # using linear layer
+                weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+                weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+                # transpose
+                weights_throttle = weights_throttle.t()
+                weights_steering = weights_steering.t()
+                non_normalized_w_th = non_normalized_w_th.t()
+                non_normalized_w_st = non_normalized_w_st.t()
+
+            throttle = throttle_past_actions @ weights_throttle #torch.matmul(throttle_past_actions, weights_throttle)
+            steering = steering_past_actions @ weights_steering #torch.matmul(steering_past_actions, weights_steering)
+
+            x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+            return x_4_model, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st
+        else:
+            x_4_model = x
+            return x_4_model,[],[],[],[]
+        
+
+
+    def constrained_linear_layer(self, raw_weights):
+        # Apply softplus to make weights positive
+        #positive_weights = torch.nn.functional.softplus(raw_weights)
+        # pass raw weights through sigmoid
+        positive_weights = raw_weights ** 2
+        
+        # Normalize the weights along the last dimension so they sum to 1 for each output unit
+        normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
+        # Apply the weights to the input
+        return normalized_weights, positive_weights
+    
+
+    def train_model(self,num_epochs,learning_rate,fit_likelihood_noise_tag,train_x, train_y_vx, train_y_vy, train_y_w):
+        
+        # start fitting
+        # make contiguous (not sure why)
+        train_x = train_x.contiguous()
+        train_y_vx = train_y_vx.contiguous()
+        train_y_vy = train_y_vy.contiguous()
+        train_y_w = train_y_w.contiguous()
+
+        # define batches for training (each bach will be used to perform a gradient descent step in each iteration. So toal parameters updates are Epochs*n_batches)
+        from torch.utils.data import TensorDataset, DataLoader
+        train_dataset = TensorDataset(train_x, train_y_vx, train_y_vy, train_y_w) # 
+
+        # define data loaders
+        train_loader = DataLoader(train_dataset, batch_size=1000, shuffle=True) #  batch_size=250
+
+        #set to training mode
+        self.model_vx.train()
+        self.model_vy.train()
+        self.model_w.train()
+        self.likelihood_vx.train()
+        self.likelihood_vy.train()
+        self.likelihood_w.train()
+
+
+        # Set up loss object. We're using the VariationalELBO
+        mll_vx = gpytorch.mlls.VariationalELBO(self.likelihood_vx, self.model_vx, num_data=train_y_vx.size(0))
+        mll_vy = gpytorch.mlls.VariationalELBO(self.likelihood_vy, self.model_vy, num_data=train_y_vy.size(0))
+        mll_w = gpytorch.mlls.VariationalELBO(self.likelihood_w, self.model_w, num_data=train_y_w.size(0))
+
+        loss_2_print_vx_vec = []
+        loss_2_print_vy_vec = []
+        loss_2_print_w_vec = []
+        loss_2_print_weights = []
+        total_loss_vec = []
+    
+        if self.learn_weights_tag:
+            #optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-4)
+            optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-4)
+            #optimizer = torch.optim.SGD(self.parameters(), lr=learning_rate)
+        else:
+            if fit_likelihood_noise_tag:
+                optimizer_x = torch.optim.Adam([{'params': self.model_vx.parameters()}, {'params': self.likelihood_vx.parameters()},], lr=learning_rate)
+                optimizer_y = torch.optim.Adam([{'params': self.model_vy.parameters()}, {'params': self.likelihood_vy.parameters()},], lr=learning_rate)
+                optimizer_w = torch.optim.Adam([{'params': self.model_w.parameters()}, {'params': self.likelihood_w.parameters()},], lr=learning_rate)
+            else:
+                optimizer_x = torch.optim.Adam(self.model_vx.parameters(), lr=learning_rate)
+                optimizer_y = torch.optim.Adam(self.model_vy.parameters(), lr=learning_rate)
+                optimizer_w = torch.optim.Adam(self.model_w.parameters(), lr=learning_rate)
+
+        # Print the parameters with their names and shapes if they will be trained
+        print('Parameters to optimize:')
+        for name, param in self.named_parameters():
+            print(f"Parameter name: {name}, Shape: {param.shape}")
+        if fit_likelihood_noise_tag == False:
+            print('Likelihood noise parameters will NOT be trained for')
+
+
+
+
+        # start training (tqdm is just to show the loading bar)
+        bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
+        epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
+        
+        for i in epochs_iter: 
+            #torch.cuda.empty_cache()  # Releases unused cached memory
+
+            # Within each iteration, we will go over each minibatch of data
+            minibatch_iter = tqdm.tqdm(train_loader, desc="Minibatch", leave=False) 
+
+            for x_batch, y_batch_vx ,y_batch_vy, y_batch_w in minibatch_iter: # 
+                # Zero backprop gradients
+                if self.learn_weights_tag:
+                    optimizer.zero_grad()  # Clear previous gradients
+                else:
+                    optimizer_x.zero_grad()
+                    optimizer_y.zero_grad()
+                    optimizer_w.zero_grad()
+
+                # Forward pass
+                output_vx, output_vy, output_w, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st = self(x_batch)
+                
+                loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
+                loss_vy = -mll_vy(output_vy, y_batch_vy[:,0])
+                loss_w = -mll_w(output_w, y_batch_w[:,0])
+
+
+
+                if self.learn_weights_tag:
+                    # trying to enforce the weights to stick together
+                    weights_loss_scale = 0.05 # sale the loss equally to avoid it being dominant 0.05
+                    q_weights = 1
+
+                    loss_weights_th = - 0.1 * q_weights * torch.norm(weights_throttle, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+                    loss_weights_st = - 0.1 * q_weights * torch.norm(weights_steering, p=float('inf')) # q_weights * torch.mean((1+weights_throttle)**2) 
+
+                    loss_weights = loss_weights_th + loss_weights_st
+                    #scale the loss
+                    loss_weights = weights_loss_scale * loss_weights
+
+                    # Combine all losses
+                    total_loss =  loss_weights + loss_vx + loss_w + loss_vy
+                                    # Print the current loss for vx (or use other loss types if needed)
+                    
+                    minibatch_iter.set_postfix(loss=total_loss.item())
+
+                    # Backward pass (compute gradients for the total loss)
+                    total_loss.backward()
+
+                    # Update parameters using the optimizer
+                    optimizer.step()
+                else:
+                    # the three models are actually independent
+                    loss_vx.backward()
+                    loss_vy.backward()
+                    loss_w.backward()
+                    optimizer_x.step()
+                    optimizer_y.step()
+                    optimizer_w.step()
+
+
+
+
+                
+
+
+            if self.learn_weights_tag:
+                loss_2_print_weights = [*loss_2_print_weights, loss_weights.item()]
+                total_loss_vec = [*total_loss_vec, total_loss.item()]
+            loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
+            loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
+            loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+            
+
+            
+        #plot loss functions
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+        ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+        ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+        ax.plot(total_loss_vec,label='total loss',color='k')
+        ax.plot(loss_2_print_weights,label='loss weights',color='lime')
+        ax.legend()
+
+
+    def save_model(self,folder_path_SVGP_params,actuator_time_delay_fitting_tag,n_past_actions,dt,use_nominal_model):
+        # SAve model parameters
+
+
+        # analytical version of the model [necessary for solver implementation]
+        # rebuild SVGP using m and S 
+        inducing_locations_x = self.model_vx.variational_strategy.inducing_points.cpu().detach().numpy()
+        outputscale_x = self.model_vx.covar_module.outputscale.item()
+        lengthscale_x = self.model_vx.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
+
+        inducing_locations_y = self.model_vy.variational_strategy.inducing_points.cpu().detach().numpy()
+        outputscale_y = self.model_vy.covar_module.outputscale.item()
+        lengthscale_y = self.model_vy.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
+
+        inducing_locations_w = self.model_w.variational_strategy.inducing_points.cpu().detach().numpy()
+        outputscale_w = self.model_w.covar_module.outputscale.item()
+        lengthscale_w = self.model_w.covar_module.base_kernel.lengthscale.cpu().detach().numpy()[0]
+
+
+        KZZ_x = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_x),np.squeeze(inducing_locations_x),outputscale_x,lengthscale_x)
+        KZZ_y = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_y),np.squeeze(inducing_locations_y),outputscale_y,lengthscale_y)
+        KZZ_w = rebuild_Kxy_RBF_vehicle_dynamics(np.squeeze(inducing_locations_w),np.squeeze(inducing_locations_w),outputscale_w,lengthscale_w)
+
+
+        # call prediction module on inducing locations
+        n_inducing_points = inducing_locations_x.shape[0]
+        jitter_term = 0.0001 * np.eye(n_inducing_points)  # this is very important for numerical stability
+
+
+        preds_zz_x = self.model_vx(self.model_vx.variational_strategy.inducing_points)
+        preds_zz_y = self.model_vy(self.model_vy.variational_strategy.inducing_points)
+        preds_zz_w = self.model_w( self.model_w.variational_strategy.inducing_points)
+
+        m_x = preds_zz_x.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
+        S_x = self.model_vx.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  # preds_zz.covariance_matrix.detach().cpu().numpy() # 
+
+        m_y = preds_zz_y.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
+        S_y = self.model_vy.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+
+        m_w = preds_zz_w.mean.detach().cpu().numpy() # model.variational_strategy.variational_distribution.mean.detach().cpu().numpy()  #
+        S_w = self.model_w.variational_strategy.variational_distribution.covariance_matrix.detach().cpu().numpy()  
+
+        # Compute the covariance of q(f)
+        # K_XX + k_XZ K_ZZ^{-1/2} (S - I) K_ZZ^{-1/2} k_ZX
+
+        # solve the pre-post multiplication block
+
+        # Define a lower triangular matrix L and a matrix B
+        L_inv_x = np.linalg.inv(np.linalg.cholesky(KZZ_x + jitter_term))
+        #KZZ_inv_x = np.linalg.inv(KZZ_x + jitter_term)
+        right_vec_x = np.linalg.solve(KZZ_x + jitter_term, m_x)
+        middle_x = S_x - np.eye(n_inducing_points)
+
+        L_inv_y = np.linalg.inv(np.linalg.cholesky(KZZ_y + jitter_term))
+        #KZZ_inv_y = np.linalg.inv(KZZ_y + jitter_term)
+        right_vec_y = np.linalg.solve(KZZ_y + jitter_term, m_y)
+        middle_y = S_y - np.eye(n_inducing_points)
+
+        L_inv_w = np.linalg.inv(np.linalg.cholesky(KZZ_w + jitter_term))
+        #KZZ_inv_w = np.linalg.inv(KZZ_w + jitter_term)
+        right_vec_w = np.linalg.solve(KZZ_w + jitter_term, m_w)
+        middle_w = S_w - np.eye(n_inducing_points)
+
+
+        # save quantities to use them later in a solver
+        np.save(folder_path_SVGP_params+'m_x.npy', m_x)
+        np.save(folder_path_SVGP_params+'middle_x.npy', middle_x)
+        np.save(folder_path_SVGP_params+'L_inv_x.npy', L_inv_x)
+        np.save(folder_path_SVGP_params+'right_vec_x.npy', right_vec_x)
+        np.save(folder_path_SVGP_params+'inducing_locations_x.npy', inducing_locations_x)
+        np.save(folder_path_SVGP_params+'outputscale_x.npy', outputscale_x)
+        np.save(folder_path_SVGP_params+'lengthscale_x.npy', lengthscale_x)
+
+        np.save(folder_path_SVGP_params+'m_y.npy', m_y)
+        np.save(folder_path_SVGP_params+'middle_y.npy', middle_y)
+        np.save(folder_path_SVGP_params+'L_inv_y.npy', L_inv_y)
+        np.save(folder_path_SVGP_params+'right_vec_y.npy', right_vec_y)
+        np.save(folder_path_SVGP_params+'inducing_locations_y.npy', inducing_locations_y)
+        np.save(folder_path_SVGP_params+'outputscale_y.npy', outputscale_y)
+        np.save(folder_path_SVGP_params+'lengthscale_y.npy', lengthscale_y)
+
+        np.save(folder_path_SVGP_params+'m_w.npy', m_w)
+        np.save(folder_path_SVGP_params+'middle_w.npy', middle_w)
+        np.save(folder_path_SVGP_params+'L_inv_w.npy', L_inv_w)
+        np.save(folder_path_SVGP_params+'right_vec_w.npy', right_vec_w)
+        np.save(folder_path_SVGP_params+'inducing_locations_w.npy', inducing_locations_w)
+        np.save(folder_path_SVGP_params+'outputscale_w.npy', outputscale_w)
+        np.save(folder_path_SVGP_params+'lengthscale_w.npy', lengthscale_w)
+
+        # save SVGP models in torch format
+        # save the time delay realated parameters
+        #time_delay_parameters = np.array([actuator_time_delay_fitting_tag,n_past_actions,dt])
+        #np.save(folder_path_SVGP_params + 'time_delay_parameters.npy', time_delay_parameters)
+        np.save(folder_path_SVGP_params + 'actuator_time_delay_fitting_tag.npy', actuator_time_delay_fitting_tag)
+        np.save(folder_path_SVGP_params + 'n_past_actions.npy', n_past_actions)
+        np.save(folder_path_SVGP_params + 'dt.npy', dt)
+        # save tag if to use nominal model
+        np.save(folder_path_SVGP_params + 'use_nominal_model.npy', use_nominal_model)
+
+
+        # save weights
+        if actuator_time_delay_fitting_tag == 2:
+            # save weights
+            #raw_weights_throttle = self.raw_weights_throttle.detach().cpu().numpy()
+            #raw_weights_steering = self.raw_weights_steering.detach().cpu().numpy()
+            # evaluate the weights
+            weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+            weights_throttle = weights_throttle.t().detach().cpu().numpy()
+            weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+            weights_steering = weights_steering.t().detach().cpu().numpy()
+
+            np.save(folder_path_SVGP_params + 'weights_throttle.npy', weights_throttle)
+            np.save(folder_path_SVGP_params + 'weights_steering.npy', weights_steering)
+
+        # vx
+        model_path_vx = folder_path_SVGP_params + 'svgp_model_vx.pth'
+        likelihood_path_vx = folder_path_SVGP_params + 'svgp_likelihood_vx.pth'
+        torch.save(self.model_vx.state_dict(), model_path_vx)
+        torch.save(self.likelihood_vx.state_dict(), likelihood_path_vx)
+        # vy
+        model_path_vy = folder_path_SVGP_params + 'svgp_model_vy.pth'
+        likelihood_path_vy = folder_path_SVGP_params + 'svgp_likelihood_vy.pth'
+        torch.save(self.model_vy.state_dict(), model_path_vy)
+        torch.save(self.likelihood_vy.state_dict(), likelihood_path_vy)
+        # w
+        model_path_w = folder_path_SVGP_params + 'svgp_model_w.pth'
+        likelihood_path_w = folder_path_SVGP_params + 'svgp_likelihood_w.pth'
+        torch.save(self.model_w.state_dict(), model_path_w)
+        torch.save(self.likelihood_w.state_dict(), likelihood_path_w)
+
+        print('------------------------------')
+        print('--- saved model parameters ---')
+        print('------------------------------')
+        print('saved parameters in folder: ', folder_path_SVGP_params)
+
+
+# put SVGP unified analytical here
+class SVGP_unified_analytic:
+        def __init__(self):
+            pass
+
+
+        def load_parameters(self, folder_path):
+            print('loading GP parameters from folder: ', folder_path)
+            import os
+            for filename in os.listdir(folder_path):
+                if filename.endswith(".npy"):
+                    param_name = os.path.splitext(filename)[0]  # Remove .npy extension
+                    file_path = os.path.join(folder_path, filename)
+                    setattr(self, param_name, np.load(file_path))  # Dynamically add attribute
+                    # print 
+                    print('loaded: ', param_name)
+
+
+        def predictive_mean_only(self,x_star):
+            # x_star = [th st vx vy w]
+            # output is acc_vx, acc_vy, acc_w
+            # check if use casadi or numpy
+            import casadi
+            if type(x_star) == np.ndarray:
+                kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
+                kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
+                kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+            elif type(x_star) == casadi.MX or type(x_star) == casadi.SX:
+                kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_x,self.outputscale_x,self.lengthscale_x)
+                kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_y,self.outputscale_y,self.lengthscale_y)
+                kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics_casadi(x_star,self.inducing_locations_w,self.outputscale_w,self.lengthscale_w)
+            
+            # prediction
+            mean_x = kXZ_x @ self.right_vec_x
+            mean_y = kXZ_y @ self.right_vec_y
+            mean_w = kXZ_w @ self.right_vec_w
+
+            return mean_x, mean_y, mean_w
+        
+        def forward_4_long_term_prediction(self,state_action):
+            # state_action = [vx, vy, w, throttle_filtered, steering_filtered, throttle, steering]
+            x_star = np.expand_dims(state_action[:5],0)
+            mean_x, mean_y, mean_w = self.predictive_mean_only(x_star)
+            accelerations = np.array([mean_x.item(), mean_y.item(), mean_w.item(),0.0,0.0]) # last two dummy values for the th and st dynamics that are computed offline
+            return accelerations
+
+
+        
+        def predictive_mean_cov(self,x_star):
+            # x_star = [th st vx vy w]
+            # output is acc_vx, acc_vy, acc_w
+
+            # x
+            kXZ_x = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_x),self.outputscale_x,self.lengthscale_x)
+            X_x = self.L_inv_x @ kXZ_x.T
+            KXX_x = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale_x,self.lengthscale_x)
+            # prediction
+            mean_x = kXZ_x @ self.right_vec_x
+            cov_mS_x = KXX_x + X_x.T @ self.middle_x @ X_x
+
+            # y
+            kXZ_y = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_y),self.outputscale_y,self.lengthscale_y)
+            X_y = self.L_inv_y @ kXZ_y.T
+            KXX_y = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale_y,self.lengthscale_y)
+            # prediction
+            mean_y = kXZ_y @ self.right_vec_y
+            cov_mS_y = KXX_y + X_y.T @ self.middle_y @ X_y
+
+            # w
+            kXZ_w = rebuild_Kxy_RBF_vehicle_dynamics(x_star,np.squeeze(self.inducing_locations_w),self.outputscale_w,self.lengthscale_w)
+            X_w = self.L_inv_w @ kXZ_w.T
+            KXX_w = RBF_kernel_rewritten(x_star[0],x_star[0],self.outputscale_w,self.lengthscale_w)
+            # prediction
+            mean_w = kXZ_w @ self.right_vec_w
+            cov_mS_w = KXX_w + X_w.T @ self.middle_w @ X_w
+
+        
+            return mean_x, mean_y, mean_w, cov_mS_x, cov_mS_y, cov_mS_w
+
+
+
+class dynamic_bicycle_actuator_delay_fitting(torch.nn.Sequential,model_functions):
+    def __init__(self,n_past_actions,dt):
+        
+        super().__init__() # this will also add the same parameters to this class
+        self.n_past_actions = n_past_actions
+        self.dt = dt
+
+        # default initialization of constant weights
+        if torch.cuda.is_available():
+            self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda()*0.5)
+            self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions).cuda()*0.5)
+        else:
+            self.raw_weights_throttle = torch.nn.Parameter(torch.ones(1, n_past_actions)*0.5)
+            self.raw_weights_steering = torch.nn.Parameter(torch.ones(1, n_past_actions)*0.5)
+
+        self.Hardsigmoid = torch.nn.Hardsigmoid()
+
+    def constrained_linear_layer(self, raw_weights):
+        # Apply softplus to make weights positive
+        #positive_weights = torch.nn.functional.softplus(raw_weights)
+        # pass raw weights through sigmoid
+        
+        #positive_weights = self.Hardsigmoid(raw_weights)
+        # just square up the weights
+        positive_weights = raw_weights**2
+        #positive_weights = torch.abs(raw_weights)
+        
+        # Normalize the weights along the last dimension so they sum to 1 for each output unit
+        normalized_weights = positive_weights / positive_weights.sum(dim=1, keepdim=True)
+        # Apply the weights to the input
+        return normalized_weights, positive_weights
+
+
+    def produce_th_st_4_model(self,x):
+        # extract throttle and steering inputs
+
+        throttle_past_actions = x[:,3:self.n_past_actions+3] # extract throttle past actions
+        steering_past_actions = x[:,3 + self.n_past_actions :] # extract steering past actions
+
+        weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+        weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+
+        # transpose
+        weights_throttle = weights_throttle.t()
+        weights_steering = weights_steering.t()
+        non_normalized_w_th = non_normalized_w_th.t()
+        non_normalized_w_st = non_normalized_w_st.t()
+
+        throttle = throttle_past_actions @ weights_throttle #torch.matmul(throttle_past_actions, weights_throttle)
+        steering = steering_past_actions @ weights_steering #torch.matmul(steering_past_actions, weights_steering)
+
+
+
+
+        x_4_model = torch.cat((x[:,:3],throttle,steering),1) # concatenate the inputs
+        return x_4_model, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st
+
+
+    def forward(self, x):
+        # extract throttle and steering inputs
+        x_4_model, weights_throttle, weights_steering , non_normalized_w_th, non_normalized_w_st = self.produce_th_st_4_model(x)
+        # replace with dynamic_bycicle model
+        vx = x_4_model[:,0]
+        vy = x_4_model[:,1]
+        w = x_4_model[:,2]
+        th = x_4_model[:,3]
+        st = x_4_model[:,4]
+
+        acc_x, acc_y, acc_w = self.dynamic_bicycle(th, st, vx, vy, w)
+
+        return acc_x, acc_y, acc_w,weights_throttle,weights_steering, non_normalized_w_th, non_normalized_w_st
+
+    def train_model(self,num_epochs,learning_rate,train_x, train_y_vx, train_y_vy, train_y_w, live_plot_weights,train_th,train_st):
+        
+        # start fitting
+        # make contiguous (not sure why)
+        train_x = train_x.contiguous()
+        train_y_vx = train_y_vx.contiguous()
+        train_y_vy = train_y_vy.contiguous()
+        train_y_w = train_y_w.contiguous()
+
+        # define batches for training (each bach will be used to perform a gradient descent step in each iteration. So toal parameters updates are Epochs*n_batches)
+        from torch.utils.data import TensorDataset, DataLoader
+        train_dataset = TensorDataset(train_x, train_y_vx, train_y_vy, train_y_w) # 
+
+        # define data loaders
+        train_loader = DataLoader(train_dataset, batch_size=800, shuffle=True) #  batch_size=250
+
+        # Set up loss object. We're using the VariationalELBO
+        mse_loss = torch.nn.MSELoss()
+
+        loss_2_print_vx_vec = []
+        loss_2_print_vy_vec = []
+        loss_2_print_w_vec = []
+        loss_2_print_weights = []
+        total_loss_vec = []
+
+        #optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate, weight_decay=1e-3)
+        if train_th == False:
+            # Remove the weights with name 'raw_weights_throttle' from the parameters
+            filtered_params = [param for name, param in self.named_parameters() if 'raw_weights_throttle' not in name]
+        else:
+            # Use all parameters if training throttle
+            filtered_params = self.parameters()
+
+        optimizer = torch.optim.Adam(filtered_params, lr=learning_rate)
+
+
+
+
+
+        # Print the parameters with their names and shapes
+        print('Parameters to optimize:')
+        for name, param in self.named_parameters():
+            print(f"Parameter name: {name}, Shape: {param.shape}")
+        if train_th == False:
+            print('Throttle weights will NOT be trained')
+
+        import matplotlib.pyplot as plt
+        if live_plot_weights:
+            
+            from IPython.display import display, clear_output
+            # Define time axis
+            time_axis = np.linspace(0, self.n_past_actions * self.dt, self.n_past_actions)
+            # Initialize plot
+            plt.ion()  # Interactive mode on
+            fig, ax1 = plt.subplots(figsize=(10, 5))  # Width = 10, Height = 5
+
+
+            line_th, = ax1.plot([], [], color='dodgerblue', label='Throttle Weights')
+            line_st, = ax1.plot([], [], color='orangered', label='Steering Weights')
+
+            ax1.set_xlabel("Time Delay [s]")
+            ax1.set_ylabel("Weight")
+            ax1.legend()
+            ax1.set_title("Live Plot of Weights Over Time")
+            # set the limits to 0 1
+            #ax1.set_ylim(0, 1.3)
+
+            # plot initial weights
+            weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+            weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+
+            # weights for plotting
+            # Convert to numpy for plotting
+            weights_th_numpy = non_normalized_w_th.detach().cpu().numpy().squeeze()
+            weights_st_numpy = non_normalized_w_st.detach().cpu().numpy().squeeze()
+
+            # Live update plot every few iterations
+            line_th.set_xdata(time_axis)
+            line_th.set_ydata(weights_th_numpy)
+            line_st.set_xdata(time_axis)
+            line_st.set_ydata(weights_st_numpy)
+
+            #ax1.relim()  # Recalculate limits
+            ax1.autoscale_view(True, True, True)  # Autoscale axes
+            display(fig)
+            fig.canvas.manager.window.raise_()
+            plt.pause(3)
+
+
+
+
+
+
+
+
+
+
+
+        # start training (tqdm is just to show the loading bar)
+        bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
+        epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
+        
+        for i in epochs_iter: 
+            #torch.cuda.empty_cache()  # Releases unused cached memory
+
+            # Within each iteration, we will go over each minibatch of data
+            minibatch_iter = tqdm.tqdm(train_loader, desc="Minibatch", leave=False) 
+
+            for x_batch, y_batch_vx ,y_batch_vy, y_batch_w in minibatch_iter: # 
+
+
+
+                # Zero backprop gradients
+                optimizer.zero_grad()  # Clear previous gradients
+
+                # Forward pass
+                acc_x, acc_y, acc_w, weights_throttle, weights_steering, non_normalized_w_th, non_normalized_w_st = self(x_batch)
+                
+
+
+                # Calculate individual losses
+ 
+                
+                # trying to enforce the weights to stick together
+                weights_loss_scale = 1 # sale the loss equally to avoid it being dominant 0.05
+                q_var_weights = 1
+                q_dev_weights = 0.1
+                q_weights = 0.5 #0.01
+
+                time_vec = torch.arange(0,self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                w_th_times_time = time_vec * torch.squeeze(weights_throttle) 
+                w_st_times_time = time_vec * torch.squeeze(weights_steering) 
+
+                mean_time_delay_th = torch.mean(w_th_times_time)
+                mean_time_delay_st = torch.mean(w_st_times_time)
+
+                var_th = torch.mean((w_th_times_time - mean_time_delay_th)**2)
+                var_st = torch.mean((w_st_times_time - mean_time_delay_st)**2)
+
+                # diff_weights_throttle = torch.diff(torch.squeeze(non_normalized_w_th))
+                # diff_weights_steering = torch.diff(torch.squeeze(non_normalized_w_st))
+
+                # # for discouraging weights far from the time now
+                # weights_of_weights = torch.arange(10,10+self.n_past_actions).float().cuda() # this is the index of the time delay, but ok just multiply by dt to get the time
+                # w_th_weighted = weights_of_weights * torch.squeeze(non_normalized_w_th)
+                # w_st_weighted  = weights_of_weights * torch.squeeze(non_normalized_w_st)
+
+
+
+                loss_weights_th = - 1 * q_weights * torch.norm(weights_throttle, p=float('inf')) + q_var_weights * var_th   #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
+                loss_weights_st = - 1 * q_weights * torch.norm(weights_steering, p=float('inf')) + q_var_weights * var_st   #float('inf')      q_weights * torch.mean((1+weights_throttle)**2) 
+
+                                #+ q_dev_weights * torch.sum(diff_weights_throttle**2 + diff_weights_steering**2)\
+                #+ q_weights * torch.sum( (w_th_weighted/self.n_past_actions )**2 + (w_st_weighted/self.n_past_actions )**2    ) # /self.n_past_actions 
+                #
+                                
+                                #+q_var_weights * (var_th + var_st)
+                             
+                             #- q_weights * (torch.mean(th_weights_squared)-1 + torch.mean(st_weights_squared)-1)
+
+                #scale the loss
+                loss_weights_th = weights_loss_scale * loss_weights_th 
+                loss_weights_st = weights_loss_scale * loss_weights_st 
+
+
+                loss_vx = mse_loss(acc_x, y_batch_vx[:,0])
+                loss_vy = mse_loss(acc_y, y_batch_vy[:,0])
+                loss_w =  mse_loss(acc_w, y_batch_w[:,0])
+
+                # Combine all losses
+                if train_st==True and train_th==True:
+                    total_loss =  loss_vx + loss_w + loss_vy # loss_weights_th + loss_weights_st +
+                elif train_st==True and train_th==False:
+                    total_loss =  loss_w + loss_vy# + loss_weights_st 
+                elif train_st==False and train_th==True:
+                    total_loss =  loss_vx #+ loss_weights_th 
+                #total_loss =   loss_vx + loss_weights_th
+                #total_loss = loss_vy + loss_w + loss_weights_st
+                
+                # Print the current loss for vx (or use other loss types if needed)
+                minibatch_iter.set_postfix(loss=total_loss.item())
+
+                # Backward pass (compute gradients for the total loss)
+                total_loss.backward()
+
+                # Update parameters using the optimizer
+                optimizer.step()
+
+
+            # weights for plotting
+            if live_plot_weights:
+                # Convert to numpy for plotting
+                weights_th_numpy = weights_throttle.detach().cpu().numpy().squeeze()
+                weights_st_numpy = weights_steering.detach().cpu().numpy().squeeze()
+
+                # Live update plot every few iterations
+                if len(weights_th_numpy) == len(time_axis):  # Ensure matching dimensions
+                    clear_output(wait=True)
+                    line_th.set_xdata(time_axis)
+                    line_th.set_ydata(weights_th_numpy)
+                    line_st.set_xdata(time_axis)
+                    line_st.set_ydata(weights_st_numpy)
+
+                    ax1.relim()  # Recalculate limits
+                    ax1.autoscale_view(True, True, True)  # Autoscale axes
+                    ax1.set_title(f"Live Plot of Weights Over Time - Epoch {i + 1}")
+                    #display(fig)
+                    fig.canvas.manager.window.raise_()
+                    
+                    plt.pause(0.01)
+
+
+
+            
+
+            loss_2_print_vx_vec = [*loss_2_print_vx_vec, loss_vx.item()]
+            loss_2_print_vy_vec = [*loss_2_print_vy_vec, loss_vy.item()]
+            loss_2_print_w_vec = [*loss_2_print_w_vec, loss_w.item()]
+            loss_2_print_weights = [*loss_2_print_weights, loss_weights_th.item()+loss_weights_st.item()]
+            total_loss_vec = [*total_loss_vec, total_loss.item()]
+
+
+        if live_plot_weights:
+            plt.ioff()  # Turn off interactive mode
+            plt.close(fig)  # Close the figure
+
+        #plot loss functions
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot(loss_2_print_vx_vec,label='loss vx',color='dodgerblue') 
+        ax.plot(loss_2_print_vy_vec,label='loss vy',color='orangered')
+        ax.plot(loss_2_print_w_vec,label='loss w',color='orchid')
+        ax.plot(loss_2_print_weights,label='loss weights',color='lime')
+        ax.plot(total_loss_vec,label='total loss',color='k')
+        
+        ax.legend()
+
+
+    def save_model(self,folder_2_save_params,n_past_actions,dt,train_th,train_st):
+
+        np.save(folder_2_save_params + 'n_past_actions.npy', n_past_actions)
+        np.save(folder_2_save_params + 'dt.npy', dt)
+
+        weights_throttle, non_normalized_w_th = self.constrained_linear_layer(self.raw_weights_throttle)
+        weights_throttle = weights_throttle.t().detach().cpu().numpy()
+        weights_steering, non_normalized_w_st = self.constrained_linear_layer(self.raw_weights_steering)
+        weights_steering = weights_steering.t().detach().cpu().numpy()
+        
+        # # set weights to 0 if they are below 0.02 and re-normalize
+        # print('setting weights to 0 if they are below 0.03')
+        # weights_throttle[np.abs(weights_throttle) < 0.03] = 0
+        # weights_steering[np.abs(weights_steering) < 0.03] = 0
+        # # re-normalize
+        # weights_throttle = weights_throttle / np.sum(weights_throttle, axis=1, keepdims=True)
+        # weights_steering = weights_steering / np.sum(weights_steering, axis=1, keepdims=True)
+
+
+        if train_th==True:
+            np.save(folder_2_save_params + 'raw_weights_throttle.npy', self.raw_weights_throttle.detach().cpu().numpy())
+            np.save(folder_2_save_params + 'weights_throttle.npy', weights_throttle)
+        if train_st==True:
+            np.save(folder_2_save_params + 'raw_weights_steering.npy', self.raw_weights_steering.detach().cpu().numpy())
+            np.save(folder_2_save_params + 'weights_steering.npy', weights_steering)
+
+        print('------------------------------')
+        print('--- saved model parameters ---')
+        print('------------------------------')
+        print('saved parameters in folder: ', folder_2_save_params)
+
 
 
 def load_SVGPModel_actuator_dynamics(folder_path):
@@ -2316,7 +3453,6 @@ def train_SVGP_model(num_epochs,
     train_loader_w = DataLoader(train_dataset_w, batch_size=250, shuffle=True)
 
 
-
     # Assign training data to models just to have it all together for later plotting
     model_vx.train_x = train_x 
     model_vx.train_y_vx = train_y_vx
@@ -2326,7 +3462,6 @@ def train_SVGP_model(num_epochs,
 
     model_w.train_x = train_x 
     model_w.train_y_w = train_y_w
-
 
 
     #move to GPU for faster fitting
@@ -2351,31 +3486,26 @@ def train_SVGP_model(num_epochs,
     mll_vy = gpytorch.mlls.VariationalELBO(likelihood_vy, model_vy, num_data=train_y_vy.size(0))#, beta=1)
     mll_w = gpytorch.mlls.VariationalELBO(likelihood_w, model_w, num_data=train_y_w.size(0))#, beta=1)
 
-    
-    
-
-
-
     loss_2_print_vx_vec = []
     loss_2_print_vy_vec = []
     loss_2_print_w_vec = []
 
-    
-    
     # start training (tqdm is just to show the loading bar)
     bar_format=bar_format=f"{Fore.GREEN}{{l_bar}}{Fore.GREEN}{{bar}}{Style.RESET_ALL}{Fore.GREEN}{{r_bar}}{Style.RESET_ALL}"
     epochs_iter = tqdm.tqdm(range(num_epochs), desc=f"{Fore.GREEN}Epochs", leave=True, bar_format=bar_format)
     
     
-    
-    
     for i in epochs_iter: #range(num_epochs):
+        torch.cuda.empty_cache()  # Releases unused cached memory
+
+
         # Within each iteration, we will go over each minibatch of data
         minibatch_iter_vx = tqdm.tqdm(train_loader_vx, desc="Minibatch vx", leave=False) # , disable=True
         minibatch_iter_vy = tqdm.tqdm(train_loader_vy, desc="Minibatch vy", leave=False) # , disable=True
         minibatch_iter_w  = tqdm.tqdm(train_loader_w,  desc="Minibatch w",  leave=False) # , disable=True
 
         for x_batch_vx, y_batch_vx in minibatch_iter_vx:
+
             optimizer_vx.zero_grad()
             output_vx = model_vx(x_batch_vx)
             loss_vx = -mll_vx(output_vx, y_batch_vx[:,0])
@@ -2619,7 +3749,7 @@ class dyn_model_SVGP_4_long_term_predictions():
             throttle_dot = 0
             steering_dot = 0
 
-        elif self.model_vx.actuator_time_delay_fitting_tag == 3: # take filtered inputs
+        elif self.model_vx.actuator_time_delay_fitting_tag == 3 or self.model_vx.actuator_time_delay_fitting_tag ==2: # take filtered inputs
             #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
             state_action_base_model = state_action[:5]
             throttle_dot = 0
@@ -2708,5 +3838,44 @@ def RBF_kernel_rewritten(x,y,outputscale,lengthscale):
         exp_arg[i] = (x[i]-y[i])**2/lengthscale[i]**2
     return outputscale * np.exp(-0.5*np.sum(exp_arg))
 
+
+
+
+# def rebuild_Kxy_RBF_vehicle_dynamics_casadi(X, Y, outputscale, lengthscale):
+#     import casadi as ca
+#     """ Computes the RBF kernel matrix K(X, Y) using CasADi. """
+#     n = X.shape[0]
+#     m = Y.shape[0]
+#     KXY = ca.MX.zeros(n, m)  # CasADi MX matrix for symbolic computation
+
+#     for i in range(n):
+#         for j in range(m):
+#             KXY[i, j] = RBF_kernel_rewritten_casadi(X[i, :], Y[j, :], outputscale, lengthscale)
+
+#     return KXY
+import casadi as ca
+def rebuild_Kxy_RBF_vehicle_dynamics_casadi(X, Y, outputscale, lengthscale):
+    """Computes the RBF kernel matrix K(X, Y) using CasADi."""
+    n = X.shape[0]  # Number of rows in X
+    m = Y.shape[0]  # Number of rows in Y
+
+    KXY = []  # Store rows to be concatenated
+
+    for i in range(n):
+        row = []  # Store elements of the row
+        for j in range(m):
+            kij = RBF_kernel_rewritten_casadi(X[i, :], Y[j, :], outputscale, lengthscale)  # Compute kernel value
+            row.append(kij)
+        KXY.append(ca.horzcat(*row))  # Horizontally concatenate row
+
+    return ca.vertcat(*KXY)  # Vertically concatenate all rows
+
+
+
+def RBF_kernel_rewritten_casadi(x, y, outputscale, lengthscale):
+    
+    """ Computes the RBF kernel function using CasADi. """
+    exp_arg = (x - np.expand_dims(y,0)) ** 2 / (np.expand_dims(lengthscale,0) ** 2)  # Element-wise operation
+    return outputscale.item() * ca.exp(-0.5 * ca.sum1(exp_arg.T))  # Use `sum1` to sum over vector elements
 
 

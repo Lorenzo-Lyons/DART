@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 
 # this script simulates the output from the optitrack, so you can use it for tests
-import sys
 import rospy
-from std_msgs.msg import String, Float32, Float32MultiArray
+from std_msgs.msg import Float32, Float32MultiArray
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 import numpy as np
-from scipy import integrate
 import tf_conversions
 from dynamic_reconfigure.server import Server
 from dart_simulator_pkg.cfg import dart_simulator_guiConfig
-from tf.transformations import quaternion_from_euler
+from scipy.stats import truncnorm
 
 
 # import the model functions from previously installed python package
@@ -44,11 +42,21 @@ def produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w):
     xdot6 = acc_w
     return np.array([xdot1,xdot2,xdot3,xdot4,xdot5,xdot6])
 
-def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and state
+
+def activation_coeff(vx):
+    c = 0.5
+    sharpness = 40
+    out = np.tanh(sharpness * (vx-c))*0.5+0.5
+    # print with 2 decimal points
+    #print('activation coefficient: ' + "{:.2f}".format(out))
+    return out
+
+
+def kinematic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
-    #evaluate steering angle 
+    #evaluate steering angle
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
     # evaluate longitudinal forces
@@ -61,6 +69,15 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     w = vx * np.tan(steering_angle) / (mf.lr_self + mf.lf_self) # angular velocity
     vy = mf.l_COM_self * w
 
+    if disturbance:
+        # add disturbance if needed
+        stdev_x = model_vx.max_stdev
+        
+        # draw a random sample with the appropriate covariance
+        act_coeff = activation_coeff(vx)
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        # add to xdot
+        acc_x += disturbance_x
 
     xdot= produce_xdot(yaw,vx,vy,w,acc_x,0,0)
 
@@ -68,21 +85,17 @@ def kinematic_bicycle(t,z):  # RK4 wants a function that takes as input time and
     #zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
     return xdot
 
-def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and state
+def dynamic_bicycle(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     # extract states
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
     #evaluate steering angle 
     steering_angle = mf.steering_2_steering_angle(st,mf.a_s_self,mf.b_s_self,mf.c_s_self,mf.d_s_self,mf.e_s_self)
 
-
     # # evaluate longitudinal forces
     Fx_wheels = + mf.motor_force(th,vx,mf.a_m_self,mf.b_m_self,mf.c_m_self)\
-                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)
-    
-    # add extra friction due to steering
-    Fx_wheels += mf.F_friction_due_to_steering(steering_angle,vx,mf.a_stfr_self,mf.b_stfr_self,mf.d_stfr_self,mf.e_stfr_self)
-
+                + mf.rolling_friction(vx,mf.a_f_self,mf.b_f_self,mf.c_f_self,mf.d_f_self)\
+                + mf.F_friction_due_to_steering(steering_angle,vx,mf.a_stfr_self,mf.b_stfr_self,mf.d_stfr_self,mf.e_stfr_self)
 
     c_front = (mf.m_front_wheel_self)/mf.m_self
     c_rear = (mf.m_rear_wheel_self)/mf.m_self
@@ -100,10 +113,24 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 
     acc_x,acc_y,acc_w = mf.solve_rigid_body_dynamics(vx,vy,w,steering_angle,Fx_front,Fx_rear,Fy_wheel_f,Fy_wheel_r,mf.lf_self,mf.lr_self,mf.m_self,mf.Jz_self)
 
+    if disturbance:
+        stdev_x = model_vx.max_stdev
+        stdev_y = model_vy.max_stdev
+        stdev_w = model_w.max_stdev
+        
+        # draw a random sample with the appropriate covariance
+        act_coeff = activation_coeff(vx)
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        disturbance_y = act_coeff * np.random.normal(0, stdev_y)
+        disturbance_w = act_coeff * np.random.normal(0, stdev_w)
+        
+        # add to xdot
+        acc_x += disturbance_x
+        acc_y += disturbance_y
+        acc_w += disturbance_w
+
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w)
 
-    # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
-    #zdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
     return xdot
 
 
@@ -114,14 +141,18 @@ def dynamic_bicycle(t,z):  # RK4 wants a function that takes as input time and s
 import importlib.resources
 #folder_path = os.path.dirname(os.path.realpath(__file__))
 
+
 with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters') as data_path:
     folder_path = str(data_path)
 
+with importlib.resources.path('DART_dynamic_models', 'SVGP_saved_parameters_slippery_floor') as data_path:
+    folder_path_slippery_floor = str(data_path)
 
-evalaute_cov_tag = False # only using the mean for now
-model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalaute_cov_tag)
 
-def SVGP(t,z):  # RK4 wants a function that takes as input time and state
+evalate_covariance_tag = False
+model_vx,model_vy,model_w = load_SVGPModel_actuator_dynamics_analytic(folder_path,evalate_covariance_tag)
+
+def SVGP(t,z,disturbance):  # RK4 wants a function that takes as input time and state
     th, st, x, y, yaw, vx, vy, w = unpack_state(z)
 
     #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
@@ -131,6 +162,80 @@ def SVGP(t,z):  # RK4 wants a function that takes as input time and state
     acc_y, cov_y = model_vy.forward(state_action_base_model)
     acc_w, cov_w = model_w.forward(state_action_base_model)
     
+
+    # to avoid strange jittering close to 0 velocity, blend
+    act_coeff = activation_coeff(vx)
+
+    # add nominal model
+    xdot_nom = dynamic_bicycle(t,z,False)
+    acc_x = act_coeff * acc_x + xdot_nom[3]
+    acc_y = act_coeff * acc_y + xdot_nom[4]
+    acc_w = act_coeff * acc_w + xdot_nom[5]
+
+    if disturbance:
+        # add disturbance if needed
+        stdev_x = model_vx.max_stdev
+        stdev_y = model_vy.max_stdev
+        stdev_w = model_w.max_stdev
+
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        disturbance_y = act_coeff * np.random.normal(0, stdev_y)
+        disturbance_w = act_coeff * np.random.normal(0, stdev_w)
+
+        # add to xdot
+        acc_x += disturbance_x
+        acc_y += disturbance_y
+        acc_w += disturbance_w
+        # print disturbance values with 3 decimal points
+        #print('disturbance x: ' + "{:.3f}".format(disturbance_x) + ' disturbance y: ' + "{:.3f}".format(disturbance_y) + ' disturbance w: ' + "{:.3f}".format(disturbance_w))
+
+    xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w) 
+
+    # assemble derivatives [th, stter, x y theta vx vy omega], NOTE: # for RK4 you need to supply also the derivatives of the inputs (that are set to zero)
+    #xdot = np.array([0,0, xdot1, xdot2, xdot3, xdot4, xdot5, xdot6]) 
+    return xdot
+
+
+# make this cleaner
+model_vx_slippery,model_vy_slippery,model_w_slippery = load_SVGPModel_actuator_dynamics_analytic(folder_path_slippery_floor,evalate_covariance_tag)
+
+
+def SVGP_slippery(t,z,disturbance):  # RK4 wants a function that takes as input time and state
+    th, st, x, y, yaw, vx, vy, w = unpack_state(z)
+
+    #['vx body', 'vy body', 'w', 'throttle filtered' ,'steering filtered','throttle','steering']
+    state_action_base_model = np.array([vx,vy,w,th,st])
+
+    acc_x, cov_x = model_vx_slippery.forward(state_action_base_model)
+    acc_y, cov_y = model_vy_slippery.forward(state_action_base_model)
+    acc_w, cov_w = model_w_slippery.forward(state_action_base_model)
+    
+
+    # to avoid strange jittering close to 0 velocity, blend
+    act_coeff = activation_coeff(vx)
+
+    # add nominal model
+    xdot_nom = dynamic_bicycle(t,z,False)
+    acc_x = act_coeff * acc_x + xdot_nom[3]
+    acc_y = act_coeff * acc_y + xdot_nom[4]
+    acc_w = act_coeff * acc_w + xdot_nom[5]
+
+    if disturbance:
+        # add disturbance if needed
+        stdev_x = model_vx_slippery.max_stdev
+        stdev_y = model_vy_slippery.max_stdev
+        stdev_w = model_w_slippery.max_stdev
+
+        disturbance_x = act_coeff * np.random.normal(0, stdev_x) # np.random wants the standard deviation
+        disturbance_y = act_coeff * np.random.normal(0, stdev_y)
+        disturbance_w = act_coeff * np.random.normal(0, stdev_w)
+
+        # add to xdot
+        acc_x += disturbance_x
+        acc_y += disturbance_y
+        acc_w += disturbance_w
+        # print disturbance values with 3 decimal points
+        #print('disturbance x: ' + "{:.3f}".format(disturbance_x) + ' disturbance y: ' + "{:.3f}".format(disturbance_y) + ' disturbance w: ' + "{:.3f}".format(disturbance_w))
 
     xdot = produce_xdot(yaw,vx,vy,w,acc_x,acc_y,acc_w) 
 
@@ -143,30 +248,24 @@ def SVGP(t,z):  # RK4 wants a function that takes as input time and state
 
 
 
-
-
-
-
-
 class Forward_intergrate_GUI_manager:
     def __init__(self, vehicles_list):
         #fory dynamic parameter change using rqt_reconfigure GUI
         self.vehicles_list = vehicles_list
         srv = Server(dart_simulator_guiConfig, self.reconfig_callback_forwards_integrate)
+        #self.disturbance_type_options = ["None", "Truncated_Gaussian", "Flat"]
         
 
 
     def reconfig_callback_forwards_integrate(self, config, level):
             print('----------------------------------------------')
             print('reconfiguring parameters from dynamic_reconfig')
-            # self.dt_int = config['dt_int'] # set the inegrating step
-            # self.rate = rospy.Rate(1 / self.dt_int) # accordingly reset the output rate of a new measurement
 
             vehicle_model_choice = config['dynamic_model_choice']
 
             for i in range(len(self.vehicles_list)):
-
                 self.vehicles_list[i].actuator_dynamics = config['actuator_dynamics']
+                self.vehicles_list[i].disturbance = config['disturbance']
 
                 if vehicle_model_choice == 1:
                     print('vehicle model set to kinematic bicycle')
@@ -177,8 +276,13 @@ class Forward_intergrate_GUI_manager:
                     self.vehicles_list[i].vehicle_model = dynamic_bicycle
 
                 elif vehicle_model_choice == 3:
-                    print('vehicle model set to SVGP')
+                    print('vehicle model set to SVGP + dynamic bicycle as nominal model')
                     self.vehicles_list[i].vehicle_model = SVGP
+
+                elif vehicle_model_choice == 4:
+                    print('vehicle model set to SVGP + SVGP_dynamic_bicycle_slippery_floor')
+                    self.vehicles_list[i].vehicle_model = SVGP_slippery
+
 
 
             reset_state_x = config['reset_state_x']
@@ -196,7 +300,7 @@ class Forward_intergrate_GUI_manager:
 
 
 class Forward_intergrate_vehicle(model_functions):
-    def __init__(self, car_number, vehicle_model, initial_state, dt_int,actuator_dynamics):
+    def __init__(self, car_number, vehicle_model, initial_state, dt_int,actuator_dynamics,disturbance):
         print("Starting vehicle integrator " + str(car_number))
         # set up ros nodes for this vehicle
         print("setting ros topics and node")
@@ -212,11 +316,11 @@ class Forward_intergrate_vehicle(model_functions):
         self.car_number = car_number
         self.initial_time = rospy.Time.now()
         self.actuator_dynamics = actuator_dynamics
+        self.disturbance = disturbance
 
         # internal states for actuator dynamics
         self.throttle_state = 0.0
         self.steering_state = 0.0
-
 
         
         rospy.Subscriber('steering_' + str(car_number), Float32, self.callback_steering)
@@ -261,7 +365,7 @@ class Forward_intergrate_vehicle(model_functions):
             y0 = np.array([self.throttle, self.steering, *self.state] )
 
         # using forward euler
-        xdot = self.vehicle_model(t0,y0)
+        xdot = self.vehicle_model(t0,y0,self.disturbance)
 
         # evaluate elapsed time
         rostime_stop = rospy.get_rostime()
@@ -270,6 +374,9 @@ class Forward_intergrate_vehicle(model_functions):
         elapsed_dt = elapsed_dt.to_sec()
 
         if elapsed_dt > dt_int:
+            # print elapesed time with 4 decimal points
+            print('elapsed time exceeded simulator loop time, elapsed time: ' + "{:.4f}".format(elapsed_dt))
+            
             dt_step = elapsed_dt
         else:
             dt_step = dt_int
@@ -283,7 +390,6 @@ class Forward_intergrate_vehicle(model_functions):
             steering_dot = self.continuous_time_1st_order_dynamics(self.steering_state,self.steering,self.k_stdn_self)
             self.throttle_state += throttle_dot * dt_step
             self.steering_state += steering_dot * dt_step
-
 
 
         # non - elegant fix: if using kinematic bicycle that does not have Vy w_dot, assign it from kinematic realtions
@@ -301,7 +407,7 @@ class Forward_intergrate_vehicle(model_functions):
 
 
         # simulate vicon motion capture system output
-        vicon_msg = PoseWithCovarianceStamped()
+        vicon_msg = PoseWithCovarianceStamped() 
         vicon_msg.header.stamp = rospy.Time.now()
         vicon_msg.header.frame_id = 'map'
         vicon_msg.pose.pose.position.x = self.state[0] 
@@ -345,26 +451,22 @@ class Forward_intergrate_vehicle(model_functions):
 
 
 
-
-
-
-
-
-
 if __name__ == '__main__':
     try:
         rospy.init_node('Vehicles_Integrator_node' , anonymous=True)
 
         dt_int = 0.01
         vehicle_model = kinematic_bicycle
+        disturbance = None
         
 
         #vehicle 1         #x y theta vx vy w
         initial_state_1 = [0, 0, 0, 0.0, 0, 0]
         car_number_1 = 1
         actuator_dynamics = False
+        disturbance = False
         vehicle_1_integrator = Forward_intergrate_vehicle(car_number_1, vehicle_model, initial_state_1,
-                                                           dt_int,actuator_dynamics)
+                                                           dt_int,actuator_dynamics,disturbance)
 
 
         vehicles_list = [vehicle_1_integrator]

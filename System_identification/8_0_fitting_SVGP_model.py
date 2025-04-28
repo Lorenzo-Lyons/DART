@@ -23,8 +23,8 @@ import tqdm
 # this will re-build the plotting results using an SVGP rebuilt analytically as would a solver
 check_SVGP_analytic_rebuild = False
 over_write_saved_parameters = True
-epochs = 5 # epochs for training the SVGP
-learning_rate = 0.01
+epochs = 10 # epochs for training the SVGP 10
+learning_rate = 0.05
 # generate data in tensor form for torch
 # 0 = no time delay fitting
 # 1 = physics-based time delay fitting (1st order)
@@ -39,6 +39,8 @@ fit_likelihood_noise_tag = True  # this doesn't really make much difference
 # fit on subsampled dataset?
 fit_on_subsampled_dataset_tag = False
 
+# use nominal model (using the dynamic bicycle model as the mean function)
+use_nominal_model = True
 
 
 
@@ -176,6 +178,40 @@ else:
 train_y_vx_full_dataset = torch.unsqueeze(torch.tensor(df['ax body'].to_numpy()),1).cuda()
 train_y_vy_full_dataset = torch.unsqueeze(torch.tensor(df['ay body'].to_numpy()),1).cuda()
 train_y_w_full_dataset  = torch.unsqueeze(torch.tensor(df['acc_w'].to_numpy()),1).cuda()
+
+
+if use_nominal_model: # subtract the nominal model from the y predictions
+    # evaluate the dynamic bicycle model on the training data
+    steering_friction_flag = True
+    pitch_dynamics_flag = False # don't modify these as they need to match what is used in the DART simulator node
+    nominal_model_dyn_bike = dyn_model_culomb_tires(steering_friction_flag,pitch_dynamics_flag)
+
+    for kk in range(train_y_vx_full_dataset.shape[0]):
+        # make prediction using nominal model
+        state_action_k = np.array([*train_x_full_dataset[kk,:].cpu().numpy(),0.0,0.0])
+        # add dummy values for the throttle and steering commands in the nominal model
+        # the latter takes in state_action = [vx vy w throttle steering throttle_command steering_command]
+        pred_nom = nominal_model_dyn_bike.forward(state_action_k)
+        acc_x = pred_nom[0]
+        acc_y = pred_nom[1]
+        acc_w = pred_nom[2]
+        # these last two are not used
+        throttle_dot = pred_nom[3]
+        steering_dot = pred_nom[4]
+
+        # subtract the nominal model from the data (Do this in place to save memory)
+        train_y_vx_full_dataset[kk] = train_y_vx_full_dataset[kk] - acc_x
+        train_y_vy_full_dataset[kk] = train_y_vy_full_dataset[kk] - acc_y
+        train_y_w_full_dataset[kk] = train_y_w_full_dataset[kk] - acc_w
+
+
+
+
+
+
+
+
+
 
 # convert to float to avoid issues with data types
 train_x_full_dataset = train_x_full_dataset.to(torch.float32)
@@ -379,12 +415,10 @@ if over_write_saved_parameters:
     torch.save(model_w.state_dict(), model_path_w)
     torch.save(likelihood_w.state_dict(), likelihood_path_w)
 
-
-
-
-print('------------------------------')
-print('--- saved model parameters ---')
-print('------------------------------')
+    print('------------------------------')
+    print('--- saved model parameters ---')
+    print('------------------------------')
+    print('saved parameters in folder: ', folder_path_SVGP_params)
 
 
 
@@ -425,6 +459,14 @@ upper_y = []
 lower_w = []
 upper_w = []
 
+
+if use_nominal_model:
+    # initialize lists to store nominal model predictions
+    y_nominal_vx = []
+    y_nominal_vy = []
+    y_nominal_w = []
+
+
 # Loop over mini-batches
 with torch.no_grad(): # this actually saves memory allocation cause it doesn't store the gradients
     for batch in dataloader_to_plot:
@@ -433,11 +475,55 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
         preds_ax_batch = model_vx(batch_data)
         preds_ay_batch = model_vy(batch_data)
         preds_aw_batch = model_w(batch_data)
+
+        # get the mean of the predictions
+        preds_ax_batch_mean = preds_ax_batch.mean.numpy()
+        preds_ay_batch_mean = preds_ay_batch.mean.numpy()
+        preds_aw_batch_mean = preds_aw_batch.mean.numpy()
+
+        # if we are using the nominal model subtract the nominal model from the predictions
+        if use_nominal_model:
+            #evalaute nominal model predictions on the batch data
+
+            y_nominal_vx_batch = np.zeros(batch_data.shape[0])
+            y_nominal_vy_batch = np.zeros(batch_data.shape[0])
+            y_nominal_w_batch = np.zeros(batch_data.shape[0])
+
+            for kk in range(batch_data.shape[0]):
+
+                # make prediction using nominal model
+                state_action_k = np.array([*batch_data[kk,:].cpu().numpy(),0.0,0.0])
+                # add dummy values for the throttle and steering commands in the nominal model
+                # the latter takes in state_action = [vx vy w throttle steering throttle_command steering_command]
+                pred_nom = nominal_model_dyn_bike.forward(state_action_k)
+                acc_x = pred_nom[0]
+                acc_y = pred_nom[1]
+                acc_w = pred_nom[2]
+                # these last two are not used
+                throttle_dot = pred_nom[3]
+                steering_dot = pred_nom[4]
+
+                #store the nominal model predictions
+                y_nominal_vx_batch[kk] = acc_x
+                y_nominal_vy_batch[kk] = acc_y
+                y_nominal_w_batch[kk] = acc_w
+
+                # subtract the nominal model from the data (Do this in place to save memory)
+                preds_ax_batch_mean[kk] = preds_ax_batch_mean[kk] + acc_x
+                preds_ay_batch_mean[kk] = preds_ay_batch_mean[kk] + acc_y
+                preds_aw_batch_mean[kk] = preds_aw_batch_mean[kk] + acc_w
+
         
+
         # Get predictions for each model
-        preds_ax_mean.extend(preds_ax_batch.mean.numpy())
-        preds_ay_mean.extend(preds_ay_batch.mean.numpy())
-        preds_aw_mean.extend(preds_aw_batch.mean.numpy())
+        preds_ax_mean.extend(preds_ax_batch_mean)
+        preds_ay_mean.extend(preds_ay_batch_mean) 
+        preds_aw_mean.extend(preds_aw_batch_mean)
+
+        if use_nominal_model:
+            y_nominal_vx.extend(y_nominal_vx_batch)
+            y_nominal_vy.extend(y_nominal_vy_batch)
+            y_nominal_w.extend(y_nominal_w_batch)
 
         # plotting
         lower_x_batch, upper_x_batch = preds_ax_batch.confidence_region()
@@ -453,10 +539,18 @@ with torch.no_grad(): # this actually saves memory allocation cause it doesn't s
         upper_w.extend(upper_w_batch.numpy())
 
 
+# print the maximum standard deviation
+max_std_dev_x = np.max(upper_x_batch.numpy()-lower_x_batch.numpy())/4
+max_std_dev_y = np.max(upper_y_batch.numpy()-lower_y_batch.numpy())/4
+max_std_dev_w = np.max(upper_w_batch.numpy()-lower_w_batch.numpy())/4
 
+print('max std dev ax: ', max_std_dev_x)
+print('max std dev ay: ', max_std_dev_y)
+print('max std dev aw: ', max_std_dev_w)
 
-
-
+np.save(folder_path_SVGP_params + 'max_stdev_x.npy', max_std_dev_x)
+np.save(folder_path_SVGP_params + 'max_stdev_y.npy', max_std_dev_y)
+np.save(folder_path_SVGP_params + 'max_stdev_w.npy', max_std_dev_w)
 
 
 
@@ -500,6 +594,12 @@ ax_w.set_title('aw in body frame')
 ax_w.plot(df['vicon time'].to_numpy(),preds_aw_mean,color='k',label='model prediction')
 ax_w.fill_between(df['vicon time'].to_numpy(), lower_w, upper_w, alpha=0.2,color='k',label='2 sigma confidence',zorder=20)
 ax_w.legend()
+
+if use_nominal_model:
+    # add nominal model predictions to plot
+    ax_x.plot(df['vicon time'].to_numpy(),y_nominal_vx,color='gray',label='nominal model',linestyle='--')
+    ax_y.plot(df['vicon time'].to_numpy(),y_nominal_vy,color='gray',label='nominal model',linestyle='--')
+    ax_w.plot(df['vicon time'].to_numpy(),y_nominal_w,color='gray',label='nominal model',linestyle='--')
 
 
 
