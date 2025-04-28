@@ -33,9 +33,42 @@ This repository contains the code to set up and start driving with DART! In part
 
 To see the full build instructions go to [Build instruction section](build_instructions/).
 
-## Software setup
-To start using the robot first of all set up the operating system and ROS installation on the Jetson-Nano [link](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit). Then do the following:
+## Software setup: on the robot
+To start using the robot first of all set up the operating system and ROS installation on the Jetson-Nano [link](https://www.waveshare.com/wiki/JetRacer_Pro_AI_Kit). 
+> [!NOTE]
+> Connecting over the wifi is not needed. The most practical way to access the jetson is to connect a screen, keyboard and mouse. In later stages connecting with the Visual Studio code ssh extention and setting up authentication keys is recommended [VS ssh](https://code.visualstudio.com/docs/remote/ssh) , [VS code keys tutorial](https://code.visualstudio.com/docs/remote/ssh-tutorial).
+
+
+Then do the following:
 - Clone this repo.
+```
+git clone https://github.com/Lorenzo-Lyons/DART.git
+```
+
+*Select the ROS packages:* from the available ros packages in the folder "ROS_packages" select the ones you wish to install. These will need to be placed in a catkin workspace and then built. [ROS set up catkin workspace tutorial](https://wiki.ros.org/catkin/Tutorials/create_a_workspace). For basic functionalities just install the racecar_pkg.
+
+*set car number:* To avoid conlficts when using multiple cars the environment variable "car_number" needs to be set. Navigate to the .bashrc file in the home directory and add the following lines (setting the appropriate number):
+
+```
+export car_number = 1
+export car_number_str = '_1'
+```
+As a quick test run the following:
+```
+rosrun racecar_pkg racecar_universal.py
+```
+And control it with the gamepad:
+```
+rosrun racecar_pkg gamepad_basic.py
+```
+
+
+## Software setup: Simulator on your laptop
+<p align="center">
+  <img src="Images_for_readme/simulator_screenshot.png" width="700" title="simulator ">
+</p>
+
+Clone the repo as for the robot setup.
 ```
 git clone https://github.com/Lorenzo-Lyons/DART.git
 ```
@@ -46,7 +79,18 @@ Install DART_dynamic_models python package. Navigate to the pacakge root folder 
 pip install dist/DART_dynamic_models-0.1.0-py3-none-any.whl
 ```
 
-The Data_processing folder contains the code and data required for system identification steps and can be run as simple python scripts with your favourite code editor like [Visual Studio Code](https://code.visualstudio.com/). To use the simulator and other ROS packages you will need a working ROS intallation, we used [ROS noetic](http://wiki.ros.org/noetic/Installation/Ubuntu) but other ROS versions should work too. You will then need to place the packages in a [catkin workspace](http://wiki.ros.org/catkin/Tutorials/create_a_workspace). 
+To use the simulator you will need a working ROS intallation, we used [ROS noetic](http://wiki.ros.org/noetic/Installation/Ubuntu) but other ROS versions should work too. You will then need to place the packages in a [catkin workspace](http://wiki.ros.org/catkin/Tutorials/create_a_workspace). 
+
+The simulator replicates the output of a Vicon external motion capture system. To run the simulator run the following: 
+
+```
+roslaunch dart_simulator_pkg dart_simulator.launch
+```
+As a quick test, you can then control the simulated vehicle using the keyboard:
+```
+rosrun racecar_pkg teleop_keyboard.py
+```
+
 
 ### System identification
 To start using DART it's thus necessary to understand what happens when we provide the system with a certain input, i.e. we need to identify the system's model. The folder *Data_processing* cointains the code and the data to build the pysics-based kinematic and dynamic bicycle model, as well as the data-driven SVGP model.
