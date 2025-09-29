@@ -1,0 +1,38 @@
+<launch>
+  <arg name="robot_name1" default="jetracer1"/>
+  <arg name="robot_name2" default="jetracer2"/>
+  <arg name="robot_name3" default="jetracer3"/>
+  <arg name="robot_name4" default="jetracer4"/>
+
+  <!-- Launch the Vicon bridge to get pose readings.
+       Since there may be many robots around, we forward objects individually.
+       If you want to add an additional objectd (e.g. an obstacle), you need
+       to add a new element to each of the arrays below.
+
+       See also https://github.com/tud-amr/vicon-bridge for more information.
+  -->
+  <include file="$(find vicon_bridge)/launch/vicon.launch">
+    <arg name="only_use_object_specific" default="true"/>
+    <arg name="object_names" value="[$(arg robot_name1),$(arg robot_name2),$(arg robot_name3),$(arg robot_name4)]"/>
+    <arg name="object_msg_types" value="[geometry_msgs/PoseWithCovarianceStamped,geometry_msgs/PoseWithCovarianceStamped,geometry_msgs/PoseWithCovarianceStamped,geometry_msgs/PoseWithCovarianceStamped]"/>
+    <arg name="object_frame_ids" value="[map,map,map,map]"/>
+    <arg name="object_publish_topics" value="[/vicon/$(arg robot_name1),/vicon/$(arg robot_name2),/vicon/$(arg robot_name3),/vicon/$(arg robot_name4)]"/>
+    <arg name="object_frequency_divider" value="[1,1,1,1]"/>
+  </include>
+
+  <!-- Augment the pose readings with velocity estimates via an EKF -->
+
+  <!-- <node pkg="robot_localization" type="ekf_localization_node" name="robot_ekf" clear_params="true">
+    <rosparam command="load" file="$(find hackathon)/config/vicon_ekf.yaml"/>
+    <remap from="pose" to="/vicon/$(arg robot_name)" />
+    <remap from="/odometry/filtered" to="/robot_ekf/odometry"/>
+  </node> -->
+  
+  <!-- Basic visualization -->
+  <!--<node name="rviz" pkg="rviz" type="rviz" args="-d $(find hackathon)/rviz/demo.rviz"/>-->
+
+  <!-- Below, you may launch your own nodes, e.g.:
+    - control node for this demo
+    - run more EKFs for dynamic objects, etc.
+  -->
+</launch>

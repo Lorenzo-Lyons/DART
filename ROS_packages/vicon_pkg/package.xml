@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vicon_pkg</name>
+  <version>0.0.0</version>
+  <description>The hackathon package</description>
+  <maintainer email="lasse.peters@mailbox.org">Lasse Peters</maintainer>
+  <license>MIT</license>
+  <author email="lasse.peters@mailbox.org">Lasse Peters</author> -->
+  <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>vicon_bridge</exec_depend>
+</package>
