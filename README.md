@@ -45,7 +45,9 @@ This repository contains the code to set up and start driving with DART! In part
 - **Build instructions** to replicate the DART.
 - **ROS packages** that can be deployed on the platform to quicky get you started on your experiments. They feature basic functionalities, low level, high level controllers and a lidar-based SLAM pipeline.
 - **Simulator** to test and debug before heading out to the lab. It replicates the sensor readings you would get from the vehicle, so no time wasted between simulating and testing.
-- **System Identification** code needed to build physics-based models: kinematic and dynamic bicycle model, and a data-driven Stochastic Variational Gaussian Process model. 
+- **System Identification** code needed to build physics-based models: kinematic and dynamic bicycle model, and a data-driven Stochastic Variational Gaussian Process model.
+- **How to use DART in the Lab instructions** refer to the [Lab instructions folder](Lab_instructions_for_DART) to use DART in the [Cognitive Robotics mobile robotics Lab at TUDelft](https://github.com/cor-mobile-robotics).
+
 
 ## Build instructions
 
