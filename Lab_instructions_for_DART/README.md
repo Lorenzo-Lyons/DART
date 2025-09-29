@@ -68,22 +68,37 @@ When DART is set up correctly, the vehicle can be operated as follows:
 </table>
 
 
-5. Power on the Jetson.  
-5. Turn on the ESC and set the reference voltage to a **0-throttle** value.  
-6. Connect the car to a screen and configure Wi-Fi (should already be working in the lab).  
-   - **User:** `jetson`  
-   - **Password:** `jetson`  
+5. Power on the Jetson. Use the appropriate switch as shown in the image. The jetson will turn on. If it has been properly set up, it should automatically connect to the wifi and display its IP on the display. If it needs to be set up, plug in an HDMI cable, mouse and keyboard and set up automatic loggin-in and connecting to wifi. The DART has an Ubuntu 18.04 OS. The pictures show how to connect the HDMI cable. The username and password are as follows.
+- **User:** `jetson`  
+- **Password:** `jetson` 
 
----
+<table>
+  <tr>
+    <td><img src="pictures_4_dart_lab_instructions/switches_with_arrows.png" alt="Switches for ESC and JetsonNano" width="200"/></td>
+    <td><img src="pictures_4_dart_lab_instructions/car_display_ip.jpg" alt="Display with IP adress" width="200"/></td>
+    <td><img src="pictures_4_dart_lab_instructions/car_hdmi_plugged_in.jpg" alt="HDMI cable plugged in" width="200"/></td>
+  </tr>
+</table>
+
 
 ## 3. Remote Access to the Vehicle
 
 You can access the vehicle remotely via SSH or VS Code Remote:
 
-- Ensure you are on the same network.  
-  - LAN cable preferred.  
-  - Wi-Fi: `mrl-wifi-5g` (password under the modem).  
-- Set up **VS Code Remote SSH** with keys for convenience.  
+1. Ensure you are on the same network.  
+  - LAN cable is preferred since streaming vicon data at high frequency will introduce delays if done over the WiFi.  
+  - If using the Wi-Fi: `mrl-wifi-5g` (password under the modem).
+<table>
+  <tr>
+    <td><img src="pictures_4_dart_lab_instructions/lab_router.jpg" alt="The router in the lab" width="200"/></td>
+  </tr>
+</table>
+
+2. Set up **VS Code Remote SSH** with keys for convenience. Note that you don't need to set up the virtual machine indicated in teh tutorial since we have a physical remote machine (the DART you want to access remotely). Following these steps will allow you to run software on the DART, edit files ecc, without pluggin in the HDMI cable every time. Highly recommended.
+- [Remote - SSH](https://code.visualstudio.com/docs/remote/ssh-tutorial) can also be installed from the VS code extensions directly from VS code.
+
+
+
 - **TODO:** check if the PAT is only required for `jetracer_ws`.  
 
 ### Running the Vehicle
@@ -99,4 +114,9 @@ Update your `.bashrc` with the ROS master and your IP:
 ```bash
 export ROS_IP=192.168.1.84
 export ROS_MASTER_URI=http://192.168.0.131:11311/  # vehicle 1 as master
+```
+
+
+5. Turn on the ESC and set the reference voltage to a **0-throttle** value. 
+
 
