@@ -142,6 +142,13 @@ rosrun racecar_pkg safety_toggle.py
 
 6. It might be necessary to recalibrate the vicon if you notice the position is acting erratically. To do this you will need the calibration wand in the ARM 2 cabinet (the one looking towards the lab). It is in the bue box. Please follow the instruction to [`calibrate the vicon system`](https://help.vicon.com/space/Nexus216/11606902/Calibrate+a+Vicon+system).
 
+<table>
+  <tr>
+    <td><img src="pictures_4_dart_lab_instructions/vicon_wanlocation.jpg" alt="The calibration wand location" width="200"/></td>
+  </tr>
+</table>
+
+
 ## 6. Install ROS Packages to use the vicon system
 To stream the DART state data from the vicon system onto a ROS network you will need to launch contents from the `vicon_pkg` package. This relies on the more general purpose 
 [`vicon_bridge`](https://github.com/cor-mobile-robotics/vicon_bridge). For the user's convenience we have also put the `vicon_bridge` package in this repo, yet this will not be updated so use caution. To use these packages add them to a catkin workspace and build them.
