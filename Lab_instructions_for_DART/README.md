@@ -162,6 +162,12 @@ To stream the DART state data from the vicon system onto a ROS network you will 
 ```
 roslaunch vicon_pkg jetracer_1_stream.launch
 ```
+If more than 1 vehicle needs to be streamed, you can instead launch:
+```
+roslaunch vicon_pkg jetracer_all_stream.launch
+```
+
+
 > [!NOTE]  
 > The name of the object that will be streamed, needs to match exactly between this launch file and the vicon system. Check this in the lanch file if you have renamed objects on the vicon desktop computer.
 
