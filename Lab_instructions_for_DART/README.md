@@ -14,9 +14,10 @@ To stream the DART state data from the vicon system onto a ROS network you will 
 - Add the`vicon_pkg` from this repo to the same catkin workspace.
 - build and re-source the workspace
 
-## 2. Vehicle Setup (Operation Workflow)
+## 2. Vehicle Hardware Setup 
 
 When DART is set up correctly, the vehicle can be operated as follows:
+
 1. Charge the batteris that supply the JetsonNano onboard the DART. This will take a few hours and the batteris can't be easily removed for charging so make sure they are charged before planning a day in the lab. Once charged they typically last a whole day. Since these are not Lipo batteries it is possible to charge them overnight, but please place them in an appropriate fire-proof area such as the battery cabinet behind the lab.
 > [!NOTE]  
 > The charger turns green when no voltage drop is detected. This means 1 of 2 things: the battery is charged, or the charger is not connected. The latter case may happen if there is a faulty contact! So use common sense to distinguish. I.e. if you know the battery should not be full yet and you see a green light while the charger is plugged in, maybe you have to wriggle the wire a bit to make a good contact.
@@ -30,7 +31,7 @@ When DART is set up correctly, the vehicle can be operated as follows:
 </table>
 
 
-1. Check if the lipo battery for the motor is charged. ALL voltage should read between 8.3V amd 7.2V. The meter will then display voltage for each of the 2 cells in the battery (their sum will be equal to the total displayed before).
+2. Check if the lipo battery for the motor is charged. ALL voltage should read between 8.3V amd 7.2V. The meter will then display voltage for each of the 2 cells in the battery (their sum will be equal to the total displayed before).
 
 <table>
   <tr>
@@ -41,7 +42,7 @@ When DART is set up correctly, the vehicle can be operated as follows:
   </tr>
 </table>
 
-2. Charge the lipo battery.  
+3. Charge the lipo battery.  
    It's a good idea to have 1 battery always charging while using the car to avoid downtimes.  
    The light on the Lipo charger will go from red to green when the battery is charged.  
 
@@ -66,11 +67,8 @@ When DART is set up correctly, the vehicle can be operated as follows:
   </tr>
 </table>
 
-3. The batteris that supply the JetsonNano onboard the DART are charged 
 
-
-3. Charge the motor battery (before use).  
-4. Power on the Jetson.  
+5. Power on the Jetson.  
 5. Turn on the ESC and set the reference voltage to a **0-throttle** value.  
 6. Connect the car to a screen and configure Wi-Fi (should already be working in the lab).  
    - **User:** `jetson`  
