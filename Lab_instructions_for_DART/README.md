@@ -1,14 +1,18 @@
-# DART Lab Setup & Vehicle Operation Guide
+# DART Lab Setup 
+In this folder we show the instructions needed to use the DART platform in the [`Cognitive Robotics Mobile Robot Lab`](https://github.com/cor-mobile-robotics/lab-wiki).
+Please read the wiki in the link. Most of the lab-related instructions are shown there in better detail. please also be aware that to book the lab you must first be added to the relevant outlook calendar, as detailed in the wiki.
 
 ## 1. Lab Setup
+Read the  [`Cognitive Robotics Mobile Robot Lab`](https://github.com/cor-mobile-robotics/lab-wiki) wiki.
 
-### Install ROS Packages
-- Install [`vicon_pkg`](https://github.com/ethz-asl/vicon_bridge)  
-  **TODO:** clean up references, mention Lasse, and update instructions.  
-- Install `vicon_bridge`  
-  **TODO:** clarify lab setup details and mention Lasse.  
 
----
+### Install ROS Packages to use the vicon system
+To stream the DART state data from the vicon system onto a ROS network you will need to launch contents from the `vicon_pkg` package. This relies on the more general purpose 
+[`vicon_bridge`](https://github.com/cor-mobile-robotics/vicon_bridge). For the user's convenience we have also put the `vicon_bridge` package in this repo, yet this will not be updated so use caution. To use these packages add them to a catkin workspace and build them. I.e.:
+
+- Add the `vicon_bridge` package to a catkin workspace, taking it either from this repo or from [`vicon_bridge`](https://github.com/cor-mobile-robotics/vicon_bridge).
+- Add the`vicon_pkg` from this repo to the same catkin workspace.
+- build and re-source the workspace
 
 ## 2. Vehicle Setup (Operation Workflow)
 
