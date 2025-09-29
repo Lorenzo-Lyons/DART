@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+
+<launch>
+
+<!-- IP and port on Vicon Windows PC -->
+<arg name="datastream_hostport" default="192.168.0.232"/>
+<!-- Fixed vicon world frame -->
+<arg name="frame_id" default="map"/>
+<!-- Msg types available:
+     geometry_msgs/PoseStamped
+     geometry_msgs/TransformStamped
+     geometry_msgs/PoseWithCovarianceStamped
+  -->
+<arg name="msg_type" default="geometry_msgs/PoseStamped"/>
+<!-- Frequency divider for decreasing the publish rate -->
+<arg name="frequency_divider" default="1"/>
+<!-- Publish transforms of the selected or all objects-->
+<arg name="publish_tf" default="true"/>
+<!-- If we want to reset the z-axis at start-->
+<arg name="reset_z_axis" default="true"/>
+
+<!-- If we want to specify each object seperately and if we only want to publish specific objects-->
+<arg name="only_use_object_specific" default="true"/>
+
+<arg name="object_names" default="[falcon1]"/>
+<arg name="object_msg_types" default="[geometry_msgs/PoseStamped]"/>
+<arg name="object_frame_ids" default="[map]"/>
+<arg name="object_publish_topics" default="[/mocap/falcon1/pose]"/>
+<arg name="object_frequency_divider" default="[1]"/>
+
+<arg name="load_calibration_data" default="true"/>
+
+<node pkg="vicon_bridge" type="vicon_bridge" name="vicon" output="screen" >
+  <param name="stream_mode" value="ServerPush"/>
+  <param name="datastream_hostport" value="$(arg datastream_hostport)"/>
+  <param name="frame_id" value="$(arg frame_id)"/>
+  <param name="msg_type" value="$(arg msg_type)"/>
+  <param name="frequency_divider" value="$(arg frequency_divider)"/>
+  <param name="publish_transform" value="$(arg publish_tf)"/>
+  <param name="reset_z_axis" value="$(arg reset_z_axis)"/>
+  <param name="only_use_object_specific" value="$(arg only_use_object_specific)"/>
+  <param name="calibration_folder_path" value="$(find vicon_bridge)/calibrations/"/>
+  <param name="load_calibration_data" value="$(arg load_calibration_data)"/>
+  <rosparam param="object_specific/object_names" subst_value="True">$(arg object_names)</rosparam>
+  <rosparam param="object_specific/object_msg_types" subst_value="True">$(arg object_msg_types)</rosparam>
+  <rosparam param="object_specific/object_frame_ids" subst_value="True">$(arg object_frame_ids)</rosparam>
+  <rosparam param="object_specific/object_publish_topics" subst_value="True">$(arg object_publish_topics)</rosparam>
+  <rosparam param="object_specific/object_frequency_divider" subst_value="True">$(arg object_frequency_divider)</rosparam>
+</node>
+    
+</launch>
