@@ -1059,7 +1059,7 @@ def unwrap_hm(x):  # this function is used to unwrap the angles
 #     return train_x
 
 
-def generate_tensor_past_actions(df, n_past_actions, key_to_repeat):
+def generate_tensor_past_actions(df, n_past_actions, key_to_repeat,torch_output=True):
     # ordered left to right from the most recent to the oldest
     #[t0 t-1 t-2 t-3 ... t-n]
 
@@ -1076,7 +1076,10 @@ def generate_tensor_past_actions(df, n_past_actions, key_to_repeat):
     past_actions_matrix = np.stack(past_actions, axis=1)
     
     # Convert the matrix into a tensor
-    train_x = torch.tensor(past_actions_matrix)
+    if torch_output:
+        train_x = torch.tensor(past_actions_matrix)
+    else:
+        train_x = past_actions_matrix
     
     return train_x
 
@@ -1177,9 +1180,85 @@ def plot_kinemaitcs_data(df):
 
 
 
+
+
+
+
+def plot_wheel_forces(df, mf, fig1, ax_wheel_f_alpha, ax_wheel_r_alpha):
+    # plot Wheel velocity vs force data
+    #fig1, ((ax_wheel_f_alpha,ax_wheel_r_alpha)) = plt.subplots(1, 2, figsize=(16, 6), constrained_layout=True)
+    # determine x limits
+    x_lim_alpha = [np.min([df['slip angle rear'].min()*1.1,df['slip angle front'].min()*1.1]),
+                    np.max([df['slip angle rear'].max()*1.1,df['slip angle front'].max()*1.1])]
+    
+    # evaluate wheel curve
+    slip_angles_to_plot = np.linspace(x_lim_alpha[0],x_lim_alpha[1],100)
+    wheel_curve_f = mf.lateral_tire_force(slip_angles_to_plot,
+                                              mf.d_t_f_self,
+                                              mf.c_t_f_self,
+                                              mf.b_t_f_self,
+                                              mf.m_front_wheel_self)
+
+
+
+    wheel_curve_r = mf.lateral_tire_force(slip_angles_to_plot,
+                                              mf.d_t_r_self,
+                                              mf.c_t_r_self,
+                                              mf.b_t_r_self,
+                                              mf.m_rear_wheel_self)
+
+    
+    y_lim_alpha = [np.min([df['Fy front wheel'].min()*1.15,df['Fy rear wheel'].min()*1.15]),
+                   np.max([df['Fy front wheel'].max()*1.15,df['Fy rear wheel'].max()*1.15])]
+    
+    #color_code_label = 'steering'
+    color_code_label = 'ax body'
+    #color_code_label = 'ay body'
+    cmap = 'Spectral'
+    #cmap = 'plasma'
+
+    c_front = df[color_code_label].to_numpy()
+
+    scatter_front = ax_wheel_f_alpha.scatter(df['slip angle front'].to_numpy(),df['Fy front wheel'].to_numpy(),c=c_front,cmap=cmap,s=25,edgecolors='0.6', linewidths=0.8) # ,label='front wheel'
+
+
+    #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
+    scatter_rear = ax_wheel_r_alpha.scatter(df['slip angle rear'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=c_front,cmap=cmap,s=25, edgecolors='0.6', linewidths=0.8)
+
+    #add wheel curve
+    ax_wheel_f_alpha.plot(slip_angles_to_plot,wheel_curve_f,color='silver',label='Tire model',linewidth=4,linestyle='--')
+    ax_wheel_r_alpha.plot(slip_angles_to_plot,wheel_curve_r,color='silver',label='Tire model',linewidth=4,linestyle='--')
+
+
+    #ax_wheel_f_alpha.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
+    #ax_wheel_r_alpha.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x
+
+    ax_wheel_r_alpha.set_xlabel('Slip angle [rad]')
+    ax_wheel_r_alpha.set_ylabel('Lateral force [N]')
+    ax_wheel_r_alpha.set_xlim(x_lim_alpha[0],x_lim_alpha[1])
+    ax_wheel_r_alpha.set_ylim(y_lim_alpha[0],y_lim_alpha[1])
+    ax_wheel_r_alpha.legend()
+
+
+    ax_wheel_f_alpha.set_xlabel('Slip angle [rad]') 
+    ax_wheel_f_alpha.set_ylabel('Lateral force [N]')
+    ax_wheel_f_alpha.set_xlim(x_lim_alpha[0],x_lim_alpha[1])
+    ax_wheel_f_alpha.set_ylim(y_lim_alpha[0],y_lim_alpha[1])
+    ax_wheel_f_alpha.legend()
+
+
+    # axes_list = [ax_wheel_f_alpha, ax_wheel_r_alpha]
+    # cbar1 = fig1.colorbar(scatter_front, ax=axes_list[-1]) # right most axis
+    # cbar1.set_label(color_code_label)  # Label the colorbar  'vel encoder-vx body'
+
+
+    #ax_wheel_f_alpha.set_title('Wheel lateral forces')
+    #colorbar = fig1.colorbar(scatter, label='steering angle time delayed derivative')
+    return scatter_front, color_code_label
+
 def plot_vicon_data(df):
     
-    ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w = plot_kinemaitcs_data(df)
+    ax_vx,ax_vy, ax_w, ax_acc_x,ax_acc_y,ax_acc_w, ax_vx2,ax_w2 = plot_kinemaitcs_data(df)
 
     plotting_time_vec = df['vicon time'].to_numpy()
 
@@ -1211,78 +1290,7 @@ def plot_vicon_data(df):
 
 
 
-
-    # plot Wheel velocity vs force data
-    fig1, ((ax_wheel_f_alpha,ax_wheel_r_alpha)) = plt.subplots(1, 2, figsize=(10, 6), constrained_layout=True)
-    # determine x limits
-    x_lim_alpha = [np.min([df['slip angle rear'].min(),df['slip angle front'].min()]),
-             np.max([df['slip angle rear'].max(),df['slip angle front'].max()])]
-    
-    # evaluate wheel curve
-    slip_angles_to_plot = np.linspace(x_lim_alpha[0],x_lim_alpha[1],100)
-    wheel_curve_f = mf.lateral_tire_force(slip_angles_to_plot,
-                                              mf.d_t_f_self,
-                                              mf.c_t_f_self,
-                                              mf.b_t_f_self,
-                                              mf.m_front_wheel_self)
-
-
-
-    wheel_curve_r = mf.lateral_tire_force(slip_angles_to_plot,
-                                              mf.d_t_r_self,
-                                              mf.c_t_r_self,
-                                              mf.b_t_r_self,
-                                              mf.m_rear_wheel_self)
-
-    
-    y_lim_alpha = [np.min([df['Fy front wheel'].min(),df['Fy rear wheel'].min()]),
-                   np.max([df['Fy front wheel'].max(),df['Fy rear wheel'].max()])]
-    
-    #color_code_label = 'steering'
-    color_code_label = 'ax body'
-    #color_code_label = 'ay body'
-    cmap = 'Spectral'
-    #cmap = 'plasma'
-
-    c_front = df[color_code_label].to_numpy()
-
-    scatter_front = ax_wheel_f_alpha.scatter(df['slip angle front'].to_numpy(),df['Fy front wheel'].to_numpy(),label='front wheel',c=c_front,cmap=cmap,s=3) #df['vel encoder'].to_numpy()- 
-
-    cbar1 = fig1.colorbar(scatter_front, ax=ax_wheel_f_alpha)
-    cbar1.set_label(color_code_label)  # Label the colorbar  'vel encoder-vx body'
-
-    #ax_wheel_f.scatter(df['V_y rear wheel'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',color='darkred',s=3)
-    scatter_rear = ax_wheel_r_alpha.scatter(df['slip angle rear'].to_numpy(),df['Fy rear wheel'].to_numpy(),label='rear wheel',c=c_front,cmap=cmap,s=3)
-
-    #add wheel curve
-    ax_wheel_f_alpha.plot(slip_angles_to_plot,wheel_curve_f,color='silver',label='Tire model',linewidth=4,linestyle='--')
-    ax_wheel_r_alpha.plot(slip_angles_to_plot,wheel_curve_r,color='silver',label='Tire model',linewidth=4,linestyle='--')
-
-
-    ax_wheel_f_alpha.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x 
-    ax_wheel_r_alpha.scatter(np.array([0.0]),np.array([0.0]),color='orangered',label='zero',marker='+', zorder=20) # plot zero as an x
-
-    ax_wheel_r_alpha.set_xlabel('slip angle [rad]')
-    ax_wheel_r_alpha.set_ylabel('Fy')
-    ax_wheel_r_alpha.set_xlim(x_lim_alpha[0],x_lim_alpha[1])
-    ax_wheel_r_alpha.set_ylim(y_lim_alpha[0],y_lim_alpha[1])
-    ax_wheel_r_alpha.legend()
-
-
-    ax_wheel_f_alpha.set_xlabel('slip angle [rad]') 
-    ax_wheel_f_alpha.set_ylabel('Fy')
-    ax_wheel_f_alpha.set_xlim(x_lim_alpha[0],x_lim_alpha[1])
-    ax_wheel_f_alpha.set_ylim(y_lim_alpha[0],y_lim_alpha[1])
-    ax_wheel_f_alpha.legend()
-    ax_wheel_f_alpha.set_title('Wheel lateral forces')
-    #colorbar = fig1.colorbar(scatter, label='steering angle time delayed derivative')
- 
-
-
-
-
-
-
+    ax_wheel_f_alpha,ax_wheel_r_alpha = plot_wheel_forces(df,mf)
 
 
 
